@@ -554,6 +554,32 @@ async function runBunInstall(configDir: string): Promise<void> {
   });
 }
 
+async function ensureInstalledHarnessBuild(configDir: string): Promise<void> {
+  const packageDir = join(configDir, "node_modules", "opencode-pair-autonomy");
+  const builtEntry = join(packageDir, "dist", "index.js");
+  const sourceEntry = join(packageDir, "src", "index.ts");
+
+  if (existsSync(builtEntry) || !existsSync(sourceEntry)) {
+    return;
+  }
+
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    const child = spawn("bun", ["run", "build"], {
+      cwd: packageDir,
+      stdio: "inherit",
+    });
+
+    child.on("error", rejectPromise);
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolvePromise();
+        return;
+      }
+      rejectPromise(new Error(`bun run build failed for opencode-pair-autonomy with exit code ${code ?? -1}`));
+    });
+  });
+}
+
 export async function installHarness(options?: { fresh?: boolean }): Promise<{ configPath: string; packageJsonPath: string; harnessConfigPath: string }> {
   const configDir = getConfigDir();
   const paths = getConfigPaths(configDir);
@@ -575,6 +601,7 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{ c
   const packageJsonPath = updatePackageJson(paths);
   writeHarnessConfig(paths.harnessConfig, jinaApiKey);
   await runBunInstall(configDir);
+  await ensureInstalledHarnessBuild(configDir);
   installPluginWrappers(paths.pluginsDir, configDir);
 
   return {
