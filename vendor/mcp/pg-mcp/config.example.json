@@ -1,0 +1,26 @@
+{
+  "connections": {
+    "local": {
+      "host": "127.0.0.1",
+      "port": 5432,
+      "user": "readonly_user",
+      "password": "readonly_password",
+      "database": "app_db",
+      "description": "Yerel gelistirme veritabani",
+      "statement_timeout_ms": 10000,
+      "default_row_limit": 100,
+      "max_row_limit": 1000
+    },
+    "staging": {
+      "host": "staging-db.example.com",
+      "port": 5432,
+      "user": "readonly_staging",
+      "password": "staging_password",
+      "database": "app_staging",
+      "description": "Staging ortami",
+      "statement_timeout_ms": 8000,
+      "default_row_limit": 50,
+      "max_row_limit": 500
+    }
+  }
+}

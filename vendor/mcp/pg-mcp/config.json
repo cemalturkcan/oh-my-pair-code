@@ -1,0 +1,15 @@
+{
+  "connections": {
+    "local": {
+      "host": "127.0.0.1",
+      "port": 5432,
+      "user": "postgres",
+      "password": "",
+      "database": "postgres",
+      "description": "Local PostgreSQL (read-only expected)",
+      "statement_timeout_ms": 10000,
+      "default_row_limit": 100,
+      "max_row_limit": 1000
+    }
+  }
+}

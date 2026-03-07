@@ -1,0 +1,23 @@
+{
+  "default_timeout_seconds": 60,
+  "max_timeout_seconds": 600,
+  "max_output_bytes": 131072,
+  "hosts": {
+    "example": {
+      "host": "203.0.113.10",
+      "port": 22,
+      "user": "root",
+      "description": "Example host",
+      "keyPath": "~/.ssh/id_rsa",
+      "passwordEnv": "SSH_PASSWORD_EXAMPLE",
+      "connect_timeout_seconds": 15,
+      "ready_command": "echo SSH_OK",
+      "strict_host_key_checking": "accept-new",
+      "command_allowlist": [
+        "ls *",
+        "df -h*",
+        "systemctl status *"
+      ]
+    }
+  }
+}

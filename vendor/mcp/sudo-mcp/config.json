@@ -1,0 +1,28 @@
+{
+  "approval_ttl_seconds": 300,
+  "default_timeout_seconds": 60,
+  "max_timeout_seconds": 300,
+  "max_output_bytes": 131072,
+  "require_non_interactive_sudo": true,
+  "require_allowlist": false,
+  "allow_patterns": [],
+  "deny_patterns": [
+    "rm -rf *",
+    "rm -fr *",
+    "rm -r -f *",
+    "rm -rf --no-preserve-root /",
+    "shred -n * -z *",
+    "wipefs*",
+    "mkfs*",
+    "fdisk*",
+    "parted*",
+    "poweroff*",
+    "shutdown*",
+    "reboot*",
+    "init 0",
+    "init 6",
+    "halt*",
+    "dd of=/dev/*",
+    "dd if=* of=/dev/*"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "default_mode": "pair",
+  "set_default_agent": true,
+  "hooks": {
+    "intent_gate": true,
+    "todo_continuation": true,
+    "comment_guard": true,
+    "todo_continuation_cooldown_ms": 30000
+  },
+  "mcps": {
+    "context7": true,
+    "grep_app": true,
+    "websearch": true,
+    "chrome_devtools": true,
+    "pg_mcp": true,
+    "ssh_mcp": true,
+    "sudo_mcp": true,
+    "jina": true
+  },
+  "agents": {
+    "pair": {
+      "variant": "high"
+    },
+    "autonomous": {
+      "variant": "high"
+    },
+    "repo-scout-fast": {
+      "model": "kimi-for-coding/k2p5"
+    },
+    "repo-scout-deep": {
+      "model": "kimi-for-coding/kimi-k2-thinking"
+    },
+    "researcher-fast": {
+      "model": "kimi-for-coding/k2p5"
+    },
+    "researcher-deep": {
+      "model": "kimi-for-coding/kimi-k2-thinking"
+    },
+    "verifier-fast": {
+      "model": "kimi-for-coding/k2p5"
+    }
+  }
+}

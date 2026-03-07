@@ -1,0 +1,16 @@
+{
+  // Reference example for the plugin stack after installation.
+  "plugin": [
+    "opencode-pair-autonomy",
+    "opencode-pty",
+    "opencode-notificator",
+    "@zenobius/opencode-skillful",
+    "file:///ABSOLUTE/PATH/TO/opencode-background-agents-local",
+    "@tarquinen/opencode-dcp",
+    "@franlol/opencode-md-table-formatter"
+  ],
+  "instructions": [
+    "~/.config/opencode/plugin/shell-strategy/shell_strategy.md"
+  ],
+  "default_agent": "pair"
+}

@@ -1,0 +1,6 @@
+{
+  "default_timeout_seconds": 60,
+  "max_timeout_seconds": 600,
+  "max_output_bytes": 131072,
+  "hosts": {}
+}
