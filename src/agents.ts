@@ -1,7 +1,7 @@
 import type { AgentLike, HarnessConfig } from "./types";
 import { buildArchitectPrompt, buildBuilderPrompt, buildRepairPrompt, buildRepoScoutPrompt, buildResearcherPrompt, buildVerifierPrompt } from "./prompts/subagents";
 import { buildAutonomousPrompt } from "./prompts/autonomous";
-import { buildPairPrompt } from "./prompts/pair";
+import { buildPairDocsPrompt, buildPairPrompt } from "./prompts/pair";
 
 function withOverride(base: AgentLike, override?: Record<string, unknown>): AgentLike {
   return {
@@ -27,6 +27,39 @@ export function createHarnessAgents(config: HarnessConfig): Record<string, Agent
       variant: "high",
       prompt: buildPairPrompt(overrides.pair?.prompt_append),
     }, overrides.pair),
+    "pair-docs": withOverride({
+      mode: "primary",
+      description: "Collaborative pair agent with full read access and Markdown-only edits.",
+      model: "openai/gpt-5.4",
+      variant: "high",
+      prompt: buildPairDocsPrompt(overrides["pair-docs"]?.prompt_append),
+      permission: {
+        read: "allow",
+        glob: "allow",
+        grep: "allow",
+        list: "allow",
+        lsp: "allow",
+        todoread: "allow",
+        webfetch: "allow",
+        websearch: "allow",
+        codesearch: "allow",
+        skill: "allow",
+        edit: {
+          "*": "deny",
+          "*.md": "allow",
+          "**/*.md": "allow",
+        },
+        bash: "deny",
+        task: "deny",
+        external_directory: "deny",
+        todowrite: "deny",
+        delegate: "deny",
+      },
+      tools: {
+        task: false,
+        delegate: false,
+      },
+    }, overrides["pair-docs"]),
     autonomous: withOverride({
       mode: "primary",
       description: "Checkpointed autonomous implementation agent.",

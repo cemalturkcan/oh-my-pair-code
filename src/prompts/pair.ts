@@ -42,3 +42,15 @@ ${buildSubagentSelectionGuide()}
 
 ${RESPONSE_DISCIPLINE}`, promptAppend);
 }
+
+export function buildPairDocsPrompt(promptAppend?: string): string {
+  const docsGuardrail = `<WritingScope>
+- You may create or edit only Markdown files ending in \`.md\`.
+- Do not modify non-Markdown files.
+- If the requested solution requires code or config changes, stop at analysis or Markdown output and explain the limitation briefly.
+</WritingScope>`;
+
+  return buildPairPrompt(promptAppend ? `${docsGuardrail}
+
+${promptAppend}` : docsGuardrail);
+}
