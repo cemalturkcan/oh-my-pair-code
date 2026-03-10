@@ -1,45 +1,41 @@
 # oh-my-pair-code
 
-Repository name: `oh-my-pair-code`
-Package / CLI name: `opencode-pair-autonomy`
+`opencode-pair-autonomy` is a lean OpenCode harness for people who want a strong default pair-programming setup without turning their config into a science project.
 
-A lean OpenCode harness plugin inspired by `oh-my-opencode`, but tuned for a simpler workflow:
+It gives you a cleaner day-to-day OpenCode workflow:
 
-- `pair` as the default collaborative agent
-- `autonomous` as the checkpointed autonomous agent
-- GPT for user-facing and implementation-critical agents
-- Kimi for token-heavy scout/research/fast-verification paths
-- skill-aware prompting
-- curated MCP defaults (`context7`, `grep_app`, `websearch`)
-- lightweight config loader with project and user overrides
-- built-in hooks for intent routing, todo continuation, and anti-slop comment warnings
+- `pair` as the default mode for normal collaboration
+- `autonomous` when you want the agent to drive a bounded task harder
+- a curated agent pack for scouting, research, verification, repair, and architecture work
+- bundled MCP defaults and skill-aware prompting out of the box
+- install, fresh-install, and uninstall flows that manage the harness without trashing user config
 
-This project is intentionally much smaller than `oh-my-opencode`. Phase 1 focuses on config, prompts, and a clean installable package. Heavier hook systems and advanced tooling can be layered in later.
+This project is intentionally smaller and easier to reason about than heavier OpenCode setups. The goal is simple: better defaults, less fiddling, faster useful work.
 
-## Install without cloning
+## Why use it
 
-Run directly from GitHub:
+- Pair-first by default: the assistant behaves like a strong coding partner before it behaves like a runaway automator.
+- Sensible agent routing: pair, autonomous, scout, research, verify, repair, and architect roles are prewired.
+- Good tooling defaults: `context7`, `grep_app`, `websearch`, `chrome-devtools`, `jina`, and bundled local MCPs are ready to go.
+- Safe config layering: user config and project config overrides stay supported.
+- Easy rollback: uninstall removes harness-managed wiring while preserving user-owned config files.
+
+## Quick start
+
+Install directly from GitHub:
 
 ```bash
 bunx --bun github:cemalturkcan/oh-my-pair-code install
 ```
 
-This stores the same GitHub package source in `~/.config/opencode/package.json`, so future reinstalls keep working without a local checkout.
-
-If you want to install from a fork or a different package source, override it explicitly:
+If you want the package source pinned to a fork or alternate repo:
 
 ```bash
 OPENCODE_PAIR_AUTONOMY_PACKAGE_SPEC=github:your-org/oh-my-pair-code \
   bunx --bun github:your-org/oh-my-pair-code install
 ```
 
-After the package is published to npm, the direct install becomes:
-
-```bash
-bunx --bun opencode-pair-autonomy install
-```
-
-## Install from a local checkout
+Install from a local checkout:
 
 ```bash
 git clone https://github.com/cemalturkcan/oh-my-pair-code.git
@@ -50,99 +46,86 @@ bun link
 opencode-pair-autonomy install
 ```
 
-For a clean rebuild of the OpenCode config directory while keeping root config files like `opencode.json`, `opencode.jsonc`, `opencode-pair-autonomy.jsonc`, and `tui.json`, run:
+## Commands
 
 ```bash
+opencode-pair-autonomy install
 opencode-pair-autonomy fresh-install
-```
-
-You can also use:
-
-```bash
-opencode-pair-autonomy install --fresh
-```
-
-The installer patches the active OpenCode config, creates a backup, updates the config-directory `package.json`, vendors the background-agents plugin locally, and runs `bun install` there.
-It also ships and installs bundled `pg-mcp`, `ssh-mcp`, and `sudo-mcp` implementations from this project, installs the shell strategy as an instruction file, and prompts for a Jina API key to store in `opencode-pair-autonomy.jsonc`.
-
-On a normal install, existing MCP config files such as `vendor/mcp/ssh-mcp/config.json`, `vendor/mcp/pg-mcp/config.json`, and `vendor/mcp/sudo-mcp/config.json` are preserved.
-
-If you want to inspect the resulting plugin snippet manually, it looks like this:
-
-```json
-{
-  "plugin": [
-    "file:///ABSOLUTE/PATH/TO/plugins/opencode-pair-autonomy.js",
-    "file:///ABSOLUTE/PATH/TO/plugins/opencode-dcp.js",
-    "file:///ABSOLUTE/PATH/TO/plugins/opencode-skillful.js",
-    "file:///ABSOLUTE/PATH/TO/plugins/opencode-notificator.js",
-    "file:///ABSOLUTE/PATH/TO/plugins/md-table-formatter.js",
-    "file:///ABSOLUTE/PATH/TO/plugins/opencode-pty.js",
-    "file:///ABSOLUTE/PATH/TO/opencode-background-agents-local"
-  ],
-  "instructions": [
-    "~/.config/opencode/plugin/shell-strategy/shell_strategy.md"
-  ],
-  "default_agent": "pair"
-}
-```
-
-For a correct path-aware setup, prefer `opencode-pair-autonomy install` instead of copying the snippet by hand.
-
-You can also print the snippet with:
-
-```bash
+opencode-pair-autonomy uninstall
+opencode-pair-autonomy init
 opencode-pair-autonomy print-config
 ```
 
-## Project init
+- `install`: wires the harness into the active OpenCode config.
+- `fresh-install`: rebuilds harness-managed files while keeping root config files like `opencode.json`, `opencode.jsonc`, `opencode-pair-autonomy.jsonc`, and `tui.json`.
+- `uninstall`: removes harness-managed plugin wiring and package entries, but keeps user-facing config files.
+- `init`: creates `.opencode/opencode-pair-autonomy.jsonc` in the current project.
+- `print-config`: prints the generated config snippet for inspection.
 
-Create a project-local override file:
+## What install changes
+
+The installer:
+
+- patches the active OpenCode config and creates backups before writing
+- updates the config-dir `package.json` and runs `bun install`
+- installs the shell strategy instruction file
+- vendors the background-agents plugin locally
+- installs bundled `pg-mcp`, `ssh-mcp`, and `sudo-mcp`
+- installs bundled skills from this repo
+- stores harness settings in `opencode-pair-autonomy.jsonc`
+
+On a normal install, existing MCP config files are preserved.
+
+## What uninstall removes
 
 ```bash
-opencode-pair-autonomy init
+opencode-pair-autonomy uninstall
 ```
 
-This writes `.opencode/opencode-pair-autonomy.jsonc` in the current directory.
+Uninstall removes only harness-managed pieces:
 
-## Config sources
+- plugin wrapper files
+- harness-added plugin entries in `opencode.json`
+- the shell strategy instruction entry
+- `vendor/opencode-background-agents-local`
+- harness-managed package entries from the config-dir `package.json`
 
-The plugin merges config from:
+It deliberately preserves:
+
+- `opencode-pair-autonomy.jsonc`
+- bundled MCP folders under `vendor/mcp`
+- `skills/`
+- unrelated user config and package entries
+
+## Config files
+
+The harness merges config from:
 
 - `~/.config/opencode/opencode-pair-autonomy.jsonc`
 - `<project>/.opencode/opencode-pair-autonomy.jsonc`
 
 Project config wins over user config.
 
-## What it injects
+Create a project-local override file with:
+
+```bash
+opencode-pair-autonomy init
+```
+
+## What you get
 
 Agents:
 
 - `pair`
 - `autonomous`
-- `repo-scout-fast`
-- `repo-scout-deep`
-- `researcher-fast`
-- `researcher-deep`
-- `builder`
-- `builder-deep`
-- `verifier-fast`
-- `verifier`
-- `repair-fast`
-- `repair`
+- `repo-scout-fast`, `repo-scout-deep`
+- `researcher-fast`, `researcher-deep`
+- `builder`, `builder-deep`
+- `verifier-fast`, `verifier`
+- `repair-fast`, `repair`
 - `architect-fast`
 
-Model strategy:
-
-- `pair`, `autonomous`, `builder`, `builder-deep`, `verifier`, `repair`, `repair-fast`, `architect-fast` use `openai/gpt-5.4`
-- `repo-scout-fast`, `repo-scout-deep`, `researcher-fast`, `researcher-deep`, `verifier-fast` use Kimi to absorb larger token-heavy discovery workloads
-
-Commands:
-
-- `/pair`
-- `/autonomous`
-
-MCPs:
+Default MCP set:
 
 - `context7`
 - `grep_app`
@@ -153,38 +136,19 @@ MCPs:
 - `sudo-mcp`
 - `jina`
 
-The local MCPs are bundled inside this project and installed into the harness vendor directory, so installation no longer depends on pre-existing MCP folders in `~/.config/opencode`.
+Built-in harness behavior:
 
-Hooks:
+- intent routing between `pair` and `autonomous`
+- todo continuation for unfinished sessions
+- comment-quality warnings for suspicious AI-slop edits
 
-- `IntentGate`: classifies each user message and nudges the request toward `pair` or `autonomous`
-- `TodoContinuation`: resumes idle sessions when unfinished todos still exist and no user answer is pending
-- `CommentGuard`: appends warnings to tool output when suspicious AI-sloppy comments are detected in edited files
+## Philosophy
 
-## Prompt design
+This harness pushes OpenCode toward a more useful default operating mode:
 
-The prompt style is based on the best parts of `oh-my-opencode` and your preferred workflow:
-
-- inspect first
-- default to execution instead of asking for permission
-- keep strategic decisions with the user
-- use skills directly when domain-specific work benefits from them
-- separate collaborative and autonomous modes cleanly
-- keep all internal agent communication in English
-- respond to the user in the user's language without copying broken keyboard habits or degraded spelling
-
-## Hook behavior
-
-The first implementation wave includes real plugin hooks rather than prompt-only approximations:
-
-- `chat.message` hook for intent classification and direction injection
-- `event` hook for idle-session todo continuation
-- `tool.execute.after` hook for comment quality warnings
-
-## Next phases
-
-Planned follow-up layers for this harness:
-
-- PTY-aware execution helpers
-- structured background research routing
-- stronger mode-aware runtime injection
+- inspect the repo before deciding
+- prefer execution over permission theater
+- keep important product choices with the user
+- use skills when they improve quality
+- keep prompts direct, concrete, and action-oriented
+- stay lightweight enough to install, understand, and remove easily
