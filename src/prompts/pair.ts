@@ -43,14 +43,15 @@ ${buildSubagentSelectionGuide()}
 ${RESPONSE_DISCIPLINE}`, promptAppend);
 }
 
-export function buildPairDocsPrompt(promptAppend?: string): string {
-  const docsGuardrail = `<WritingScope>
-- You may create or edit only Markdown files ending in \`.md\`.
-- Do not modify non-Markdown files.
-- If the requested solution requires code or config changes, stop at analysis or Markdown output and explain the limitation briefly.
-</WritingScope>`;
+export function buildPairPlanPrompt(promptAppend?: string): string {
+  const planGuardrail = `<PlanningMode>
+- Lead with planning, tradeoffs, sequencing, and implementation guidance.
+- Stay collaborative like the default pair agent, but favor plans before code changes.
+- Do not write Markdown just to summarize work; only update or create Markdown when the user asks for it or the task clearly requires a repo documentation artifact.
+- Treat Markdown like the rest of the repo: follow existing project patterns instead of forcing doc edits by default.
+</PlanningMode>`;
 
-  return buildPairPrompt(promptAppend ? `${docsGuardrail}
+  return buildPairPrompt(promptAppend ? `${planGuardrail}
 
-${promptAppend}` : docsGuardrail);
+${promptAppend}` : planGuardrail);
 }
