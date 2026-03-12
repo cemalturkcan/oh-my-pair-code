@@ -22,8 +22,54 @@ type MessageWithParts = {
 
 type IdleState = {
   lastInjectedAt?: number;
+  lastBusyAt?: number;
+  lastIdleAt?: number;
   inFlight: boolean;
 };
+
+type PendingPromptState = {
+  sessionID?: string;
+  text: string;
+  submitRequested: boolean;
+};
+
+type EventInput = {
+  event: {
+    type: string;
+    properties?: unknown;
+  };
+};
+
+function clearPendingPrompt(state: PendingPromptState): void {
+  state.sessionID = undefined;
+  state.text = "";
+  state.submitRequested = false;
+}
+
+function hasPendingDraft(state: PendingPromptState): boolean {
+  return state.text.trim().length > 0;
+}
+
+function isSessionBusy(state: IdleState): boolean {
+  if (!state.lastBusyAt) {
+    return false;
+  }
+
+  return !state.lastIdleAt || state.lastBusyAt > state.lastIdleAt;
+}
+
+function resolveSessionIDFromInfo(properties: unknown): string | undefined {
+  const info = (properties as { info?: { id?: string } } | undefined)?.info;
+  return typeof info?.id === "string" ? info.id : undefined;
+}
+
+function resolveSelectedSessionID(properties: unknown): string | undefined {
+  return (properties as { sessionID?: string } | undefined)?.sessionID;
+}
+
+function resolveCommand(properties: unknown): string | undefined {
+  return (properties as { command?: string } | undefined)?.command;
+}
 
 function isIncomplete(todo: Todo): boolean {
   return !["completed", "cancelled", "blocked", "deleted"].includes(todo.status);
@@ -111,11 +157,133 @@ function buildContinuationPrompt(incompleteTodos: Todo[]): string {
   ].join("\n\n");
 }
 
-export function createTodoContinuationHook(ctx: PluginInput, cooldownMs: number) {
+export function createTodoContinuationHook(ctx: PluginInput, cooldownMs: number, flushQueuedPrompts: boolean) {
   const state = new Map<string, IdleState>();
+  const pendingPrompt: PendingPromptState = {
+    text: "",
+    submitRequested: false,
+  };
+  let activeSessionID: string | undefined;
+
+  const getSessionState = (sessionID: string): IdleState => {
+    const sessionState = state.get(sessionID) ?? { inFlight: false };
+    state.set(sessionID, sessionState);
+    return sessionState;
+  };
+
+  const submitQueuedPrompt = async (sessionID: string): Promise<boolean> => {
+    if (!flushQueuedPrompts) {
+      return false;
+    }
+
+    if (!pendingPrompt.submitRequested || pendingPrompt.sessionID !== sessionID) {
+      return false;
+    }
+
+    if (activeSessionID && activeSessionID !== sessionID) {
+      return false;
+    }
+
+    const sessionState = getSessionState(sessionID);
+    if (sessionState.inFlight) {
+      return true;
+    }
+
+    sessionState.inFlight = true;
+    try {
+      await ctx.client.tui.submitPrompt({ query: { directory: ctx.directory } });
+      clearPendingPrompt(pendingPrompt);
+      return true;
+    } finally {
+      sessionState.inFlight = false;
+    }
+  };
 
   return {
-    event: async ({ event }: { event: { type: string; properties?: unknown } }): Promise<void> => {
+    event: async ({ event }: EventInput): Promise<void> => {
+      if (event.type === "tui.session.select") {
+        const sessionID = resolveSelectedSessionID(event.properties);
+        if (!sessionID) {
+          return;
+        }
+
+        activeSessionID = sessionID;
+        const sessionState = getSessionState(sessionID);
+        if (pendingPrompt.submitRequested && pendingPrompt.sessionID === sessionID && !isSessionBusy(sessionState)) {
+          await submitQueuedPrompt(sessionID);
+        }
+        return;
+      }
+
+      if (event.type === "session.created" || event.type === "session.updated") {
+        const sessionID = resolveSessionIDFromInfo(event.properties);
+        if (!sessionID) {
+          return;
+        }
+
+        const sessionState = getSessionState(sessionID);
+        sessionState.lastBusyAt = Date.now();
+        activeSessionID = activeSessionID ?? sessionID;
+        return;
+      }
+
+      if (event.type === "tui.prompt.append") {
+        if (!flushQueuedPrompts || !activeSessionID) {
+          return;
+        }
+
+        const sessionState = getSessionState(activeSessionID);
+        if (!isSessionBusy(sessionState)) {
+          return;
+        }
+
+        const text = (event.properties as { text?: string } | undefined)?.text;
+        if (typeof text !== "string" || text.length === 0) {
+          return;
+        }
+
+        if (!pendingPrompt.sessionID) {
+          pendingPrompt.sessionID = activeSessionID;
+        }
+
+        if (pendingPrompt.sessionID !== activeSessionID) {
+          return;
+        }
+
+        pendingPrompt.text += text;
+        return;
+      }
+
+      if (event.type === "tui.command.execute") {
+        const command = resolveCommand(event.properties);
+        if (!command) {
+          return;
+        }
+
+        if (command === "prompt.clear") {
+          clearPendingPrompt(pendingPrompt);
+          return;
+        }
+
+        if (command !== "prompt.submit" || !flushQueuedPrompts || !activeSessionID) {
+          return;
+        }
+
+        const sessionState = getSessionState(activeSessionID);
+        if (!isSessionBusy(sessionState)) {
+          clearPendingPrompt(pendingPrompt);
+          return;
+        }
+
+        pendingPrompt.sessionID = pendingPrompt.sessionID ?? activeSessionID;
+        if (pendingPrompt.sessionID !== activeSessionID) {
+          return;
+        }
+
+        pendingPrompt.submitRequested = true;
+        return;
+      }
+
       if (event.type !== "session.idle") {
         return;
       }
@@ -125,10 +293,19 @@ export function createTodoContinuationHook(ctx: PluginInput, cooldownMs: number)
         return;
       }
 
-      const sessionState = state.get(sessionID) ?? { inFlight: false };
-      state.set(sessionID, sessionState);
+      activeSessionID = activeSessionID ?? sessionID;
+      const sessionState = getSessionState(sessionID);
+      sessionState.lastIdleAt = Date.now();
 
       if (sessionState.inFlight) {
+        return;
+      }
+
+      if (await submitQueuedPrompt(sessionID)) {
+        return;
+      }
+
+      if (flushQueuedPrompts && pendingPrompt.sessionID === sessionID && hasPendingDraft(pendingPrompt)) {
         return;
       }
 

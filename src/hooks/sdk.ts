@@ -1,3 +1,10 @@
+export class BlockingHookError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BlockingHookError";
+  }
+}
+
 export function unwrapData<T>(value: unknown, fallback: T): T {
   if (Array.isArray(value)) {
     return value as T;
@@ -31,6 +38,9 @@ export function safeHook<T extends (...args: any[]) => Promise<void> | void>(nam
     try {
       await hook(...args);
     } catch (error) {
+      if (error instanceof BlockingHookError) {
+        throw error;
+      }
       console.warn(`[opencode-pair-autonomy] Hook ${name} failed:`, error);
     }
   }) as T;

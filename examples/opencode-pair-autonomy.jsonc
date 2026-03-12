@@ -5,6 +5,7 @@
     "intent_gate": true,
     "todo_continuation": true,
     "comment_guard": true,
+    "flush_queued_prompts": true,
     "todo_continuation_cooldown_ms": 30000
   },
   "mcps": {

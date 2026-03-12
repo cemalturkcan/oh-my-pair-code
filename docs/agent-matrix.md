@@ -5,6 +5,7 @@
 | Agent | Role | Model |
 |---|---|---|
 | `pair` | Default collaborative coding partner | `openai/gpt-5.4` `high` |
+| `pair-plan` | Planning-first pair agent with full repo read and Markdown-only writing | `openai/gpt-5.4` `high` |
 | `autonomous` | Checkpointed autonomous executor | `openai/gpt-5.4` `high` |
 
 ## Discovery and research agents
@@ -27,6 +28,10 @@
 | `repair-fast` | Narrow repair loop | `openai/gpt-5.4` `medium` |
 | `repair` | Full scoped repair | `openai/gpt-5.4` `high` |
 | `architect-fast` | Lightweight planning for risky work | `openai/gpt-5.4` `medium` |
+| `memory-curator` | Summarize saved session and project memory | `openai/gpt-5.4` `medium` |
+| `learning-extractor` | Extract reusable preferences and workflow patterns | `openai/gpt-5.4` `medium` |
+| `build-analyzer` | Compress long build and log output into actionable diagnosis | `openai/gpt-5.4` `medium` |
+| `loop-orchestrator` | Plan worktrees, phased loops, and bounded parallel cascades | `openai/gpt-5.4` `medium` |
 
 ## Language policy
 

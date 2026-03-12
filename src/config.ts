@@ -7,7 +7,7 @@ import type { HarnessConfig } from "./types";
 import { deepMerge } from "./utils";
 
 const HarnessConfigSchema = z.object({
-  default_mode: z.enum(["pair", "autonomous"]).optional(),
+  default_mode: z.enum(["pair", "pair-plan", "autonomous"]).optional(),
   set_default_agent: z.boolean().optional(),
   commands: z.object({
     enabled: z.boolean().optional(),
@@ -16,10 +16,33 @@ const HarnessConfigSchema = z.object({
     jina_api_key: z.string().optional(),
   }).optional(),
   hooks: z.object({
+    profile: z.enum(["minimal", "standard", "strict"]).optional(),
     intent_gate: z.boolean().optional(),
     todo_continuation: z.boolean().optional(),
     comment_guard: z.boolean().optional(),
+    session_start: z.boolean().optional(),
+    pre_tool_use: z.boolean().optional(),
+    post_tool_use: z.boolean().optional(),
+    pre_compact: z.boolean().optional(),
+    stop: z.boolean().optional(),
+    session_end: z.boolean().optional(),
+    file_edited: z.boolean().optional(),
+    flush_queued_prompts: z.boolean().optional(),
     todo_continuation_cooldown_ms: z.number().int().positive().optional(),
+  }).optional(),
+  memory: z.object({
+    enabled: z.boolean().optional(),
+    directory: z.string().optional(),
+    lookback_days: z.number().int().positive().optional(),
+    max_injected_chars: z.number().int().positive().optional(),
+  }).optional(),
+  learning: z.object({
+    enabled: z.boolean().optional(),
+    directory: z.string().optional(),
+    min_observations: z.number().int().positive().optional(),
+    auto_promote: z.boolean().optional(),
+    max_patterns: z.number().int().positive().optional(),
+    max_injected_patterns: z.number().int().positive().optional(),
   }).optional(),
   mcps: z.object({
     context7: z.boolean().optional(),
@@ -46,10 +69,31 @@ const DEFAULTS: HarnessConfig = {
     enabled: true,
   },
   hooks: {
+    profile: "standard",
     intent_gate: true,
     todo_continuation: true,
     comment_guard: true,
+    session_start: true,
+    pre_tool_use: true,
+    post_tool_use: true,
+    pre_compact: true,
+    stop: true,
+    session_end: true,
+    file_edited: true,
+    flush_queued_prompts: true,
     todo_continuation_cooldown_ms: 30000,
+  },
+  memory: {
+    enabled: true,
+    lookback_days: 7,
+    max_injected_chars: 3500,
+  },
+  learning: {
+    enabled: true,
+    min_observations: 6,
+    auto_promote: true,
+    max_patterns: 24,
+    max_injected_patterns: 5,
   },
   mcps: {
     context7: true,
@@ -70,6 +114,8 @@ const ConfigSectionSchemas = {
   commands: HarnessConfigSchema.shape.commands,
   credentials: HarnessConfigSchema.shape.credentials,
   hooks: HarnessConfigSchema.shape.hooks,
+  memory: HarnessConfigSchema.shape.memory,
+  learning: HarnessConfigSchema.shape.learning,
   mcps: HarnessConfigSchema.shape.mcps,
   agents: HarnessConfigSchema.shape.agents,
 } satisfies Record<keyof HarnessConfig, z.ZodTypeAny>;
@@ -157,10 +203,31 @@ export const SAMPLE_PROJECT_CONFIG = `{
     "jina_api_key": ""
   },
   "hooks": {
+    "profile": "standard",
     "intent_gate": true,
     "todo_continuation": true,
     "comment_guard": true,
+    "session_start": true,
+    "pre_tool_use": true,
+    "post_tool_use": true,
+    "pre_compact": true,
+    "stop": true,
+    "session_end": true,
+    "file_edited": true,
+    "flush_queued_prompts": true,
     "todo_continuation_cooldown_ms": 30000
+  },
+  "memory": {
+    "enabled": true,
+    "lookback_days": 7,
+    "max_injected_chars": 3500
+  },
+  "learning": {
+    "enabled": true,
+    "min_observations": 6,
+    "auto_promote": true,
+    "max_patterns": 24,
+    "max_injected_patterns": 5
   },
   "mcps": {
     "context7": true,
@@ -174,6 +241,9 @@ export const SAMPLE_PROJECT_CONFIG = `{
   },
   "agents": {
     "pair": {
+      "variant": "high"
+    },
+    "pair-plan": {
       "variant": "high"
     },
     "autonomous": {

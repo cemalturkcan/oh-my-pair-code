@@ -49,6 +49,26 @@ const SUBAGENT_USAGE_GUIDES: AgentUsageGuide[] = [
     useWhen: "The work is non-trivial, risky, or benefits from a short implementation plan before editing.",
     avoidWhen: "The task is straightforward enough to execute directly.",
   },
+  {
+    label: "memory-curator",
+    useWhen: "You need a concise readout of saved session memory, project memory, or recent context without re-reading everything.",
+    avoidWhen: "The active agent already has the needed context in hand.",
+  },
+  {
+    label: "learning-extractor",
+    useWhen: "You want reusable patterns, preferences, or failure modes extracted from session artifacts and observations.",
+    avoidWhen: "There is not enough session evidence yet.",
+  },
+  {
+    label: "build-analyzer",
+    useWhen: "A long build, test, or log output needs compression into the few facts that matter.",
+    avoidWhen: "The output is already short and easy to inspect directly.",
+  },
+  {
+    label: "loop-orchestrator",
+    useWhen: "You need a worktree strategy, phased execution loop, parallel slice plan, or bounded cascade for a larger task.",
+    avoidWhen: "The task is small enough to execute directly without orchestration overhead.",
+  },
 ];
 
 export function buildSubagentSelectionGuide(): string {
@@ -157,6 +177,75 @@ Plan non-trivial implementations, migrations, and risky changes.
 - Avoid over-planning simple work.
 - Favor strategies that preserve context and reduce rollback risk.
 - Do not hand work off to a separate planning flow when the active agent can continue.
+</Execution>`,
+    promptAppend,
+  );
+}
+
+export function buildMemoryCuratorPrompt(promptAppend?: string): string {
+  return withShared(
+    "Session and project memory curator",
+    `<Scope>
+Inspect saved session summaries, learned artifacts, and nearby project context.
+</Scope>
+
+<Execution>
+- Pull out only the memory that changes the next decision.
+- Separate durable project facts from temporary session leftovers.
+- Do not implement code or broaden the task.
+- Return concise, reusable context for the active agent.
+</Execution>`,
+    promptAppend,
+  );
+}
+
+export function buildLearningExtractorPrompt(promptAppend?: string): string {
+  return withShared(
+    "Continuous-learning pattern extractor",
+    `<Scope>
+Turn session observations into reusable preferences, conventions, and failure patterns.
+</Scope>
+
+<Execution>
+- Prefer repeated evidence over one-off events.
+- Separate user preferences, repo conventions, workflow rules, and failure patterns.
+- Call out confidence and uncertainty briefly.
+- Do not edit code; return extracted learnings only.
+</Execution>`,
+    promptAppend,
+  );
+}
+
+export function buildBuildAnalyzerPrompt(promptAppend?: string): string {
+  return withShared(
+    "Long-output build and log analyzer",
+    `<Scope>
+Compress long build, test, and runtime logs into the smallest useful diagnosis.
+</Scope>
+
+<Execution>
+- Identify the first real failure, not every downstream symptom.
+- Separate root cause, secondary noise, and recommended next action.
+- Keep the output brief and implementation-ready.
+- Do not change code directly.
+</Execution>`,
+    promptAppend,
+  );
+}
+
+export function buildLoopOrchestratorPrompt(promptAppend?: string): string {
+  return withShared(
+    "Worktree, loop, and cascade orchestrator",
+    `<Scope>
+Design safe execution runbooks for larger tasks that benefit from worktrees, phased loops, PTY/background processes, or bounded subagent cascades.
+</Scope>
+
+<Execution>
+- Prefer the lightest orchestration that meaningfully reduces risk or context pressure.
+- Use worktrees only when the task has clear isolation benefits.
+- Define loop stop conditions, verification gates, rollback points, and when PTY/background execution should be used.
+- For parallel plans, slice work into bounded units with explicit merge order and dependencies.
+- Keep the output actionable: exact branch/worktree naming suggestions, step order, and guardrails.
 </Execution>`,
     promptAppend,
   );

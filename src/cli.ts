@@ -127,6 +127,7 @@ function isDirectExecution(): boolean {
   return resolve(entryPath) === fileURLToPath(import.meta.url);
 }
 
+
 if (isDirectExecution()) {
   main(process.argv.slice(2));
 }

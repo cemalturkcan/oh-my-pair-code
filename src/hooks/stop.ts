@@ -1,0 +1,80 @@
+import type { PluginInput } from "@opencode-ai/plugin";
+import { detectLocaleFromTexts, extractTextParts } from "../i18n";
+import type { HookRuntime } from "./runtime";
+import { unwrapData } from "./sdk";
+import { resolveSessionID } from "./runtime";
+
+type Todo = {
+  content?: string;
+  status?: string;
+};
+
+type Message = {
+  info?: {
+    role?: string;
+  };
+  parts?: Array<{ type?: string; text?: string }>;
+};
+
+function extractText(message: Message | undefined): string {
+  return extractTextParts(message?.parts ?? []);
+}
+
+export function createStopHook(
+  ctx: PluginInput,
+  runtime: HookRuntime,
+) {
+  return {
+    "session.idle": async (input?: unknown): Promise<void> => {
+      const sessionID = resolveSessionID(input);
+      if (!sessionID) {
+        return;
+      }
+
+      const messagesResponse = await ctx.client.session.messages({
+        path: { id: sessionID },
+        query: { directory: ctx.directory, limit: 40 },
+      }).catch(() => null);
+      const todosResponse = await ctx.client.session.todo({
+        path: { id: sessionID },
+        query: { directory: ctx.directory },
+      }).catch(() => null);
+
+      const messages = unwrapData<Message[]>(messagesResponse, []);
+      const todos = unwrapData<Todo[]>(todosResponse, []);
+      const lastUser = [...messages].reverse().find((message) => message.info?.role === "user");
+      const lastAssistant = [...messages].reverse().find((message) => message.info?.role === "assistant");
+      const incompleteTodos = todos
+        .filter((todo) => todo.status && !["completed", "cancelled", "blocked", "deleted"].includes(todo.status))
+        .map((todo) => todo.content ?? "")
+        .filter(Boolean);
+
+      const facts = runtime.detectProjectFacts();
+      const locale = detectLocaleFromTexts(extractText(lastUser), extractText(lastAssistant));
+      runtime.setSessionLocale(sessionID, locale);
+      const summary = {
+        sessionID,
+        savedAt: new Date().toISOString(),
+        locale,
+        packageManager: facts.packageManager,
+        languages: facts.languages,
+        frameworks: facts.frameworks,
+        changedFiles: runtime.getEditedFiles(sessionID),
+        incompleteTodos,
+        lastUserMessage: extractText(lastUser),
+        lastAssistantMessage: extractText(lastAssistant),
+        approxTokens: runtime.estimateTokens([extractText(lastUser), extractText(lastAssistant), ...incompleteTodos]),
+      };
+      runtime.saveSessionSummary(summary);
+      const promotedPatterns = runtime.promoteLearning(summary);
+
+      runtime.appendObservation({
+        timestamp: new Date().toISOString(),
+        phase: "idle",
+        sessionID,
+        agent: runtime.getSessionAgent(sessionID),
+        note: `idle_summary_saved:${incompleteTodos.length}:${promotedPatterns.length}`,
+      });
+    },
+  };
+}

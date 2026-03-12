@@ -5,6 +5,7 @@
 It gives you a cleaner day-to-day OpenCode workflow:
 
 - `pair` as the default mode for normal collaboration
+- `pair-plan` when you want a planning-first agent that can only write Markdown
 - `autonomous` when you want the agent to drive a bounded task harder
 - a curated agent pack for scouting, research, verification, repair, and architecture work
 - bundled MCP defaults and skill-aware prompting out of the box
@@ -15,6 +16,7 @@ This project is intentionally smaller and easier to reason about than heavier Op
 ## Why use it
 
 - Pair-first by default: the assistant behaves like a strong coding partner before it behaves like a runaway automator.
+- Planning mode without accidental code edits: `pair-plan` reads everything, writes only Markdown, and stays out of bash.
 - Sensible agent routing: pair, autonomous, scout, research, verify, repair, and architect roles are prewired.
 - Good tooling defaults: `context7`, `grep_app`, `websearch`, `chrome-devtools`, `jina`, and bundled local MCPs are ready to go.
 - Safe config layering: user config and project config overrides stay supported.
@@ -117,6 +119,7 @@ opencode-pair-autonomy init
 Agents:
 
 - `pair`
+- `pair-plan`
 - `autonomous`
 - `repo-scout-fast`, `repo-scout-deep`
 - `researcher-fast`, `researcher-deep`
@@ -124,6 +127,10 @@ Agents:
 - `verifier-fast`, `verifier`
 - `repair-fast`, `repair`
 - `architect-fast`
+- `memory-curator`
+- `learning-extractor`
+- `build-analyzer`
+- `loop-orchestrator`
 
 Default MCP set:
 
@@ -138,7 +145,11 @@ Default MCP set:
 
 Built-in harness behavior:
 
-- intent routing between `pair` and `autonomous`
+- intent routing between `pair`, `pair-plan`, and `autonomous`
+- lifecycle hooks for session start, pre-tool checks, post-tool checks, compaction snapshots, idle persistence, and session cleanup
+- session memory that reloads the latest summary on the next session
+- observation logging plus promoted pattern memory for continuous-learning pipelines
+- orchestration commands for worktrees, phased loops, checkpoints, and bounded parallel plans
 - todo continuation for unfinished sessions
 - comment-quality warnings for suspicious AI-slop edits
 

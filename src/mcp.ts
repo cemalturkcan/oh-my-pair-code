@@ -58,7 +58,6 @@ function readExistingJinaBearer(): string | undefined {
         return bearer;
       }
     } catch {
-      // Ignore parse failures and fall through.
     }
   }
 
