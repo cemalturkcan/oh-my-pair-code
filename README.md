@@ -16,9 +16,9 @@ This project is intentionally smaller and easier to reason about than heavier Op
 ## Why use it
 
 - Pair-first by default: the assistant behaves like a strong coding partner before it behaves like a runaway automator.
-- Planning mode without accidental code edits: `pair-plan` reads everything, writes only Markdown, and stays out of bash.
+- Planning mode without accidental code edits: `pair-plan` reads everything, writes only Markdown, and only uses read-only bash for repo inspection.
 - Sensible agent routing: pair, autonomous, scout, research, verify, repair, and architect roles are prewired.
-- Good tooling defaults: `context7`, `grep_app`, `websearch`, `chrome-devtools`, `jina`, and bundled local MCPs are ready to go.
+- Good tooling defaults: `context7`, `grep_app`, `websearch`, `fff`, `chrome-devtools`, `jina`, and bundled local MCPs are ready to go.
 - Safe config layering: user config and project config overrides stay supported.
 - Easy rollback: uninstall removes harness-managed wiring while preserving user-owned config files.
 
@@ -71,6 +71,7 @@ The installer:
 - patches the active OpenCode config and creates backups before writing
 - updates the config-dir `package.json` and runs `bun install`
 - installs the shell strategy instruction file
+- installs the `fff-mcp` binary into the OpenCode config dir
 - vendors the background-agents plugin locally
 - installs bundled `pg-mcp`, `ssh-mcp`, and `sudo-mcp`
 - installs bundled skills from this repo
@@ -137,6 +138,7 @@ Default MCP set:
 - `context7`
 - `grep_app`
 - `websearch`
+- `fff`
 - `chrome-devtools`
 - `pg-mcp`
 - `ssh-mcp`

@@ -18,6 +18,10 @@ function vendorRoot(): string {
   return join(configRoot(), "vendor");
 }
 
+function binRoot(): string {
+  return join(configRoot(), "bin");
+}
+
 function ensureBearer(token: string): string {
   return token.trim().toLowerCase().startsWith("bearer ") ? token.trim() : `Bearer ${token.trim()}`;
 }
@@ -68,6 +72,36 @@ function localCommand(scriptPath: string): string[] {
   return ["node", scriptPath];
 }
 
+function commandExistsInPath(command: string): boolean {
+  const pathValue = process.env.PATH;
+  if (!pathValue) {
+    return false;
+  }
+
+  const executableNames = process.platform === "win32"
+    ? [command, `${command}.exe`, `${command}.cmd`, `${command}.bat`]
+    : [command];
+
+  return pathValue
+    .split(process.platform === "win32" ? ";" : ":")
+    .some((directory) => executableNames.some((name) => existsSync(join(directory, name))));
+}
+
+function resolveFffCommand(): string[] {
+  const configured = process.env.FFF_MCP_PATH?.trim();
+  if (configured) {
+    return [configured];
+  }
+
+  const bundled = join(binRoot(), process.platform === "win32" ? "fff-mcp.exe" : "fff-mcp");
+  if (existsSync(bundled)) {
+    return [bundled];
+  }
+
+  const fallback = process.platform === "win32" ? "fff-mcp.exe" : "fff-mcp";
+  return commandExistsInPath(fallback) ? [fallback] : [];
+}
+
 export function createHarnessMcps(config: HarnessConfig): Record<string, McpConfig> {
   const toggles = config.mcps ?? {};
   const result: Record<string, McpConfig> = {};
@@ -107,6 +141,18 @@ export function createHarnessMcps(config: HarnessConfig): Record<string, McpConf
       oauth: false,
       timeout: 60000,
     };
+  }
+
+  if (toggles.fff !== false) {
+    const command = resolveFffCommand();
+    if (command.length > 0) {
+    result.fff = {
+      type: "local",
+      command,
+      enabled: true,
+      timeout: 60000,
+    };
+    }
   }
 
   if (toggles.chrome_devtools !== false) {

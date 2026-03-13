@@ -6,6 +6,7 @@ export type McpToggles = {
   context7?: boolean;
   grep_app?: boolean;
   websearch?: boolean;
+  fff?: boolean;
   chrome_devtools?: boolean;
   pg_mcp?: boolean;
   ssh_mcp?: boolean;

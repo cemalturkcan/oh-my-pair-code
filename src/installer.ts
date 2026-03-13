@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, readFileSync, writeFileSync, copyFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { chmodSync, mkdirSync, existsSync, readFileSync, writeFileSync, copyFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -65,6 +65,7 @@ function getConfigDir(): string {
 function getConfigPaths(configDir: string) {
   return {
     configDir,
+    binDir: join(configDir, "bin"),
     skillsDir: join(configDir, "skills"),
     configJson: join(configDir, "opencode.json"),
     configJsonc: join(configDir, "opencode.jsonc"),
@@ -365,6 +366,71 @@ async function fetchText(url: string): Promise<string> {
   return await response.text();
 }
 
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/vnd.github+json",
+      ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}),
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${url}: ${response.status}`);
+  }
+  return await response.json() as T;
+}
+
+function resolveFffReleaseTarget(): string | undefined {
+  if (process.platform === "linux" && process.arch === "x64") {
+    return "x86_64-unknown-linux-musl";
+  }
+  if (process.platform === "linux" && process.arch === "arm64") {
+    return "aarch64-unknown-linux-musl";
+  }
+  if (process.platform === "darwin" && process.arch === "x64") {
+    return "x86_64-apple-darwin";
+  }
+  if (process.platform === "darwin" && process.arch === "arm64") {
+    return "aarch64-apple-darwin";
+  }
+  if (process.platform === "win32" && process.arch === "x64") {
+    return "x86_64-pc-windows-msvc.exe";
+  }
+  if (process.platform === "win32" && process.arch === "arm64") {
+    return "aarch64-pc-windows-msvc.exe";
+  }
+  return undefined;
+}
+
+async function installFffMcp(binDir: string): Promise<void> {
+  const target = resolveFffReleaseTarget();
+  if (!target) {
+    console.warn(`[opencode-pair-autonomy] Skipping fff-mcp install: unsupported platform ${process.platform}/${process.arch}`);
+    return;
+  }
+
+  const release = await fetchJson<{
+    assets?: Array<{ name?: string; browser_download_url?: string }>;
+  }>("https://api.github.com/repos/dmtrKovalenko/fff.nvim/releases/latest");
+  const expectedName = process.platform === "win32" ? `fff-mcp-${target}` : `fff-mcp-${target}`;
+  const asset = release.assets?.find((entry) => entry.name === expectedName && typeof entry.browser_download_url === "string");
+
+  if (!asset?.browser_download_url) {
+    throw new Error(`Could not find a matching fff-mcp release asset for target ${target}`);
+  }
+
+  const response = await fetch(asset.browser_download_url);
+  if (!response.ok) {
+    throw new Error(`Failed to download ${asset.browser_download_url}: ${response.status}`);
+  }
+
+  const outputPath = join(binDir, process.platform === "win32" ? "fff-mcp.exe" : "fff-mcp");
+  ensureDir(binDir);
+  writeFileSync(outputPath, Buffer.from(await response.arrayBuffer()));
+  if (process.platform !== "win32") {
+    chmodSync(outputPath, 0o755);
+  }
+}
+
 async function installBackgroundAgentsVendor(vendorDir: string): Promise<void> {
   ensureDir(join(vendorDir, "kdco-primitives"));
 
@@ -657,6 +723,7 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{ c
   }
 
   ensureDir(configDir);
+  ensureDir(paths.binDir);
   ensureDir(join(configDir, "vendor"));
   ensureTuiConfig(configDir);
   ensureSkillsDir(paths.skillsDir);
@@ -664,6 +731,11 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{ c
   const jinaApiKey = await promptForJinaApiKey(readExistingJinaApiKey(paths.harnessConfig));
   await installShellStrategyInstruction(paths.shellStrategyDir);
   await installBackgroundAgentsVendor(paths.vendorDir);
+  try {
+    await installFffMcp(paths.binDir);
+  } catch (error) {
+    console.warn(`[opencode-pair-autonomy] Failed to install fff-mcp automatically: ${error instanceof Error ? error.message : String(error)}`);
+  }
   installSelfContainedMcps(paths.vendorMcpDir, { fresh: options?.fresh });
   installBundledSkills(paths.skillsDir);
   const configPath = updateConfig(paths);
@@ -734,10 +806,13 @@ export async function uninstallHarness(): Promise<{
   }
 
   removePluginWrappers(paths.pluginsDir);
+  rmSync(join(paths.binDir, "fff-mcp"), { force: true });
+  rmSync(join(paths.binDir, "fff-mcp.exe"), { force: true });
   rmSync(paths.vendorDir, { recursive: true, force: true });
   rmSync(join(paths.shellStrategyDir, "shell_strategy.md"), { force: true });
 
   removeDirectoryIfEmpty(paths.pluginsDir);
+  removeDirectoryIfEmpty(paths.binDir);
   removeDirectoryIfEmpty(paths.shellStrategyDir);
   removeDirectoryIfEmpty(join(configDir, "plugin"));
 
