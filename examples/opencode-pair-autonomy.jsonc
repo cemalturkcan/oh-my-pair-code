@@ -2,7 +2,7 @@
   "default_mode": "pair",
   "set_default_agent": true,
   "hooks": {
-    "intent_gate": true,
+    "intent_gate": false,
     "todo_continuation": true,
     "comment_guard": true,
     "flush_queued_prompts": true,

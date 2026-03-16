@@ -1,7 +1,8 @@
 import { RESPONSE_DISCIPLINE, SHARED_CORE, withPromptAppend } from "./shared";
 
 function withShared(role: string, body: string, promptAppend?: string): string {
-  return withPromptAppend(`${SHARED_CORE}
+  return withPromptAppend(
+    `${SHARED_CORE}
 
 <RoleFocus>
 ${role}
@@ -9,7 +10,9 @@ ${role}
 
 ${body}
 
-${RESPONSE_DISCIPLINE}`, promptAppend);
+${RESPONSE_DISCIPLINE}`,
+    promptAppend,
+  );
 }
 
 type AgentUsageGuide = {
@@ -18,56 +21,98 @@ type AgentUsageGuide = {
   avoidWhen: string;
 };
 
+export function buildAnotherEyePrompt(promptAppend?: string): string {
+  return withShared(
+    "Cross-model independent reviewer",
+    `<Scope>
+Provide a fresh, independent second opinion on work already completed by another agent.
+You are deliberately a different AI model to bring a genuinely different perspective.
+</Scope>
+
+<Execution>
+- Read the relevant code, diffs, and context thoroughly before forming an opinion.
+- Focus on what you would do differently, not on restating what was done.
+- Look for: missed edge cases, subtle bugs, architectural concerns, naming issues, performance pitfalls, security gaps, and over-engineering.
+- Be direct and specific. Cite file paths and line ranges.
+- If the work looks solid, say so briefly and highlight the strongest aspects.
+- Do not rewrite or edit code. Return a concise review with actionable observations.
+- Separate critical issues (must fix) from suggestions (nice to have).
+- If you spot nothing meaningful, say "Looks good" and move on. Do not manufacture concerns.
+</Execution>`,
+    promptAppend,
+  );
+}
+
 const SUBAGENT_USAGE_GUIDES: AgentUsageGuide[] = [
   {
     label: "repo-scout-fast / repo-scout-deep",
-    useWhen: "You need file mapping, pattern discovery, or codebase evidence before changing code.",
+    useWhen:
+      "You need file mapping, pattern discovery, or codebase evidence before changing code.",
     avoidWhen: "You already know the relevant files and can continue directly.",
   },
   {
     label: "researcher-fast / researcher-deep",
-    useWhen: "Repo evidence is not enough and you need external docs, API behavior, versions, or migration guidance.",
-    avoidWhen: "The answer is already present in the repo or the task is pure implementation.",
+    useWhen:
+      "Repo evidence is not enough and you need external docs, API behavior, versions, or migration guidance.",
+    avoidWhen:
+      "The answer is already present in the repo or the task is pure implementation.",
   },
   {
     label: "builder / builder-deep",
-    useWhen: "A bounded implementation slice can be delegated without changing product direction.",
+    useWhen:
+      "A bounded implementation slice can be delegated without changing product direction.",
     avoidWhen: "The active agent can finish safely without losing context.",
   },
   {
     label: "verifier-fast / verifier",
-    useWhen: "You need focused verification, failure classification, or check execution after implementation.",
+    useWhen:
+      "You need focused verification, failure classification, or check execution after implementation.",
     avoidWhen: "There is nothing meaningful to verify yet.",
   },
   {
     label: "repair-fast / repair",
-    useWhen: "A verifier or failed command has already narrowed the problem to a specific repair scope.",
-    avoidWhen: "The task is still exploratory or the failure cause is not yet isolated.",
+    useWhen:
+      "A verifier or failed command has already narrowed the problem to a specific repair scope.",
+    avoidWhen:
+      "The task is still exploratory or the failure cause is not yet isolated.",
   },
   {
     label: "architect-fast",
-    useWhen: "The work is non-trivial, risky, or benefits from a short implementation plan before editing.",
+    useWhen:
+      "The work is non-trivial, risky, or benefits from a short implementation plan before editing.",
     avoidWhen: "The task is straightforward enough to execute directly.",
   },
   {
     label: "memory-curator",
-    useWhen: "You need a concise readout of saved session memory, project memory, or recent context without re-reading everything.",
+    useWhen:
+      "You need a concise readout of saved session memory, project memory, or recent context without re-reading everything.",
     avoidWhen: "The active agent already has the needed context in hand.",
   },
   {
     label: "learning-extractor",
-    useWhen: "You want reusable patterns, preferences, or failure modes extracted from session artifacts and observations.",
+    useWhen:
+      "You want reusable patterns, preferences, or failure modes extracted from session artifacts and observations.",
     avoidWhen: "There is not enough session evidence yet.",
   },
   {
     label: "build-analyzer",
-    useWhen: "A long build, test, or log output needs compression into the few facts that matter.",
+    useWhen:
+      "A long build, test, or log output needs compression into the few facts that matter.",
     avoidWhen: "The output is already short and easy to inspect directly.",
   },
   {
     label: "loop-orchestrator",
-    useWhen: "You need a worktree strategy, phased execution loop, parallel slice plan, or bounded cascade for a larger task.",
-    avoidWhen: "The task is small enough to execute directly without orchestration overhead.",
+    useWhen:
+      "You need a worktree strategy, phased execution loop, parallel slice plan, or bounded cascade for a larger task.",
+    avoidWhen:
+      "The task is small enough to execute directly without orchestration overhead.",
+  },
+  {
+    label: "another-eye",
+    useWhen:
+      "Implementation is complete and you want an independent second opinion from a different AI model. Especially valuable for non-trivial changes, architectural decisions, or when you want to catch blind spots.",
+    avoidWhen:
+      "The change is trivial, purely mechanical, or you have not finished implementing yet.",
   },
 ];
 

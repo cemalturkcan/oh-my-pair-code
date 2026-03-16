@@ -71,7 +71,7 @@ const DEFAULTS: HarnessConfig = {
   },
   hooks: {
     profile: "standard",
-    intent_gate: true,
+    intent_gate: false,
     todo_continuation: true,
     comment_guard: true,
     session_start: true,
@@ -206,7 +206,7 @@ export const SAMPLE_PROJECT_CONFIG = `{
   },
   "hooks": {
     "profile": "standard",
-    "intent_gate": true,
+    "intent_gate": false,
     "todo_continuation": true,
     "comment_guard": true,
     "session_start": true,

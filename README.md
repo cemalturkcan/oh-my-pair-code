@@ -147,7 +147,7 @@ Default MCP set:
 
 Built-in harness behavior:
 
-- intent routing between `pair`, `pair-plan`, and `autonomous`
+- explicit mode switching via `/pair`, `/pair-plan`, and `/autonomous` commands by default
 - lifecycle hooks for session start, pre-tool checks, post-tool checks, compaction snapshots, idle persistence, and session cleanup
 - session memory that reloads the latest summary on the next session
 - observation logging plus promoted pattern memory for continuous-learning pipelines

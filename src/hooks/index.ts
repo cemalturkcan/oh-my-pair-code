@@ -6,6 +6,7 @@ import { createFileEditedHook } from "./file-edited";
 import { createPostToolUseHook } from "./post-tool-use";
 import { createPreCompactHook } from "./pre-compact";
 import { createPreToolUseHook } from "./pre-tool-use";
+import { createPromptRefinerHook } from "./prompt-refiner";
 import { createHookRuntime, resolveHookProfile } from "./runtime";
 import { safeCreateHook, safeHook } from "./sdk";
 import { createSessionEndHook } from "./session-end";
@@ -15,7 +16,9 @@ import { createTodoContinuationHook } from "./todo-continuation";
 
 type HookRecord = {
   "chat.message"?: (input: any, output: any) => Promise<void>;
-  event?: (input: { event: { type: string; properties?: unknown } }) => Promise<void>;
+  event?: (input: {
+    event: { type: string; properties?: unknown };
+  }) => Promise<void>;
   "tool.execute.before"?: (input: any) => Promise<void>;
   "tool.execute.after"?: (input: any, output: any) => Promise<void>;
   "file.edited"?: (input: any) => Promise<void>;
@@ -23,9 +26,17 @@ type HookRecord = {
   "session.idle"?: (input?: any) => Promise<void>;
   "session.deleted"?: (input?: any) => Promise<void>;
   "experimental.session.compacting"?: (input?: any) => Promise<void>;
+  "experimental.chat.messages.transform"?: (
+    input: any,
+    output: any,
+  ) => Promise<void>;
+  "experimental.text.complete"?: (input: any, output: any) => Promise<void>;
 };
 
-function wrapHookRecord(name: string, hook: HookRecord | undefined): HookRecord | undefined {
+function wrapHookRecord(
+  name: string,
+  hook: HookRecord | undefined,
+): HookRecord | undefined {
   if (!hook) {
     return undefined;
   }
@@ -33,15 +44,35 @@ function wrapHookRecord(name: string, hook: HookRecord | undefined): HookRecord 
   return {
     "chat.message": safeHook(`${name}.chat.message`, hook["chat.message"]),
     event: safeHook(`${name}.event`, hook.event),
-    "tool.execute.before": safeHook(`${name}.tool.execute.before`, hook["tool.execute.before"]),
-    "tool.execute.after": safeHook(`${name}.tool.execute.after`, hook["tool.execute.after"]),
+    "tool.execute.before": safeHook(
+      `${name}.tool.execute.before`,
+      hook["tool.execute.before"],
+    ),
+    "tool.execute.after": safeHook(
+      `${name}.tool.execute.after`,
+      hook["tool.execute.after"],
+    ),
     "file.edited": safeHook(`${name}.file.edited`, hook["file.edited"]),
-    "session.created": safeHook(`${name}.session.created`, hook["session.created"]),
+    "session.created": safeHook(
+      `${name}.session.created`,
+      hook["session.created"],
+    ),
     "session.idle": safeHook(`${name}.session.idle`, hook["session.idle"]),
-    "session.deleted": safeHook(`${name}.session.deleted`, hook["session.deleted"]),
+    "session.deleted": safeHook(
+      `${name}.session.deleted`,
+      hook["session.deleted"],
+    ),
     "experimental.session.compacting": safeHook(
       `${name}.experimental.session.compacting`,
       hook["experimental.session.compacting"],
+    ),
+    "experimental.chat.messages.transform": safeHook(
+      `${name}.experimental.chat.messages.transform`,
+      hook["experimental.chat.messages.transform"],
+    ),
+    "experimental.text.complete": safeHook(
+      `${name}.experimental.text.complete`,
+      hook["experimental.text.complete"],
     ),
   };
 }
@@ -73,7 +104,9 @@ function composeEvent(hooks: HookRecord[]) {
 }
 
 function composeToolAfter(hooks: HookRecord[]) {
-  const active = hooks.map((hook) => hook["tool.execute.after"]).filter(Boolean);
+  const active = hooks
+    .map((hook) => hook["tool.execute.after"])
+    .filter(Boolean);
   if (active.length === 0) {
     return undefined;
   }
@@ -86,7 +119,9 @@ function composeToolAfter(hooks: HookRecord[]) {
 }
 
 function composeToolBefore(hooks: HookRecord[]) {
-  const active = hooks.map((hook) => hook["tool.execute.before"]).filter(Boolean);
+  const active = hooks
+    .map((hook) => hook["tool.execute.before"])
+    .filter(Boolean);
   if (active.length === 0) {
     return undefined;
   }
@@ -99,7 +134,9 @@ function composeToolBefore(hooks: HookRecord[]) {
 }
 
 function composeSingleArg(hooks: HookRecord[], key: keyof HookRecord) {
-  const active = hooks.map((hook) => hook[key]).filter(Boolean) as Array<(input: any) => Promise<void>>;
+  const active = hooks.map((hook) => hook[key]).filter(Boolean) as Array<
+    (input: any) => Promise<void>
+  >;
   if (active.length === 0) {
     return undefined;
   }
@@ -116,7 +153,11 @@ export function createHarnessHooks(ctx: PluginInput, config: HarnessConfig) {
   const profile = resolveHookProfile(config);
   const runtime = createHookRuntime(ctx, config);
 
-  const registerHook = (name: string, enabled: boolean, factory: () => HookRecord) => {
+  const registerHook = (
+    name: string,
+    enabled: boolean,
+    factory: () => HookRecord,
+  ) => {
     if (!enabled) {
       return;
     }
@@ -127,24 +168,56 @@ export function createHarnessHooks(ctx: PluginInput, config: HarnessConfig) {
     }
   };
 
-  registerHook("intent_gate", config.hooks?.intent_gate !== false, () => createIntentGateHook(ctx));
+  registerHook("intent_gate", config.hooks?.intent_gate !== false, () =>
+    createIntentGateHook(ctx),
+  );
   registerHook(
     "todo_continuation",
     config.hooks?.todo_continuation !== false,
-    () => createTodoContinuationHook(
-      ctx,
-      config.hooks?.todo_continuation_cooldown_ms ?? 30000,
-      config.hooks?.flush_queued_prompts !== false,
-    ),
+    () =>
+      createTodoContinuationHook(
+        ctx,
+        config.hooks?.todo_continuation_cooldown_ms ?? 30000,
+        config.hooks?.flush_queued_prompts !== false,
+      ),
   );
-  registerHook("comment_guard", config.hooks?.comment_guard !== false, () => createCommentGuardHook());
-  registerHook("session_start", config.hooks?.session_start !== false, () => createSessionStartHook(ctx, config, runtime));
-  registerHook("pre_tool_use", config.hooks?.pre_tool_use !== false, () => createPreToolUseHook(config, runtime, profile));
-  registerHook("post_tool_use", config.hooks?.post_tool_use !== false, () => createPostToolUseHook(ctx, config, runtime, profile));
-  registerHook("pre_compact", config.hooks?.pre_compact !== false, () => createPreCompactHook(runtime));
-  registerHook("stop", config.hooks?.stop !== false, () => createStopHook(ctx, runtime));
-  registerHook("session_end", config.hooks?.session_end !== false, () => createSessionEndHook(runtime));
-  registerHook("file_edited", config.hooks?.file_edited !== false, () => createFileEditedHook(runtime));
+  registerHook("comment_guard", config.hooks?.comment_guard !== false, () =>
+    createCommentGuardHook(),
+  );
+  registerHook("session_start", config.hooks?.session_start !== false, () =>
+    createSessionStartHook(ctx, config, runtime),
+  );
+  registerHook("pre_tool_use", config.hooks?.pre_tool_use !== false, () =>
+    createPreToolUseHook(config, runtime, profile),
+  );
+  registerHook("post_tool_use", config.hooks?.post_tool_use !== false, () =>
+    createPostToolUseHook(ctx, config, runtime, profile),
+  );
+  registerHook("pre_compact", config.hooks?.pre_compact !== false, () =>
+    createPreCompactHook(runtime),
+  );
+  registerHook("stop", config.hooks?.stop !== false, () =>
+    createStopHook(ctx, runtime),
+  );
+  registerHook("session_end", config.hooks?.session_end !== false, () =>
+    createSessionEndHook(runtime),
+  );
+  registerHook("file_edited", config.hooks?.file_edited !== false, () =>
+    createFileEditedHook(runtime),
+  );
+
+  // Prompt refiner uses experimental hooks that bypass the standard HookRecord pipeline.
+  // It creates its own session internally, so it registers separately.
+  let promptRefinerHooks:
+    | ReturnType<typeof createPromptRefinerHook>
+    | undefined;
+  if (config.hooks?.prompt_refiner !== false) {
+    try {
+      promptRefinerHooks = createPromptRefinerHook(ctx);
+    } catch {
+      // swallow – prompt refiner is non-critical
+    }
+  }
 
   return {
     "chat.message": composeChatMessage(hooks),
@@ -155,6 +228,13 @@ export function createHarnessHooks(ctx: PluginInput, config: HarnessConfig) {
     "session.created": composeSingleArg(hooks, "session.created"),
     "session.idle": composeSingleArg(hooks, "session.idle"),
     "session.deleted": composeSingleArg(hooks, "session.deleted"),
-    "experimental.session.compacting": composeSingleArg(hooks, "experimental.session.compacting"),
+    "experimental.session.compacting": composeSingleArg(
+      hooks,
+      "experimental.session.compacting",
+    ),
+    "experimental.chat.messages.transform":
+      promptRefinerHooks?.["experimental.chat.messages.transform"],
+    "experimental.text.complete":
+      promptRefinerHooks?.["experimental.text.complete"],
   };
 }
