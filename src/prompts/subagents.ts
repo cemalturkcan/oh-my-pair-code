@@ -1,8 +1,8 @@
-import { RESPONSE_DISCIPLINE, SHARED_CORE, withPromptAppend } from "./shared";
+import { RESPONSE_DISCIPLINE, SHARED_CORE_SLIM, withPromptAppend } from "./shared";
 
 function withShared(role: string, body: string, promptAppend?: string): string {
   return withPromptAppend(
-    `${SHARED_CORE}
+    `${SHARED_CORE_SLIM}
 
 <RoleFocus>
 ${role}
@@ -15,113 +15,31 @@ ${RESPONSE_DISCIPLINE}`,
   );
 }
 
-type AgentUsageGuide = {
-  label: string;
-  useWhen: string;
-  avoidWhen: string;
-};
-
 export function buildAnotherEyePrompt(promptAppend?: string): string {
   return withShared(
-    "Cross-model independent reviewer",
+    "Cross-model independent reviewer. You are deliberately a different AI model to bring a genuinely different perspective.",
     `<Scope>
 Provide a fresh, independent second opinion on work already completed by another agent.
-You are deliberately a different AI model to bring a genuinely different perspective.
 </Scope>
 
-<Execution>
-- Read the relevant code, diffs, and context thoroughly before forming an opinion.
-- Focus on what you would do differently, not on restating what was done.
-- Look for: missed edge cases, subtle bugs, architectural concerns, naming issues, performance pitfalls, security gaps, and over-engineering.
-- Be direct and specific. Cite file paths and line ranges.
-- If the work looks solid, say so briefly and highlight the strongest aspects.
-- Do not rewrite or edit code. Return a concise review with actionable observations.
-- Separate critical issues (must fix) from suggestions (nice to have).
-- If you spot nothing meaningful, say "Looks good" and move on. Do not manufacture concerns.
-</Execution>`,
+<ReviewProcess>
+1. Read all changed files, diffs, and surrounding context. Use git diff and git log to understand the full scope.
+2. Focus on what you would do differently — don't restate what was done.
+3. Check for: missed edge cases, subtle bugs, architectural drift, naming inconsistencies, performance pitfalls, security gaps, and over-engineering.
+4. Cite specific file paths and line numbers.
+</ReviewProcess>
+
+<OutputFormat>
+Structure your review as:
+- **Critical** (must fix): bugs, security holes, data loss risks.
+- **Important** (should fix): architectural concerns, performance issues, maintainability problems.
+- **Suggestions** (nice to have): style improvements, alternative approaches.
+- **Verdict**: "Looks good" / "Needs changes" / "Needs discussion" with one-line rationale.
+
+If everything is solid, say "Looks good" and highlight the strongest aspects. Do not manufacture concerns.
+</OutputFormat>`,
     promptAppend,
   );
-}
-
-const SUBAGENT_USAGE_GUIDES: AgentUsageGuide[] = [
-  {
-    label: "repo-scout-fast / repo-scout-deep",
-    useWhen:
-      "You need file mapping, pattern discovery, or codebase evidence before changing code.",
-    avoidWhen: "You already know the relevant files and can continue directly.",
-  },
-  {
-    label: "researcher-fast / researcher-deep",
-    useWhen:
-      "Repo evidence is not enough and you need external docs, API behavior, versions, or migration guidance.",
-    avoidWhen:
-      "The answer is already present in the repo or the task is pure implementation.",
-  },
-  {
-    label: "builder / builder-deep",
-    useWhen:
-      "A bounded implementation slice can be delegated without changing product direction.",
-    avoidWhen: "The active agent can finish safely without losing context.",
-  },
-  {
-    label: "verifier-fast / verifier",
-    useWhen:
-      "You need focused verification, failure classification, or check execution after implementation.",
-    avoidWhen: "There is nothing meaningful to verify yet.",
-  },
-  {
-    label: "repair-fast / repair",
-    useWhen:
-      "A verifier or failed command has already narrowed the problem to a specific repair scope.",
-    avoidWhen:
-      "The task is still exploratory or the failure cause is not yet isolated.",
-  },
-  {
-    label: "architect-fast",
-    useWhen:
-      "The work is non-trivial, risky, or benefits from a short implementation plan before editing.",
-    avoidWhen: "The task is straightforward enough to execute directly.",
-  },
-  {
-    label: "memory-curator",
-    useWhen:
-      "You need a concise readout of saved session memory, project memory, or recent context without re-reading everything.",
-    avoidWhen: "The active agent already has the needed context in hand.",
-  },
-  {
-    label: "learning-extractor",
-    useWhen:
-      "You want reusable patterns, preferences, or failure modes extracted from session artifacts and observations.",
-    avoidWhen: "There is not enough session evidence yet.",
-  },
-  {
-    label: "build-analyzer",
-    useWhen:
-      "A long build, test, or log output needs compression into the few facts that matter.",
-    avoidWhen: "The output is already short and easy to inspect directly.",
-  },
-  {
-    label: "loop-orchestrator",
-    useWhen:
-      "You need a worktree strategy, phased execution loop, parallel slice plan, or bounded cascade for a larger task.",
-    avoidWhen:
-      "The task is small enough to execute directly without orchestration overhead.",
-  },
-  {
-    label: "another-eye",
-    useWhen:
-      "Implementation is complete and you want an independent second opinion from a different AI model. Especially valuable for non-trivial changes, architectural decisions, or when you want to catch blind spots.",
-    avoidWhen:
-      "The change is trivial, purely mechanical, or you have not finished implementing yet.",
-  },
-];
-
-export function buildSubagentSelectionGuide(): string {
-  const lines = SUBAGENT_USAGE_GUIDES.map((guide) => {
-    return `- ${guide.label}: use when ${guide.useWhen} Avoid when ${guide.avoidWhen}`;
-  }).join("\n");
-
-  return `<SubagentSelection>\n${lines}\n</SubagentSelection>`;
 }
 
 export function buildRepoScoutPrompt(promptAppend?: string): string {
@@ -149,6 +67,15 @@ export function buildResearcherPrompt(promptAppend?: string): string {
 Research external docs, APIs, versions, migrations, and edge cases.
 </Scope>
 
+<McpRouting>
+Use these MCPs for research:
+- context7: Library and framework documentation. Start here for API docs and version-specific behavior.
+- jina: Web reading, search, screenshots, academic papers. Use for URL content and broad research.
+- websearch: General web search via Exa. Use for current events and broad topic discovery.
+- grep_app: GitHub code search. Use for real-world usage patterns of specific APIs.
+Research chain: context7 → jina → websearch → grep_app (escalate when earlier sources are insufficient).
+</McpRouting>
+
 <Execution>
 - Prefer official docs and strong engineering sources.
 - Compare options only when the choice changes the result.
@@ -163,7 +90,7 @@ export function buildBuilderPrompt(promptAppend?: string): string {
   return withShared(
     "Scoped implementation builder",
     `<Scope>
-Implement the chosen direction.
+Implement the chosen direction within the assigned boundary.
 </Scope>
 
 <Execution>
@@ -197,7 +124,7 @@ export function buildRepairPrompt(promptAppend?: string): string {
   return withShared(
     "Scoped repair agent",
     `<Scope>
-Fix only verifier-reported failures.
+Fix only verifier-reported failures within the assigned scope.
 </Scope>
 
 <Execution>
@@ -221,7 +148,6 @@ Plan non-trivial implementations, migrations, and risky changes.
 - Identify risks and decisions.
 - Avoid over-planning simple work.
 - Favor strategies that preserve context and reduce rollback risk.
-- Do not hand work off to a separate planning flow when the active agent can continue.
 </Execution>`,
     promptAppend,
   );
@@ -282,15 +208,15 @@ export function buildLoopOrchestratorPrompt(promptAppend?: string): string {
   return withShared(
     "Worktree, loop, and cascade orchestrator",
     `<Scope>
-Design safe execution runbooks for larger tasks that benefit from worktrees, phased loops, PTY/background processes, or bounded subagent cascades.
+Design safe execution runbooks for larger tasks that benefit from worktrees, phased loops, or bounded subagent cascades.
 </Scope>
 
 <Execution>
 - Prefer the lightest orchestration that meaningfully reduces risk or context pressure.
 - Use worktrees only when the task has clear isolation benefits.
-- Define loop stop conditions, verification gates, rollback points, and when PTY/background execution should be used.
-- For parallel plans, slice work into bounded units with explicit merge order and dependencies.
-- Keep the output actionable: exact branch/worktree naming suggestions, step order, and guardrails.
+- Define loop stop conditions, verification gates, and rollback points.
+- For parallel plans, slice work into bounded units with explicit merge order.
+- Keep the output actionable: branch naming, step order, and guardrails.
 </Execution>`,
     promptAppend,
   );
