@@ -21,21 +21,90 @@ function fingerprint(text: string): string {
 }
 
 const DEFAULT_REWRITE_SYSTEM_PROMPT = [
-  "You are a prompt rewriter. You translate and refine user messages into clear English for a coding assistant.",
+  "You are an expert prompt enhancer for a coding AI assistant.",
+  "Your job is to transform raw user messages into precise, actionable engineering prompts.",
   "",
-  "Rules:",
-  "- Output ONLY the rewritten text. Nothing else.",
-  "- NEVER add prefixes like 'User:', 'User says:', 'User message:', 'Rewritten:', 'Prompt:', 'Translation:' or ANY label.",
+  "# Output Rules",
+  "- Output ONLY the enhanced prompt. Nothing else.",
+  "- NEVER add prefixes like 'User:', 'Enhanced:', 'Prompt:', 'Translation:' or ANY label.",
   "- If the message is in another language, translate it to English naturally.",
-  "- For simple/short messages (greetings, acknowledgments, short questions), just translate them directly. Do not over-elaborate.",
-  "- For longer requests, make them clearer and more actionable without expanding scope.",
-  "- Preserve code, file paths, commands, identifiers, versions, and constraints exactly.",
-  "- Do not add new requirements or assumptions the user did not express.",
-  "- If the message is already good English, return it as-is or with minimal edits.",
-  "- No commentary, no bullets, no quotes, no markdown fences.",
+  "- Preserve code snippets, file paths, commands, identifiers, and explicit constraints exactly.",
+  "- No commentary, no markdown fences wrapping the whole output.",
+  "",
+  "# Behavior by Message Type",
+  "",
+  "## Simple messages (greetings, yes/no, short follow-ups, acknowledgments):",
+  "Just translate to English. Do NOT over-elaborate.",
+  "- 'evet devam et' → 'Yes, continue.'",
+  "- 'looks good' → 'Looks good.'",
+  "",
+  "## Technical / coding requests — apply ALL of these:",
+  "",
+  "### 1. Version & Stack Precision",
+  "When a technology is mentioned without version or convention details, add the latest stable version and modern idioms:",
+  "- 'Vue' → 'Vue 3 with Composition API, <script setup> syntax, and TypeScript'",
+  "- 'React' → 'React 19+ with functional components and hooks'",
+  "- 'Next.js' → 'Next.js 15+ with App Router and Server Components'",
+  "- 'Python' → 'Python 3.12+'",
+  "- 'Node' → 'Node.js 22+ with ES modules'",
+  "- 'Spring Boot' → 'Spring Boot 3.x with Java 21+'",
+  "- 'Tailwind' → 'Tailwind CSS v4'",
+  "- 'Express' → 'Express 5+ (or Hono/Fastify if starting fresh)'",
+  "If the user already specifies a version, keep it exactly.",
+  "",
+  "### 2. Modern Patterns & Best Practices",
+  "Enrich with reasonable engineering expectations:",
+  "- Prefer TypeScript over plain JavaScript unless JS is explicitly requested.",
+  "- Expect proper error handling and meaningful error messages.",
+  "- Expect accessible, semantic HTML for frontend work.",
+  "- Expect responsive design unless explicitly scoped to a single viewport.",
+  "- For APIs: expect proper validation, status codes, and error responses.",
+  "- For database work: expect migrations, indexes on foreign keys, proper constraints.",
+  "",
+  "### 3. Clarification Markers [CLARIFY]",
+  "When a critical detail is missing and guessing wrong would waste significant effort, add:",
+  "  [CLARIFY: <specific question>]",
+  "",
+  "Use CLARIFY sparingly — only for genuinely ambiguous, high-impact decisions:",
+  "- UI library choice not specified for a new frontend project",
+  "- State management approach unclear for complex state",
+  "- 'Fix the bug' without identifying which bug",
+  "- Database or ORM choice missing for new backend work",
+  "- Authentication strategy not mentioned when auth is clearly needed",
+  "",
+  "Do NOT add CLARIFY for things that have safe, obvious defaults.",
+  "",
+  "### 4. Scope Preservation (Critical)",
+  "NEVER expand the request scope beyond what the user asked.",
+  "- User asks for a button → enhance the button, don't plan a design system.",
+  "- User asks to fix one file → don't suggest rewriting the module.",
+  "- Keep the enhanced prompt proportional to the original.",
+  "",
+  "# Examples",
+  "",
+  "Input: 'vue ile bir login sayfası yap'",
+  "Output: 'Build a login page using Vue 3 (latest stable) with Composition API, <script setup>, and TypeScript. Include email and password fields with client-side form validation and error states. [CLARIFY: Should I use a UI component library (Vuetify, PrimeVue, Element Plus) or build with plain CSS/Tailwind? Is there an existing auth API endpoint to integrate with?]'",
+  "",
+  "Input: 'add dark mode'",
+  "Output: 'Add dark mode support with a toggle switch. Use CSS custom properties for theming. Persist the user preference in localStorage and respect the system prefers-color-scheme as the initial default.'",
+  "",
+  "Input: 'bu dosyadaki hatayı düzelt'",
+  "Output: 'Fix the bug in this file. [CLARIFY: What is the specific error or unexpected behavior you are seeing? Describe the expected vs actual result.]'",
+  "",
+  "Input: 'react ile dashboard yap'",
+  "Output: 'Build a dashboard using React 19+ with TypeScript, functional components, and hooks. Use a modern build tool (Vite). Structure components with clear separation of concerns. [CLARIFY: What data should the dashboard display? Should I use a charting library (Recharts, Chart.js)? Is there a preferred UI framework (shadcn/ui, Ant Design, MUI)?]'",
+  "",
+  "Input: 'API endpoint ekle kullanıcı silmek için'",
+  "Output: 'Add a DELETE API endpoint for removing users. Include proper authentication/authorization checks, input validation, soft-delete vs hard-delete consideration, and appropriate HTTP status codes (204 on success, 404 if not found, 403 if unauthorized). [CLARIFY: Should this be a soft delete (mark as deleted) or a hard delete (permanent removal)?]'",
+  "",
+  "Input: 'evet, öyle yap'",
+  "Output: 'Yes, do it that way.'",
 ].join("\n");
 
 type MessagePart = {
+  id?: string;
+  sessionID?: string;
+  messageID?: string;
   type: string;
   text?: string;
   mime?: string;
@@ -46,7 +115,7 @@ type MessagePart = {
 };
 
 type Message = {
-  info?: { role?: string; sessionID?: string };
+  info?: { id?: string; role?: string; sessionID?: string };
   parts?: MessagePart[];
 };
 
@@ -84,15 +153,16 @@ function buildRefineRequest(
   attachmentPlaceholders: string[],
 ): string {
   const lines = [
-    "Rewrite the message inside <source_message> into English for a coding agent.",
-    "Output ONLY the rewritten text, no labels or prefixes.",
+    "Enhance the user message inside <source_message> into a precise, actionable prompt for a coding AI assistant.",
+    "Apply version precision, best practices, and CLARIFY markers per the system instructions.",
+    "Output ONLY the enhanced prompt — no labels, no prefixes, no commentary.",
   ];
 
   if (attachmentPlaceholders.length > 0) {
     lines.push(
       "",
-      "The user attached: " + attachmentPlaceholders.join(", "),
-      "Keep placeholders in the rewritten text where they logically belong.",
+      "The user also attached: " + attachmentPlaceholders.join(", "),
+      "Reference these attachments naturally in the enhanced prompt where they logically belong.",
     );
   }
 
@@ -112,7 +182,7 @@ function extractText(parts: MessagePart[]): string {
 const PLUGIN_NOISE_PATTERNS = [
   /^\u25a3\s/,
   /^\u2192\s/,
-  /^\[refined prompt\]/i,
+  /^\[(refined|enhanced) prompt\]/i,
   /^@\w+/,
   /tokens?\s+saved/i,
   /^Pruning\s*\(/i,
@@ -163,7 +233,11 @@ function stripRefinedPromptFromHistory(messages: Message[]): void {
 
     for (const part of message.parts) {
       if (part?.type !== "text" || typeof part.text !== "string") continue;
-      if (!part.text.startsWith("> **[refined prompt]**")) continue;
+      if (
+        !part.text.startsWith("> **[refined prompt]**") &&
+        !part.text.startsWith("> **[enhanced prompt]**")
+      )
+        continue;
 
       const lines = part.text.split("\n");
       let i = 0;
@@ -420,6 +494,52 @@ export function createPromptRefinerHook(ctx: PluginInput) {
           targetMessage.parts ?? [],
           rewrittenText,
         );
+
+        // Persist enhanced text to storage so pruning/summarize sees it
+        // instead of the raw original (possibly non-English) text.
+        // The v2 SDK exposes client.part.update(); the plugin type only
+        // declares the v1 surface, so we access it via a safe cast.
+        const messageID = targetMessage?.info?.id;
+        const partClient = (client as any).part as
+          | { update?: (...args: any[]) => Promise<any> }
+          | undefined;
+
+        if (messageID && partClient?.update) {
+          for (const part of targetMessage.parts ?? []) {
+            if (part?.type === "text" && part.id) {
+              try {
+                await partClient.update({
+                  sessionID,
+                  messageID,
+                  partID: part.id,
+                  part: {
+                    id: part.id,
+                    sessionID,
+                    messageID,
+                    type: "text",
+                    text: part.text ?? "",
+                    metadata: part.metadata,
+                  },
+                });
+              } catch (persistError) {
+                await log(
+                  client,
+                  "debug",
+                  "Failed to persist enhanced text to storage",
+                  {
+                    sessionID,
+                    messageID,
+                    partID: part.id,
+                    error:
+                      persistError instanceof Error
+                        ? persistError.message
+                        : String(persistError),
+                  },
+                );
+              }
+            }
+          }
+        }
       } catch (error) {
         await log(client, "warn", "Prompt refinement failed", {
           sessionID,
@@ -456,7 +576,20 @@ export function createPromptRefinerHook(ctx: PluginInput) {
         .split("\n")
         .map((l) => `> ${l}`)
         .join("\n");
-      output.text = `> **[refined prompt]**\n${quotedRewrite}\n\n${output.text}`;
+      output.text = `> **[enhanced prompt]**\n${quotedRewrite}\n\n${output.text}`;
+    },
+
+    // Secondary defense: instruct the compaction model to never surface
+    // original non-English text in case storage persistence was skipped.
+    "experimental.session.compacting": async (
+      _input: { sessionID: string },
+      output: { context: string[]; prompt?: string },
+    ) => {
+      output.context.push(
+        "IMPORTANT: All user messages have been enhanced and translated to English. " +
+          "When summarizing, use ONLY the English text present in the messages. " +
+          "Never include, reference, or reproduce any non-English original text.",
+      );
     },
   };
 }
