@@ -184,24 +184,48 @@ export type AdapterWaitForNetworkResult = {
 };
 
 export interface CloakBrowserAdapter {
-  createSession(input: AdapterSessionCreateInput): Promise<AdapterSessionHandle>;
+  createSession(
+    input: AdapterSessionCreateInput,
+  ): Promise<AdapterSessionHandle>;
   closeSession(session: AdapterSessionHandle): Promise<void>;
-  navigate(session: AdapterSessionHandle, url: string, waitUntil: WaitUntilState): Promise<AdapterNavigationResult>;
+  navigate(
+    session: AdapterSessionHandle,
+    url: string,
+    waitUntil: WaitUntilState,
+  ): Promise<AdapterNavigationResult>;
   observeA11y(session: AdapterSessionHandle): Promise<AdapterA11yResult>;
   observeDom(session: AdapterSessionHandle): Promise<AdapterDomResult>;
-  observeText(session: AdapterSessionHandle, format: "text" | "markdown"): Promise<AdapterTextResult>;
-  inspectPageState(session: AdapterSessionHandle, recentNetworkLimit: number): Promise<AdapterPageStateResult>;
-  inspectAuthState(session: AdapterSessionHandle, recentNetworkLimit: number): Promise<AdapterAuthStateResult>;
+  observeText(
+    session: AdapterSessionHandle,
+    format: "text" | "markdown",
+  ): Promise<AdapterTextResult>;
+  inspectPageState(
+    session: AdapterSessionHandle,
+    recentNetworkLimit: number,
+  ): Promise<AdapterPageStateResult>;
+  inspectAuthState(
+    session: AdapterSessionHandle,
+    recentNetworkLimit: number,
+  ): Promise<AdapterAuthStateResult>;
   takeScreenshot(
     session: AdapterSessionHandle,
     mode: "viewport" | "full" | "element",
     format: "png" | "jpeg",
     quality?: number,
-    selector?: string
+    selector?: string,
   ): Promise<AdapterScreenshotResult>;
-  observeBoxes(session: AdapterSessionHandle, selectors: string[]): Promise<AdapterElementBox[]>;
-  observeConsole(session: AdapterSessionHandle, limit: number): Promise<AdapterConsoleEntry[]>;
-  observeNetwork(session: AdapterSessionHandle, limit: number): Promise<AdapterNetworkEntry[]>;
+  observeBoxes(
+    session: AdapterSessionHandle,
+    selectors: string[],
+  ): Promise<AdapterElementBox[]>;
+  observeConsole(
+    session: AdapterSessionHandle,
+    limit: number,
+  ): Promise<AdapterConsoleEntry[]>;
+  observeNetwork(
+    session: AdapterSessionHandle,
+    limit: number,
+  ): Promise<AdapterNetworkEntry[]>;
   waitForNetwork(
     session: AdapterSessionHandle,
     input: {
@@ -211,49 +235,53 @@ export interface CloakBrowserAdapter {
       outcome?: AdapterNetworkEntry["outcome"];
       timeoutMs: number;
       pollIntervalMs: number;
-    }
+    },
   ): Promise<AdapterWaitForNetworkResult>;
   evaluateJs(
     session: AdapterSessionHandle,
     input: {
       expression: string;
       awaitPromise: boolean;
-    }
+    },
   ): Promise<AdapterEvaluateResult>;
   click(
     session: AdapterSessionHandle,
     input: {
       selector: string;
+      frameSelector?: string;
       button: "left" | "right" | "middle";
       clickCount: number;
       timeoutMs?: number;
-    }
+    },
   ): Promise<AdapterActionResult>;
   fill(
     session: AdapterSessionHandle,
     input: {
       selector: string;
+      frameSelector?: string;
       value: string;
       clearFirst: boolean;
       timeoutMs?: number;
-    }
+    },
   ): Promise<AdapterActionResult>;
   enterCode(
     session: AdapterSessionHandle,
     input: {
       code: string;
       selector?: string;
+      frameSelector?: string;
       submit: boolean;
       timeoutMs?: number;
-    }
+    },
   ): Promise<AdapterActionResult>;
   press(
     session: AdapterSessionHandle,
     input: {
       key: string;
       selector?: string;
+      frameSelector?: string;
       timeoutMs?: number;
-    }
+    },
   ): Promise<AdapterActionResult>;
   waitFor(
     session: AdapterSessionHandle,
@@ -261,7 +289,7 @@ export interface CloakBrowserAdapter {
       selector?: string;
       text?: string;
       timeoutMs: number;
-    }
+    },
   ): Promise<AdapterActionResult>;
   wheel(
     session: AdapterSessionHandle,
@@ -272,7 +300,7 @@ export interface CloakBrowserAdapter {
       steps: number;
       stepDelayMs: number;
       timeoutMs?: number;
-    }
+    },
   ): Promise<AdapterActionResult>;
   drag(
     session: AdapterSessionHandle,
@@ -281,7 +309,7 @@ export interface CloakBrowserAdapter {
       toSelector: string;
       steps: number;
       timeoutMs?: number;
-    }
+    },
   ): Promise<AdapterActionResult>;
   swipe(
     session: AdapterSessionHandle,
@@ -292,7 +320,7 @@ export interface CloakBrowserAdapter {
       deltaX: number;
       deltaY: number;
       speed: number;
-    }
+    },
   ): Promise<AdapterActionResult>;
   pinch(
     session: AdapterSessionHandle,
@@ -302,6 +330,6 @@ export interface CloakBrowserAdapter {
       centerY?: number;
       scaleFactor: number;
       speed: number;
-    }
+    },
   ): Promise<AdapterActionResult>;
 }

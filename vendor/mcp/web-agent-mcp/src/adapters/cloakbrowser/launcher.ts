@@ -254,6 +254,13 @@ function matchNetworkEntry(
   );
 }
 
+function resolveLocator(page: Page, selector: string, frameSelector?: string) {
+  if (frameSelector) {
+    return page.frameLocator(frameSelector).locator(selector);
+  }
+  return page.locator(selector);
+}
+
 async function getEditableMeta(locator: ReturnType<Page["locator"]>) {
   return locator.first().evaluate((element) => {
     const html = element as HTMLElement;
@@ -920,12 +927,17 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
     session: AdapterSessionHandle,
     input: {
       selector: string;
+      frameSelector?: string;
       button: "left" | "right" | "middle";
       clickCount: number;
       timeoutMs?: number;
     },
   ) {
-    const locator = session.page.locator(input.selector).first();
+    const locator = resolveLocator(
+      session.page,
+      input.selector,
+      input.frameSelector,
+    ).first();
     const before = await captureClickState(session.page, locator);
     let usedDomFallback = false;
 
@@ -974,12 +986,17 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
     session: AdapterSessionHandle,
     input: {
       selector: string;
+      frameSelector?: string;
       value: string;
       clearFirst: boolean;
       timeoutMs?: number;
     },
   ) {
-    const locator = session.page.locator(input.selector).first();
+    const locator = resolveLocator(
+      session.page,
+      input.selector,
+      input.frameSelector,
+    ).first();
     const initialValue = await readEditableValue(locator).catch(
       () => undefined,
     );
@@ -1045,6 +1062,7 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
     input: {
       code: string;
       selector?: string;
+      frameSelector?: string;
       submit: boolean;
       timeoutMs?: number;
     },
@@ -1061,7 +1079,9 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       };
     }
 
-    const targets = await resolveCodeTargets(session.page, input.selector);
+    const targets = input.frameSelector
+      ? resolveLocator(session.page, input.selector, input.frameSelector)
+      : await resolveCodeTargets(session.page, input.selector);
     const count = await targets.count();
 
     if (count <= 1) {
@@ -1133,10 +1153,19 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
 
   async press(
     session: AdapterSessionHandle,
-    input: { key: string; selector?: string; timeoutMs?: number },
+    input: {
+      key: string;
+      selector?: string;
+      frameSelector?: string;
+      timeoutMs?: number;
+    },
   ) {
     if (input.selector) {
-      const locator = session.page.locator(input.selector).first();
+      const locator = resolveLocator(
+        session.page,
+        input.selector,
+        input.frameSelector,
+      ).first();
       await locator.press(input.key, { timeout: input.timeoutMs });
     } else {
       await session.page.keyboard.press(input.key);

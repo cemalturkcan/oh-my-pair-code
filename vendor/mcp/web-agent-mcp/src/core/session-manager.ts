@@ -468,6 +468,7 @@ export class SessionManager {
     pageId: string | undefined,
     input: {
       selector: string;
+      frameSelector?: string;
       button: "left" | "right" | "middle";
       clickCount: number;
       timeoutMs?: number;
@@ -488,6 +489,7 @@ export class SessionManager {
     pageId: string | undefined,
     input: {
       selector: string;
+      frameSelector?: string;
       value: string;
       clearFirst: boolean;
       timeoutMs?: number;
@@ -509,6 +511,7 @@ export class SessionManager {
     input: {
       code: string;
       selector?: string;
+      frameSelector?: string;
       submit: boolean;
       timeoutMs?: number;
     },
@@ -529,7 +532,12 @@ export class SessionManager {
   async press(
     sessionId: string,
     pageId: string | undefined,
-    input: { key: string; selector?: string; timeoutMs?: number },
+    input: {
+      key: string;
+      selector?: string;
+      frameSelector?: string;
+      timeoutMs?: number;
+    },
   ) {
     const { session, page } = this.getPage(sessionId, pageId);
     const result = await this.deps.adapter.press(session.adapterSession, input);
