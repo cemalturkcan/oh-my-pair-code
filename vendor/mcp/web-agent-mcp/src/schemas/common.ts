@@ -6,7 +6,7 @@ export const errorTypeSchema = z.enum([
   "BROWSER",
   "NETWORK",
   "STORAGE",
-  "INTERNAL"
+  "INTERNAL",
 ]);
 
 export const toolEnvelopeBaseSchema = z.object({
@@ -22,14 +22,16 @@ export const toolEnvelopeBaseSchema = z.object({
   error: z
     .object({
       type: errorTypeSchema,
-      details: z.record(z.string(), z.unknown()).optional()
+      details: z.record(z.string(), z.unknown()).optional(),
     })
-    .optional()
+    .optional(),
 });
 
 export type ErrorType = z.infer<typeof errorTypeSchema>;
 
-export type ToolEnvelope<TData = unknown> = z.infer<typeof toolEnvelopeBaseSchema> & {
+export type ToolEnvelope<TData = unknown> = z.infer<
+  typeof toolEnvelopeBaseSchema
+> & {
   data?: TData;
 };
 
@@ -42,27 +44,13 @@ export function createToolSuccess<TData>(envelope: ToolEnvelope<TData>) {
 
   return {
     content: createToolTextContent(structuredContent),
-    structuredContent
+    structuredContent,
   };
 }
 
 export function createToolFailure<TData>(envelope: ToolEnvelope<TData>) {
-  const structuredContent = {
-    ok: envelope.ok,
-    code: envelope.code,
-    message: envelope.message,
-    task_id: envelope.task_id,
-    action_id: envelope.action_id,
-    session_id: envelope.session_id,
-    page_id: envelope.page_id,
-    artifact_ids: envelope.artifact_ids,
-    warnings: envelope.warnings,
-    error: envelope.error
-  };
-
   return {
     content: createToolTextContent(envelope.error ?? envelope),
-    structuredContent,
-    isError: true
+    isError: true,
   };
 }
