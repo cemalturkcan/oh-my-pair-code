@@ -8,7 +8,7 @@ const envSchema = z.object({
   WEB_AGENT_HEADLESS: z
     .enum(["true", "false"])
     .optional()
-    .transform((value) => value !== "false"),
+    .transform((value) => value === "true"),
   WEB_AGENT_DEFAULT_LOCALE: z.string().default("en-US"),
   WEB_AGENT_DEFAULT_TIMEZONE_ID: z.string().optional(),
   WEB_AGENT_CHROME_USER_DATA_DIR: z.string().optional(),
