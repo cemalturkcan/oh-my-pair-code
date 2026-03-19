@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, platform } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -17,7 +17,7 @@ type ClaudeCredentials = {
 
 type OpenCodeAuth = Record<
   string,
-  { type: string; key?: string; [k: string]: unknown }
+  { type: string; key?: string; access?: string; refresh?: string; expires?: number; [k: string]: unknown }
 >;
 
 function credentialsPath(): string {
@@ -35,6 +35,28 @@ async function readJson<T>(p: string): Promise<T | undefined> {
   } catch {
     return undefined;
   }
+}
+
+async function readCredentialsFromKeychain(): Promise<ClaudeCredentials | undefined> {
+  try {
+    const { stdout } = await execFileAsync("security", [
+      "find-generic-password",
+      "-s",
+      "Claude Code-credentials",
+      "-w",
+    ]);
+    return JSON.parse(stdout.trim()) as ClaudeCredentials;
+  } catch {
+    return undefined;
+  }
+}
+
+async function readCredentials(): Promise<ClaudeCredentials | undefined> {
+  if (platform() === "darwin") {
+    const keychainCreds = await readCredentialsFromKeychain();
+    if (keychainCreds) return keychainCreds;
+  }
+  return readJson<ClaudeCredentials>(credentialsPath());
 }
 
 async function hasClaude(): Promise<boolean> {
@@ -64,7 +86,7 @@ export async function createClaudeTokenSyncHook(): Promise<{
   "chat.headers"?: (input: any, output: any) => Promise<void>;
 } | null> {
   const cli = await hasClaude();
-  const creds = await readJson<ClaudeCredentials>(credentialsPath());
+  const creds = await readCredentials();
 
   if (!cli || !creds?.claudeAiOauth?.accessToken) {
     return null;
@@ -75,7 +97,7 @@ export async function createClaudeTokenSyncHook(): Promise<{
   let syncPromise: Promise<void> | null = null;
 
   async function doSync(): Promise<void> {
-    const creds = await readJson<ClaudeCredentials>(credentialsPath());
+    const creds = await readCredentials();
     let access = creds?.claudeAiOauth?.accessToken;
     let exp = creds?.claudeAiOauth?.expiresAt;
 
@@ -85,7 +107,7 @@ export async function createClaudeTokenSyncHook(): Promise<{
 
     if (remaining < 5 * 60 * 1000) {
       await refreshViaCli();
-      const fresh = await readJson<ClaudeCredentials>(credentialsPath());
+      const fresh = await readCredentials();
       if (fresh?.claudeAiOauth?.accessToken) {
         access = fresh.claudeAiOauth.accessToken;
         exp = fresh.claudeAiOauth.expiresAt;
@@ -97,11 +119,14 @@ export async function createClaudeTokenSyncHook(): Promise<{
 
     try {
       const auth = (await readJson<OpenCodeAuth>(authJsonPath())) ?? {};
-      if (auth.anthropic?.key !== cachedToken) {
+      const refreshToken = creds?.claudeAiOauth?.refreshToken;
+      if (auth.anthropic?.access !== cachedToken) {
         auth.anthropic = {
           ...(auth.anthropic ?? {}),
-          type: "api",
-          key: cachedToken!,
+          type: "oauth",
+          access: cachedToken!,
+          ...(refreshToken ? { refresh: refreshToken } : {}),
+          ...(cachedExpiresAt ? { expires: cachedExpiresAt } : {}),
         };
         await writeFile(authJsonPath(), JSON.stringify(auth, null, 2), "utf-8");
       }
@@ -152,7 +177,7 @@ export async function createClaudeTokenSyncHook(): Promise<{
           return;
         }
 
-        const creds = await readJson<ClaudeCredentials>(credentialsPath());
+        const creds = await readCredentials();
         const access = creds?.claudeAiOauth?.accessToken;
         const exp = creds?.claudeAiOauth?.expiresAt
           ? Number(creds.claudeAiOauth.expiresAt)
