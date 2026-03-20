@@ -37,10 +37,9 @@ function initProject(directory?: string): void {
 function printConfig(): void {
   console.log(`{
   "plugin": [
-    "opencode-pair-autonomy@latest",
+    "file://<project-root>",
     "@tarquinen/opencode-dcp@latest",
     "@zenobius/opencode-skillful@latest",
-    "opencode-notificator@latest",
     "@franlol/opencode-md-table-formatter@latest",
     "opencode-pty@latest",
     "opencode-anthropic-login-via-cli@latest",

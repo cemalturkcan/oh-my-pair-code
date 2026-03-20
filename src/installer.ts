@@ -25,10 +25,8 @@ type JsonRecord = Record<string, unknown>;
  * The vendor background-agents-local plugin stays as a `file://` entry.
  */
 const MANAGED_PLUGIN_ENTRIES = [
-  "opencode-pair-autonomy",
   "@tarquinen/opencode-dcp",
   "@zenobius/opencode-skillful",
-  "opencode-notificator",
   "@franlol/opencode-md-table-formatter",
   "opencode-pty",
   "opencode-anthropic-login-via-cli",
@@ -37,7 +35,6 @@ const MANAGED_PLUGIN_ENTRIES = [
 const MANAGED_PACKAGE_NAMES = [
   "opencode-pair-autonomy",
   "opencode-pty",
-  "opencode-notificator",
   "@zenobius/opencode-skillful",
   "@tarquinen/opencode-dcp",
   "@franlol/opencode-md-table-formatter",
@@ -46,8 +43,7 @@ const MANAGED_PACKAGE_NAMES = [
 
 const PACKAGE_SPECS: Record<string, string> = {
   "opencode-pty": "latest",
-  "opencode-notificator":
-    "git+https://github.com/panta82/opencode-notificator.git",
+
   "@zenobius/opencode-skillful": "latest",
   "@tarquinen/opencode-dcp": "latest",
   "@franlol/opencode-md-table-formatter": "latest",
@@ -94,7 +90,6 @@ function getConfigPaths(configDir: string) {
     vendorDir: join(configDir, "vendor", "opencode-background-agents-local"),
     vendorMcpDir: join(configDir, "vendor", "mcp"),
     shellStrategyDir: join(configDir, "plugin", "shell-strategy"),
-    pluginsDir: join(configDir, "plugins"),
   };
 }
 
@@ -263,8 +258,10 @@ function resolveSelfPackageSpec(): string {
 }
 
 function mergePluginList(existing: unknown, vendorDir: string): string[] {
+  const selfEntry = `file://${packageRoot()}`;
   const backgroundEntry = `file://${vendorDir}`;
   const desired = [
+    selfEntry,
     ...MANAGED_PLUGIN_ENTRIES.map((pkg) => `${pkg}@latest`),
     backgroundEntry,
   ];
@@ -278,9 +275,7 @@ function mergePluginList(existing: unknown, vendorDir: string): string[] {
       !desiredBareNames.has(item) &&
       !desiredBareNames.has(item.replace(/@latest$/, "")) &&
       !item.includes("opencode-background-agents-local") &&
-      !item.includes("plannotator") &&
-      !item.startsWith("file://") &&
-      item !== "opencode-shell-non-interactive-strategy",
+      !item.startsWith("file://"),
   );
   return [...desired, ...retained];
 }
@@ -316,7 +311,8 @@ function removeHarnessPluginList(
       !managedEntries.has(item) &&
       !managedBareNames.has(item) &&
       !managedBareNames.has(item.replace(/@latest$/, "")) &&
-      !item.includes("opencode-background-agents-local"),
+      !item.includes("opencode-background-agents-local") &&
+      !item.includes("opencode-pair-autonomy"),
   );
   return retained.length > 0 ? retained : undefined;
 }
@@ -617,24 +613,6 @@ async function installShellStrategyInstruction(
   writeFileSync(join(shellStrategyDir, "shell_strategy.md"), content, "utf8");
 }
 
-/** Legacy wrapper filenames to clean up from old installations. */
-const LEGACY_PLUGIN_WRAPPER_FILES = [
-  "opencode-pair-autonomy.js",
-  "opencode-dcp.js",
-  "opencode-skillful.js",
-  "opencode-notificator.js",
-  "md-table-formatter.js",
-  "opencode-pty.js",
-  "opencode-anthropic-login-via-cli.js",
-] as const;
-
-function cleanupLegacyPluginWrappers(pluginsDir: string): void {
-  for (const filename of LEGACY_PLUGIN_WRAPPER_FILES) {
-    rmSync(join(pluginsDir, filename), { force: true });
-  }
-  removeDirectoryIfEmpty(pluginsDir);
-}
-
 function copyDirectoryContents(
   sourceDir: string,
   targetDir: string,
@@ -699,13 +677,24 @@ function installSelfContainedMcps(
   }
 }
 
+function isWebAgentMcpInstalled(mcpDir: string): boolean {
+  const nodeModules = join(mcpDir, "node_modules");
+  if (!existsSync(nodeModules)) {
+    return false;
+  }
+  // Verify key dependencies actually exist inside node_modules
+  const requiredPackages = ["@modelcontextprotocol/sdk", "zod"];
+  return requiredPackages.every((pkg) =>
+    existsSync(join(nodeModules, ...pkg.split("/"))),
+  );
+}
+
 async function installWebAgentMcpDeps(vendorMcpDir: string): Promise<void> {
   const mcpDir = join(vendorMcpDir, "web-agent-mcp");
   if (!existsSync(mcpDir)) {
     return;
   }
-  const nodeModules = join(mcpDir, "node_modules");
-  if (existsSync(nodeModules)) {
+  if (isWebAgentMcpInstalled(mcpDir)) {
     return;
   }
   await new Promise<void>((resolvePromise, rejectPromise) => {
@@ -946,13 +935,6 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{
     );
   }
   installSelfContainedMcps(paths.vendorMcpDir, { fresh: options?.fresh });
-  try {
-    await installWebAgentMcpDeps(paths.vendorMcpDir);
-  } catch (error) {
-    console.warn(
-      `[opencode-pair-autonomy] Failed to install web-agent-mcp dependencies: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
   installBundledSkills(paths.skillsDir);
   const configPath = updateConfig(paths);
   const packageJsonPath = updatePackageJson(paths);
@@ -960,7 +942,13 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{
   writeDcpConfig(paths.dcpConfig);
   await runBunInstall(configDir);
   await ensureInstalledHarnessBuild(configDir);
-  cleanupLegacyPluginWrappers(paths.pluginsDir);
+  try {
+    await installWebAgentMcpDeps(paths.vendorMcpDir);
+  } catch (error) {
+    console.warn(
+      `[opencode-pair-autonomy] Failed to install web-agent-mcp dependencies: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 
   return {
     configPath,
@@ -1025,7 +1013,6 @@ export async function uninstallHarness(): Promise<{
     }
   }
 
-  cleanupLegacyPluginWrappers(paths.pluginsDir);
   rmSync(join(paths.binDir, "fff-mcp"), { force: true });
   rmSync(join(paths.binDir, "fff-mcp.exe"), { force: true });
   rmSync(paths.vendorDir, { recursive: true, force: true });

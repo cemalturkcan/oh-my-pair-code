@@ -173,10 +173,7 @@ export function createHarnessMcps(
     const serverRoot = resolveMcpServerRoot("web-agent-mcp");
     result["web-agent-mcp"] = {
       type: "local",
-      command: [
-        join(serverRoot, "node_modules", ".bin", "tsx"),
-        join(serverRoot, "src", "server.ts"),
-      ],
+      command: ["bun", "run", join(serverRoot, "src", "server.ts")],
       environment: {
         WEB_AGENT_CHROME_USER_DATA_DIR: join(
           homedir(),

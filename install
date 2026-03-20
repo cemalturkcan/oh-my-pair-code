@@ -14515,28 +14515,27 @@ import { homedir } from "os";
 import { fileURLToPath } from "url";
 import { spawn } from "child_process";
 import { createInterface } from "readline";
-var STATIC_PLUGIN_FILENAMES = [
-  "opencode-pair-autonomy.js",
-  "opencode-dcp.js",
-  "opencode-skillful.js",
-  "opencode-notificator.js",
-  "md-table-formatter.js",
-  "opencode-pty.js"
+var MANAGED_PLUGIN_ENTRIES = [
+  "@tarquinen/opencode-dcp",
+  "@zenobius/opencode-skillful",
+  "@franlol/opencode-md-table-formatter",
+  "opencode-pty",
+  "opencode-anthropic-login-via-cli"
 ];
 var MANAGED_PACKAGE_NAMES = [
   "opencode-pair-autonomy",
   "opencode-pty",
-  "opencode-notificator",
   "@zenobius/opencode-skillful",
   "@tarquinen/opencode-dcp",
-  "@franlol/opencode-md-table-formatter"
+  "@franlol/opencode-md-table-formatter",
+  "opencode-anthropic-login-via-cli"
 ];
 var PACKAGE_SPECS = {
   "opencode-pty": "latest",
-  "opencode-notificator": "git+https://github.com/panta82/opencode-notificator.git",
   "@zenobius/opencode-skillful": "latest",
   "@tarquinen/opencode-dcp": "latest",
   "@franlol/opencode-md-table-formatter": "latest",
+  "opencode-anthropic-login-via-cli": "latest",
   "unique-names-generator": "latest",
   "@modelcontextprotocol/sdk": "latest",
   pg: "latest",
@@ -14574,8 +14573,7 @@ function getConfigPaths(configDir) {
     dcpConfig: join(configDir, "dcp.jsonc"),
     vendorDir: join(configDir, "vendor", "opencode-background-agents-local"),
     vendorMcpDir: join(configDir, "vendor", "mcp"),
-    shellStrategyDir: join(configDir, "plugin", "shell-strategy"),
-    pluginsDir: join(configDir, "plugins")
+    shellStrategyDir: join(configDir, "plugin", "shell-strategy")
   };
 }
 function bundledMcpSourceRoot(name) {
@@ -14691,14 +14689,17 @@ function resolveSelfPackageSpec() {
   const version2 = typeof metadata.version === "string" ? metadata.version.trim() : "";
   return version2 || "latest";
 }
-function mergePluginList(existing, vendorDir, pluginsDir) {
+function mergePluginList(existing, vendorDir) {
+  const selfEntry = `file://${packageRoot()}`;
   const backgroundEntry = `file://${vendorDir}`;
   const desired = [
-    ...STATIC_PLUGIN_FILENAMES.map((file2) => `file://${join(pluginsDir, file2)}`),
+    selfEntry,
+    ...MANAGED_PLUGIN_ENTRIES.map((pkg) => `${pkg}@latest`),
     backgroundEntry
   ];
+  const desiredBareNames = new Set(MANAGED_PLUGIN_ENTRIES);
   const current = Array.isArray(existing) ? existing.filter((item) => typeof item === "string") : [];
-  const retained = current.filter((item) => !desired.includes(item) && !item.includes("opencode-background-agents-local") && !item.includes("plannotator") && item !== "opencode-shell-non-interactive-strategy" && item !== "opencode-pair-autonomy" && item !== "@tarquinen/opencode-dcp");
+  const retained = current.filter((item) => !desired.includes(item) && !desiredBareNames.has(item) && !desiredBareNames.has(item.replace(/@latest$/, "")) && !item.includes("opencode-background-agents-local") && !item.startsWith("file://"));
   return [...desired, ...retained];
 }
 function mergeInstructionsList(existing, shellStrategyDir) {
@@ -14707,15 +14708,14 @@ function mergeInstructionsList(existing, shellStrategyDir) {
   const retained = current.filter((item) => !item.endsWith("/shell-strategy/shell_strategy.md"));
   return [shellInstruction, ...retained];
 }
-function removeHarnessPluginList(existing, vendorDir, pluginsDir) {
+function removeHarnessPluginList(existing, vendorDir) {
+  const managedBareNames = new Set(MANAGED_PLUGIN_ENTRIES);
   const managedEntries = new Set([
-    ...STATIC_PLUGIN_FILENAMES.map((file2) => `file://${join(pluginsDir, file2)}`),
-    `file://${vendorDir}`,
-    "opencode-pair-autonomy",
-    "@tarquinen/opencode-dcp"
+    ...MANAGED_PLUGIN_ENTRIES.map((pkg) => `${pkg}@latest`),
+    `file://${vendorDir}`
   ]);
   const current = Array.isArray(existing) ? existing.filter((item) => typeof item === "string") : [];
-  const retained = current.filter((item) => !managedEntries.has(item));
+  const retained = current.filter((item) => !managedEntries.has(item) && !managedBareNames.has(item) && !managedBareNames.has(item.replace(/@latest$/, "")) && !item.includes("opencode-background-agents-local") && !item.includes("opencode-pair-autonomy"));
   return retained.length > 0 ? retained : undefined;
 }
 function removeHarnessInstructionsList(existing) {
@@ -14938,32 +14938,6 @@ async function installShellStrategyInstruction(shellStrategyDir) {
   const content = await fetchText("https://raw.githubusercontent.com/JRedeker/opencode-shell-strategy/trunk/shell_strategy.md");
   writeFileSync(join(shellStrategyDir, "shell_strategy.md"), content, "utf8");
 }
-function installPluginWrappers(pluginsDir, configDir) {
-  ensureDir(pluginsDir);
-  writeFileSync(join(pluginsDir, "opencode-pair-autonomy.js"), `import plugin from "file://${join(configDir, "node_modules", "opencode-pair-autonomy", "dist", "index.js")}";
-export default plugin;
-`, "utf8");
-  writeFileSync(join(pluginsDir, "opencode-dcp.js"), `import plugin from "file://${join(configDir, "node_modules", "@tarquinen", "opencode-dcp", "dist", "index.js")}";
-export default plugin;
-`, "utf8");
-  writeFileSync(join(pluginsDir, "opencode-skillful.js"), `import { SkillsPlugin } from "file://${join(configDir, "node_modules", "@zenobius", "opencode-skillful", "dist", "index.js")}";
-export default SkillsPlugin;
-`, "utf8");
-  writeFileSync(join(pluginsDir, "opencode-notificator.js"), `import { NotificationPlugin } from "file://${join(configDir, "node_modules", "opencode-notificator", "notificator.js")}";
-export default NotificationPlugin;
-`, "utf8");
-  writeFileSync(join(pluginsDir, "md-table-formatter.js"), `import { FormatTables } from "file://${join(configDir, "node_modules", "@franlol", "opencode-md-table-formatter", "index.ts")}";
-export default FormatTables;
-`, "utf8");
-  writeFileSync(join(pluginsDir, "opencode-pty.js"), `import { PTYPlugin } from "file://${join(configDir, "node_modules", "opencode-pty", "src", "plugin.ts")}";
-export default PTYPlugin;
-`, "utf8");
-}
-function removePluginWrappers(pluginsDir) {
-  for (const filename of STATIC_PLUGIN_FILENAMES) {
-    rmSync(join(pluginsDir, filename), { force: true });
-  }
-}
 function copyDirectoryContents(sourceDir, targetDir, options, relativePath = "") {
   ensureDir(targetDir);
   for (const entry of readdirSync(sourceDir)) {
@@ -15001,13 +14975,20 @@ function installSelfContainedMcps(vendorMcpDir, options) {
     });
   }
 }
+function isWebAgentMcpInstalled(mcpDir) {
+  const nodeModules = join(mcpDir, "node_modules");
+  if (!existsSync(nodeModules)) {
+    return false;
+  }
+  const requiredPackages = ["@modelcontextprotocol/sdk", "zod"];
+  return requiredPackages.every((pkg) => existsSync(join(nodeModules, ...pkg.split("/"))));
+}
 async function installWebAgentMcpDeps(vendorMcpDir) {
   const mcpDir = join(vendorMcpDir, "web-agent-mcp");
   if (!existsSync(mcpDir)) {
     return;
   }
-  const nodeModules = join(mcpDir, "node_modules");
-  if (existsSync(nodeModules)) {
+  if (isWebAgentMcpInstalled(mcpDir)) {
     return;
   }
   await new Promise((resolvePromise, rejectPromise) => {
@@ -15068,7 +15049,7 @@ function updateConfig(paths) {
   const config2 = readJsonLike(detected.path);
   backupFile(detected.path);
   config2.$schema = config2.$schema ?? "https://opencode.ai/config.json";
-  config2.plugin = mergePluginList(config2.plugin, paths.vendorDir, paths.pluginsDir);
+  config2.plugin = mergePluginList(config2.plugin, paths.vendorDir);
   config2.instructions = mergeInstructionsList(config2.instructions, paths.shellStrategyDir);
   config2.default_agent = "pair";
   forceAllowPermissions(config2);
@@ -15174,11 +15155,6 @@ async function installHarness(options) {
     console.warn(`[opencode-pair-autonomy] Failed to install fff-mcp automatically: ${error48 instanceof Error ? error48.message : String(error48)}`);
   }
   installSelfContainedMcps(paths.vendorMcpDir, { fresh: options?.fresh });
-  try {
-    await installWebAgentMcpDeps(paths.vendorMcpDir);
-  } catch (error48) {
-    console.warn(`[opencode-pair-autonomy] Failed to install web-agent-mcp dependencies: ${error48 instanceof Error ? error48.message : String(error48)}`);
-  }
   installBundledSkills(paths.skillsDir);
   const configPath = updateConfig(paths);
   const packageJsonPath = updatePackageJson(paths);
@@ -15186,7 +15162,11 @@ async function installHarness(options) {
   writeDcpConfig(paths.dcpConfig);
   await runBunInstall(configDir);
   await ensureInstalledHarnessBuild(configDir);
-  installPluginWrappers(paths.pluginsDir, configDir);
+  try {
+    await installWebAgentMcpDeps(paths.vendorMcpDir);
+  } catch (error48) {
+    console.warn(`[opencode-pair-autonomy] Failed to install web-agent-mcp dependencies: ${error48 instanceof Error ? error48.message : String(error48)}`);
+  }
   return {
     configPath,
     packageJsonPath,
@@ -15200,7 +15180,7 @@ async function uninstallHarness() {
   if (existsSync(detected.path)) {
     const config2 = readJsonLike(detected.path);
     backupFile(detected.path);
-    const nextPlugin = removeHarnessPluginList(config2.plugin, paths.vendorDir, paths.pluginsDir);
+    const nextPlugin = removeHarnessPluginList(config2.plugin, paths.vendorDir);
     if (nextPlugin) {
       config2.plugin = nextPlugin;
     } else {
@@ -15231,12 +15211,10 @@ async function uninstallHarness() {
       await runBunInstall(configDir);
     }
   }
-  removePluginWrappers(paths.pluginsDir);
   rmSync(join(paths.binDir, "fff-mcp"), { force: true });
   rmSync(join(paths.binDir, "fff-mcp.exe"), { force: true });
   rmSync(paths.vendorDir, { recursive: true, force: true });
   rmSync(join(paths.shellStrategyDir, "shell_strategy.md"), { force: true });
-  removeDirectoryIfEmpty(paths.pluginsDir);
   removeDirectoryIfEmpty(paths.binDir);
   removeDirectoryIfEmpty(paths.shellStrategyDir);
   removeDirectoryIfEmpty(join(configDir, "plugin"));
@@ -15277,13 +15255,13 @@ function initProject(directory) {
 function printConfig() {
   console.log(`{
   "plugin": [
-    "file:///ABSOLUTE/PATH/TO/plugins/opencode-pair-autonomy.js",
-    "file:///ABSOLUTE/PATH/TO/plugins/opencode-dcp.js",
-    "file:///ABSOLUTE/PATH/TO/plugins/opencode-skillful.js",
-    "file:///ABSOLUTE/PATH/TO/plugins/opencode-notificator.js",
-    "file:///ABSOLUTE/PATH/TO/plugins/md-table-formatter.js",
-    "file:///ABSOLUTE/PATH/TO/plugins/opencode-pty.js",
-    "file:///ABSOLUTE/PATH/TO/opencode-background-agents-local"
+    "file://<project-root>",
+    "@tarquinen/opencode-dcp@latest",
+    "@zenobius/opencode-skillful@latest",
+    "@franlol/opencode-md-table-formatter@latest",
+    "opencode-pty@latest",
+    "opencode-anthropic-login-via-cli@latest",
+    "file://~/.config/opencode/vendor/opencode-background-agents-local"
   ],
   "instructions": [
     "~/.config/opencode/plugin/shell-strategy/shell_strategy.md"
