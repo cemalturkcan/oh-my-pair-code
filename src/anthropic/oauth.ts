@@ -7,16 +7,17 @@ import { homedir, platform } from "node:os";
 
 const execFileAsync = promisify(execFile);
 
-// ── Constants (fallback defaults — overridden by binary introspection) ────────
+// ── Constants ────────────────────────────────────────────────────────────────
 
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const AUTHORIZE_URL = "https://claude.ai/oauth/authorize";
 const TOKEN_URL = "https://console.anthropic.com/v1/oauth/token";
 const REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback";
+const TOOL_PREFIX = "mcp_";
 
 const DEFAULT_VERSION = "2.1.80";
 const DEFAULT_SCOPES =
-  "user:file_upload user:inference user:mcp_servers user:profile user:sessions:claude_code";
+  "org:create_api_key user:file_upload user:inference user:mcp_servers user:profile user:sessions:claude_code";
 const DEFAULT_BETA_HEADERS = [
   "claude-code-20250219",
   "interleaved-thinking-2025-05-14",
@@ -24,21 +25,20 @@ const DEFAULT_BETA_HEADERS = [
 ];
 
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
+const LOG_PATH = join(homedir(), ".local", "share", "opencode", "oauth-debug.log");
+
+async function log(msg: string) {
+  const ts = new Date().toISOString();
+  const line = `[${ts}] ${msg}\n`;
+  try {
+    const { appendFile } = await import("node:fs/promises");
+    await appendFile(LOG_PATH, line);
+  } catch {}
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type OAuthTokens = {
-  access: string;
-  refresh: string;
-  expires: number;
-};
-
-type ClaudeIntrospection = {
-  version: string;
-  userAgent: string;
-  betaHeaders: string[];
-  scopes: string;
-};
+type OAuthTokens = { access: string; refresh: string; expires: number };
 
 // ── Binary Introspection ─────────────────────────────────────────────────────
 
@@ -49,7 +49,12 @@ const KNOWN_BETA_PREFIXES = [
   "oauth-",
 ];
 
-async function introspectClaudeBinary(): Promise<ClaudeIntrospection | null> {
+async function introspectClaudeBinary(): Promise<{
+  version: string;
+  userAgent: string;
+  betaHeaders: string[];
+  scopes: string;
+} | null> {
   try {
     const { stdout: versionOut } = await execFileAsync(
       "claude",
@@ -66,7 +71,6 @@ async function introspectClaudeBinary(): Promise<ClaudeIntrospection | null> {
 
     const shellSafe = binaryPath.replace(/'/g, "'\\''");
 
-    // Extract beta headers (piped through grep to avoid loading entire strings output)
     const { stdout: betaOut } = await execFileAsync(
       "sh",
       [
@@ -79,14 +83,11 @@ async function introspectClaudeBinary(): Promise<ClaudeIntrospection | null> {
     const betaHeaders = betaOut
       .trim()
       .split("\n")
-      .filter(
-        (h) => h && KNOWN_BETA_PREFIXES.some((p) => h.startsWith(p)),
-      );
+      .filter((h) => h && KNOWN_BETA_PREFIXES.some((p) => h.startsWith(p)));
     if (!betaHeaders.some((h) => h.startsWith("oauth-"))) {
       betaHeaders.push("oauth-2025-04-20");
     }
 
-    // Extract scopes
     const { stdout: scopeOut } = await execFileAsync(
       "sh",
       [
@@ -144,17 +145,11 @@ function base64url(buf: Buffer): string {
   return buf.toString("base64url").replace(/=+$/, "");
 }
 
-function generateVerifier(): string {
-  return base64url(randomBytes(32));
-}
-
-function generateChallenge(verifier: string): string {
-  return base64url(createHash("sha256").update(verifier).digest());
-}
-
 function createAuthorizationRequest(scopes: string) {
-  const verifier = generateVerifier();
-  const challenge = generateChallenge(verifier);
+  const verifier = base64url(randomBytes(32));
+  const challenge = base64url(
+    createHash("sha256").update(verifier).digest(),
+  );
   const params = new URLSearchParams({
     code: "true",
     response_type: "code",
@@ -168,17 +163,13 @@ function createAuthorizationRequest(scopes: string) {
   return { url: `${AUTHORIZE_URL}?${params}`, verifier };
 }
 
-function parseAuthCode(raw: string): string {
-  const hashIdx = raw.indexOf("#");
-  return hashIdx >= 0 ? raw.slice(0, hashIdx) : raw;
-}
-
 async function exchangeCodeForTokens(
   rawCode: string,
   verifier: string,
   userAgent: string,
 ): Promise<OAuthTokens> {
-  const code = parseAuthCode(rawCode.trim());
+  const hashIdx = rawCode.indexOf("#");
+  const code = (hashIdx >= 0 ? rawCode.slice(0, hashIdx) : rawCode).trim();
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code,
@@ -219,27 +210,17 @@ let refreshInFlight: Promise<OAuthTokens> | null = null;
 
 async function refreshTokens(
   refreshToken: string,
-  userAgent: string,
 ): Promise<OAuthTokens> {
-  const body = new URLSearchParams({
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-    client_id: CLIENT_ID,
-  });
-  const res = await fetchWithRetry(TOKEN_URL, {
+  const res = await fetch(TOKEN_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "User-Agent": userAgent,
-    },
-    body: body.toString(),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      client_id: CLIENT_ID,
+    }),
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(
-      `Token refresh failed: ${res.status} ${res.statusText}${text ? ` — ${text}` : ""}`,
-    );
-  }
+  if (!res.ok) throw new Error(`Token refresh failed: ${res.status}`);
   const data = (await res.json()) as {
     access_token: string;
     refresh_token: string;
@@ -252,12 +233,9 @@ async function refreshTokens(
   };
 }
 
-function refreshTokensSafe(
-  refreshToken: string,
-  userAgent: string,
-): Promise<OAuthTokens> {
+function refreshTokensSafe(refreshToken: string): Promise<OAuthTokens> {
   if (refreshInFlight) return refreshInFlight;
-  refreshInFlight = refreshTokens(refreshToken, userAgent).finally(() => {
+  refreshInFlight = refreshTokens(refreshToken).finally(() => {
     refreshInFlight = null;
   });
   return refreshInFlight;
@@ -265,7 +243,9 @@ function refreshTokensSafe(
 
 // ── Claude Code Credential Reader ────────────────────────────────────────────
 
-async function readKeychainEntry(account?: string): Promise<string | null> {
+async function readKeychainEntry(
+  account?: string,
+): Promise<string | null> {
   try {
     const args = ["find-generic-password", "-s", "Claude Code-credentials"];
     if (account) args.push("-a", account);
@@ -280,10 +260,7 @@ async function readKeychainEntry(account?: string): Promise<string | null> {
 async function readClaudeCodeCredentials(): Promise<OAuthTokens | null> {
   try {
     let raw: string | null = null;
-
     if (platform() === "darwin") {
-      // Try user-specific entry first (newer Claude Code versions),
-      // then fall back to generic entry
       const user = process.env.USER || "";
       if (user) raw = await readKeychainEntry(user);
       if (!raw) raw = await readKeychainEntry("Claude Code");
@@ -294,9 +271,7 @@ async function readClaudeCodeCredentials(): Promise<OAuthTokens | null> {
         "utf-8",
       );
     }
-
     if (!raw) return null;
-
     const creds = JSON.parse(raw) as {
       claudeAiOauth?: {
         accessToken?: string;
@@ -306,7 +281,6 @@ async function readClaudeCodeCredentials(): Promise<OAuthTokens | null> {
     };
     const oauth = creds.claudeAiOauth;
     if (!oauth?.accessToken || !oauth?.refreshToken) return null;
-
     return {
       access: oauth.accessToken,
       refresh: oauth.refreshToken,
@@ -317,120 +291,221 @@ async function readClaudeCodeCredentials(): Promise<OAuthTokens | null> {
   }
 }
 
-// ── Claude CLI Refresh ───────────────────────────────────────────────────────
-
 async function refreshViaClaudeCli(): Promise<OAuthTokens | null> {
   try {
-    await execFileAsync(
-      "claude",
-      ["-p", ".", "--model", "haiku", "hi"],
-      { timeout: 30_000, env: { ...process.env, TERM: "dumb" } },
-    );
-  } catch {
-    // CLI might error but still refreshes the token as a side effect
-  }
-  // Re-read keychain after CLI ran (it should have refreshed)
+    await execFileAsync("claude", ["-p", ".", "--model", "haiku", "hi"], {
+      timeout: 30_000,
+      env: { ...process.env, TERM: "dumb" },
+    });
+  } catch {}
   return readClaudeCodeCredentials();
 }
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function isExpiringSoon(expiresAt: number): boolean {
   return Date.now() + REFRESH_BUFFER_MS >= expiresAt;
 }
 
+// ── Custom Fetch (Bearer auth + tool renaming + prompt sanitization) ─────────
+
+function createCustomFetch(
+  getAuth: () => Promise<any>,
+  client: any,
+  userAgent: string,
+  betaHeaders: string[],
+) {
+  return async (input: any, init?: any): Promise<Response> => {
+    const auth = await getAuth();
+    await log(`FETCH auth.type=${auth.type} hasAccess=${!!auth.access} expired=${auth.expires < Date.now()}`);
+    if (auth.type !== "oauth") return fetch(input, init);
+
+    // Refresh if expired
+    if (!auth.access || auth.expires < Date.now()) {
+      try {
+        const fresh = await refreshTokensSafe(auth.refresh);
+        await client.auth.set({
+          path: { id: "anthropic" },
+          body: {
+            type: "oauth",
+            refresh: fresh.refresh,
+            access: fresh.access,
+            expires: fresh.expires,
+          },
+        });
+        auth.access = fresh.access;
+      } catch {
+        // If refresh fails, try keychain
+        const kc = await readClaudeCodeCredentials();
+        if (kc && !isExpiringSoon(kc.expires)) {
+          await client.auth.set({
+            path: { id: "anthropic" },
+            body: { type: "oauth", ...kc },
+          });
+          auth.access = kc.access;
+        }
+      }
+    }
+
+    // Build headers
+    const requestInit = init ?? {};
+    const reqHeaders = new Headers();
+
+    if (input instanceof Request) {
+      input.headers.forEach((v: string, k: string) => reqHeaders.set(k, v));
+    }
+    if (requestInit.headers) {
+      const h = requestInit.headers;
+      if (h instanceof Headers) {
+        h.forEach((v: string, k: string) => reqHeaders.set(k, v));
+      } else if (Array.isArray(h)) {
+        for (const [k, v] of h) {
+          if (v !== undefined) reqHeaders.set(k, String(v));
+        }
+      } else {
+        for (const [k, v] of Object.entries(h as Record<string, string>)) {
+          if (v !== undefined) reqHeaders.set(k, String(v));
+        }
+      }
+    }
+
+    // Merge beta headers
+    const incoming = (reqHeaders.get("anthropic-beta") || "")
+      .split(",")
+      .map((b) => b.trim())
+      .filter(Boolean);
+    const merged = [...new Set([...betaHeaders, ...incoming])].join(",");
+
+    reqHeaders.set("authorization", `Bearer ${auth.access}`);
+    reqHeaders.set("anthropic-beta", merged);
+    reqHeaders.set("user-agent", userAgent);
+    reqHeaders.delete("x-api-key");
+
+    // Transform request body
+    let body = requestInit.body;
+    if (body && typeof body === "string") {
+      try {
+        const parsed = JSON.parse(body);
+
+        // Sanitize system prompt — server blocks "OpenCode"
+        if (parsed.system && Array.isArray(parsed.system)) {
+          parsed.system = parsed.system.map((item: any) => {
+            if (item.type === "text" && item.text) {
+              return {
+                ...item,
+                text: item.text
+                  .replace(/OpenCode/g, "Claude Code")
+                  .replace(/opencode/gi, "Claude"),
+              };
+            }
+            return item;
+          });
+        }
+
+        // Prefix tool names
+        if (parsed.tools && Array.isArray(parsed.tools)) {
+          parsed.tools = parsed.tools.map((t: any) => ({
+            ...t,
+            name: t.name ? `${TOOL_PREFIX}${t.name}` : t.name,
+          }));
+        }
+        if (parsed.messages && Array.isArray(parsed.messages)) {
+          parsed.messages = parsed.messages.map((msg: any) => {
+            if (msg.content && Array.isArray(msg.content)) {
+              msg.content = msg.content.map((block: any) => {
+                if (block.type === "tool_use" && block.name) {
+                  return { ...block, name: `${TOOL_PREFIX}${block.name}` };
+                }
+                return block;
+              });
+            }
+            return msg;
+          });
+        }
+        body = JSON.stringify(parsed);
+      } catch {}
+    }
+
+    // Add ?beta=true to messages endpoint
+    let reqInput = input;
+    try {
+      let reqUrl: URL | null = null;
+      if (typeof input === "string" || input instanceof URL) {
+        reqUrl = new URL(input.toString());
+      } else if (input instanceof Request) {
+        reqUrl = new URL(input.url);
+      }
+      if (reqUrl?.pathname === "/v1/messages" && !reqUrl.searchParams.has("beta")) {
+        reqUrl.searchParams.set("beta", "true");
+        reqInput = input instanceof Request
+          ? new Request(reqUrl.toString(), input)
+          : reqUrl;
+      }
+    } catch {}
+
+    const response = await fetch(reqInput, {
+      ...requestInit,
+      body,
+      headers: reqHeaders,
+    });
+
+    // Un-prefix tool names in streaming response
+    if (response.body) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async pull(controller) {
+          const { done, value } = await reader.read();
+          if (done) {
+            controller.close();
+            return;
+          }
+          let text = decoder.decode(value, { stream: true });
+          text = text.replace(/"name"\s*:\s*"mcp_([^"]+)"/g, '"name": "$1"');
+          controller.enqueue(encoder.encode(text));
+        },
+      });
+      return new Response(stream, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+    }
+
+    return response;
+  };
+}
+
 // ── Main Export ──────────────────────────────────────────────────────────────
 
-export async function createAnthropicOAuth() {
+export async function createAnthropicOAuth(client: any) {
+  await log("=== PLUGIN STARTUP ===");
   const introspection = await introspectClaudeBinary();
+  await log(`INTROSPECT: ${introspection ? `v${introspection.version} headers=${introspection.betaHeaders.join(",")}` : "FALLBACK (no claude binary)"}`);
 
   const userAgent =
-    introspection?.userAgent ??
-    `claude-cli/${DEFAULT_VERSION} (external, cli)`;
+    introspection?.userAgent ?? `claude-cli/${DEFAULT_VERSION} (external, cli)`;
   const betaHeaders = introspection?.betaHeaders ?? DEFAULT_BETA_HEADERS;
   const scopes = introspection?.scopes ?? DEFAULT_SCOPES;
-
-  // Cached access token — injected into x-api-key on every request.
-  // Initialize from auth.json or keychain so the very first request has a valid token.
-  let cachedToken: string | undefined;
-  try {
-    const authPath = join(
-      process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"),
-      "opencode",
-      "auth.json",
-    );
-    const authData = JSON.parse(await readFile(authPath, "utf-8")) as {
-      anthropic?: { access?: string; expires?: number };
-    };
-    if (authData?.anthropic?.access && authData.anthropic.expires && !isExpiringSoon(authData.anthropic.expires)) {
-      cachedToken = authData.anthropic.access;
-    }
-  } catch {}
-  if (!cachedToken) {
-    const kc = await readClaudeCodeCredentials();
-    if (kc && !isExpiringSoon(kc.expires)) cachedToken = kc.access;
-  }
-
-  const loader = async (
-    auth: () => Promise<any>,
-    _provider: any,
-  ): Promise<Record<string, any>> => {
-    try {
-      const current = await auth();
-      if (current?.type !== "oauth" || !current.access || !current.refresh) {
-        return current ?? {};
-      }
-
-      // Token still fresh — nothing to do
-      if (current.expires && !isExpiringSoon(current.expires)) {
-        cachedToken = current.access;
-        return current;
-      }
-
-      // Try refresh_token grant with stored refresh token
-      try {
-        const refreshed = await refreshTokensSafe(current.refresh, userAgent);
-        cachedToken = refreshed.access;
-        return { type: "oauth", access: refreshed.access, refresh: refreshed.refresh, expires: refreshed.expires };
-      } catch {
-        // Refresh token consumed (single-use race) — fall back to keychain
-      }
-
-      // Read fresh tokens from Claude Code
-      const kc = await readClaudeCodeCredentials();
-      if (!kc) return current;
-
-      // Keychain token still fresh
-      if (!isExpiringSoon(kc.expires)) {
-        cachedToken = kc.access;
-        return { type: "oauth", access: kc.access, refresh: kc.refresh, expires: kc.expires };
-      }
-
-      // Keychain token also expired — refresh with keychain's refresh token
-      try {
-        const refreshed = await refreshTokensSafe(kc.refresh, userAgent);
-        cachedToken = refreshed.access;
-        return { type: "oauth", access: refreshed.access, refresh: refreshed.refresh, expires: refreshed.expires };
-      } catch {
-        // Keychain refresh token also consumed — run Claude CLI to force update
-      }
-
-      const cliFresh = await refreshViaClaudeCli();
-      if (cliFresh && !isExpiringSoon(cliFresh.expires)) {
-        cachedToken = cliFresh.access;
-        return { type: "oauth", access: cliFresh.access, refresh: cliFresh.refresh, expires: cliFresh.expires };
-      }
-
-      return current;
-    } catch {
-      return {};
-    }
-  };
 
   return {
     auth: {
       provider: "anthropic" as const,
-      loader,
+      async loader(getAuth: () => Promise<any>, provider: any) {
+        await log("LOADER called");
+        const auth = await getAuth();
+        await log(`LOADER auth.type=${auth.type} hasAccess=${!!auth.access} expires=${auth.expires}`);
+        if (auth.type === "oauth") {
+          // Zero out cost for Pro/Max plan
+          for (const model of Object.values(provider.models) as any[]) {
+            model.cost = { input: 0, output: 0, cache: { read: 0, write: 0 } };
+          }
+          return {
+            apiKey: "",
+            fetch: createCustomFetch(getAuth, client, userAgent, betaHeaders),
+          };
+        }
+        return {};
+      },
       methods: [
         {
           type: "oauth" as const,
@@ -441,30 +516,32 @@ export async function createAnthropicOAuth() {
               instructions: "Detecting Claude Code credentials…",
               method: "auto" as const,
               async callback() {
+                await log("AUTO callback started");
                 let tokens = await readClaudeCodeCredentials();
+                await log(`AUTO keychain: ${tokens ? `found, expires=${tokens.expires}, expiringSoon=${isExpiringSoon(tokens.expires)}` : "NOT FOUND"}`);
                 if (!tokens) return { type: "failed" as const };
 
-                // Token fresh — use directly
                 if (!isExpiringSoon(tokens.expires)) {
-                  cachedToken = tokens.access;
-                  return { type: "success" as const, access: tokens.access, refresh: tokens.refresh, expires: tokens.expires };
+                  await log("AUTO SUCCESS — token fresh from keychain");
+                  return { type: "success" as const, ...tokens };
                 }
 
-                // Token expired — try refresh_token grant
                 try {
-                  const refreshed = await refreshTokensSafe(tokens.refresh, userAgent);
-                  cachedToken = refreshed.access;
-                  return { type: "success" as const, access: refreshed.access, refresh: refreshed.refresh, expires: refreshed.expires };
-                } catch {
-                  // Refresh token consumed — run Claude CLI to force keychain update
+                  const refreshed = await refreshTokensSafe(tokens.refresh);
+                  await log("AUTO SUCCESS — refreshed via token endpoint");
+                  return { type: "success" as const, ...refreshed };
+                } catch (e) {
+                  await log(`AUTO refresh failed: ${e}`);
                 }
 
+                await log("AUTO trying CLI refresh...");
                 const fresh = await refreshViaClaudeCli();
                 if (fresh && !isExpiringSoon(fresh.expires)) {
-                  cachedToken = fresh.access;
-                  return { type: "success" as const, access: fresh.access, refresh: fresh.refresh, expires: fresh.expires };
+                  await log("AUTO SUCCESS — refreshed via CLI");
+                  return { type: "success" as const, ...fresh };
                 }
 
+                await log("AUTO FAILED — all methods exhausted");
                 return { type: "failed" as const };
               },
             };
@@ -475,6 +552,7 @@ export async function createAnthropicOAuth() {
           label: "Claude Pro/Max (browser)",
           authorize() {
             const { url, verifier } = createAuthorizationRequest(scopes);
+            let exchangePromise: Promise<any> | null = null;
             return Promise.resolve({
               url,
               instructions:
@@ -482,44 +560,42 @@ export async function createAnthropicOAuth() {
                 "After authorizing, you'll receive a code — paste it below.",
               method: "code" as const,
               async callback(code: string) {
-                try {
-                  const tokens = await exchangeCodeForTokens(
-                    code,
-                    verifier,
-                    userAgent,
-                  );
-                  return {
-                    type: "success" as const,
-                    access: tokens.access,
-                    refresh: tokens.refresh,
-                    expires: tokens.expires,
-                  };
-                } catch (err) {
-                  console.error(
-                    "anthropic-oauth: token exchange failed:",
-                    err instanceof Error ? err.message : err,
-                  );
-                  return { type: "failed" as const };
+                await log(`BROWSER callback, code=${code.slice(0, 20)}... len=${code.length} hasPending=${!!exchangePromise}`);
+                if (exchangePromise) {
+                  await log("BROWSER DEDUP — returning pending promise");
+                  return exchangePromise;
                 }
+                exchangePromise = (async () => {
+                  try {
+                    const tokens = await exchangeCodeForTokens(code, verifier, userAgent);
+                    await log("BROWSER SUCCESS");
+                    return { type: "success" as const, ...tokens };
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    await log(`BROWSER FAILED: ${msg}`);
+                    return { type: "failed" as const };
+                  }
+                })();
+                return exchangePromise;
               },
             });
           },
         },
+        {
+          type: "api" as const,
+          label: "Manually enter API Key",
+          provider: "anthropic",
+        },
       ],
     },
-    config: async (config: any): Promise<void> => {
-      const providers = config.provider ?? {};
-      if (!providers.anthropic) {
-        providers.anthropic = { options: { apiKey: "oauth-managed" } };
-        config.provider = providers;
+    systemTransform: (input: any, output: any) => {
+      const prefix = "You are Claude Code, Anthropic's official CLI for Claude.";
+      if (input.model?.providerID === "anthropic") {
+        output.system.unshift(prefix);
+        if (output.system[1]) {
+          output.system[1] = prefix + "\n\n" + output.system[1];
+        }
       }
-    },
-    chatHeaders: async (input: any, output: any): Promise<void> => {
-      if (input?.provider?.info?.id !== "anthropic") return;
-      // Only set supplementary headers — opencode-anthropic-auth handles Bearer auth via custom fetch
-      output.headers["user-agent"] = userAgent;
-      output.headers["anthropic-beta"] = betaHeaders.join(",");
-      output.headers["x-app"] = "cli";
     },
   };
 }

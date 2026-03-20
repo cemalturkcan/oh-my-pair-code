@@ -11,11 +11,27 @@ const PairAutonomyPlugin: Plugin = async (ctx) => {
   const hooks = await createHarnessHooks(ctx, harnessConfig);
   const oauth =
     harnessConfig.hooks?.anthropic_oauth !== false
-      ? await createAnthropicOAuth()
+      ? await createAnthropicOAuth(ctx.client)
       : null;
 
   return {
-    // auth hook deliberately omitted — opencode-anthropic-auth handles OAuth+loader+Bearer
+    ...(oauth ? { auth: oauth.auth } : {}),
+    ...(oauth
+      ? {
+          "experimental.chat.system.transform": async (
+            input: any,
+            output: any,
+          ) => {
+            oauth.systemTransform(input, output);
+          },
+        }
+      : {}),
+    ...(hooks["experimental.chat.messages.transform"]
+      ? {
+          "experimental.chat.messages.transform":
+            hooks["experimental.chat.messages.transform"],
+        }
+      : {}),
     config: async (config) => {
       const mutableConfig = config as unknown as Record<string, unknown>;
       const existingAgents = (mutableConfig.agent ?? {}) as Record<
@@ -58,14 +74,6 @@ const PairAutonomyPlugin: Plugin = async (ctx) => {
       await hooks.config?.(config);
     },
     ...(hooks["chat.message"] ? { "chat.message": hooks["chat.message"] } : {}),
-    ...(hooks["chat.headers"] || oauth
-      ? {
-          "chat.headers": async (input: any, output: any) => {
-            await hooks["chat.headers"]?.(input, output);
-            await oauth?.chatHeaders(input, output);
-          },
-        }
-      : {}),
     ...(hooks.event ? { event: hooks.event } : {}),
     ...(hooks["tool.execute.before"]
       ? { "tool.execute.before": hooks["tool.execute.before"] }
@@ -85,12 +93,6 @@ const PairAutonomyPlugin: Plugin = async (ctx) => {
       ? {
           "experimental.session.compacting":
             hooks["experimental.session.compacting"],
-        }
-      : {}),
-    ...(hooks["experimental.chat.messages.transform"]
-      ? {
-          "experimental.chat.messages.transform":
-            hooks["experimental.chat.messages.transform"],
         }
       : {}),
     ...(hooks["experimental.text.complete"]
