@@ -1,12 +1,13 @@
 import type { HookRuntime } from "./runtime";
-import { resolveSessionID } from "./runtime";
+import { resolveSessionOrEntityID } from "./runtime";
 
-export function createPreCompactHook(
-  runtime: HookRuntime,
-) {
+export function createPreCompactHook(runtime: HookRuntime) {
   return {
-    "experimental.session.compacting": async (input?: unknown): Promise<void> => {
-      const sessionID = resolveSessionID(input);
+    "experimental.session.compacting": async (
+      input?: unknown,
+    ): Promise<void> => {
+      // session-level event, bare .id fallback is safe
+      const sessionID = resolveSessionOrEntityID(input);
       if (!sessionID) {
         return;
       }

@@ -1,40 +1,50 @@
 # Agent Matrix
 
-## Primary agents
+## Primary agents (tab-switchable)
 
-| Agent | Role | Model |
-|---|---|---|
-| `pair` | Default collaborative coding partner | `openai/gpt-5.4` `high` |
-| `pair-plan` | Planning-first pair agent with full repo read and Markdown-only writing | `openai/gpt-5.4` `high` |
-| `autonomous` | Checkpointed autonomous executor | `openai/gpt-5.4` `high` |
+All primary agents run Claude Opus 4.6 with max thinking and full task permissions.
 
-## Discovery and research agents
+| Agent          | Role                                                                          | Model                       | Variant |
+| -------------- | ----------------------------------------------------------------------------- | --------------------------- | ------- |
+| `pair`         | Collaborative pair programmer. Plans first, confirms, executes, auto-reviews. | `anthropic/claude-opus-4-6` | `max`   |
+| `autonomous`   | Checkpointed autonomous executor. Runs independently until done or blocked.   | `anthropic/claude-opus-4-6` | `max`   |
+| `reviewer`     | Primary code reviewer. Launches cross-model review automatically.             | `anthropic/claude-opus-4-6` | `max`   |
+| `web-search`   | Web research agent. Starts researching immediately on activation.             | `anthropic/claude-opus-4-6` | `max`   |
+| `ui-developer` | UI craftsman. Figma extraction, creative design, live UX review.              | `anthropic/claude-opus-4-6` | `max`   |
 
-| Agent | Role | Model |
-|---|---|---|
-| `repo-scout-fast` | Quick repo scanning and pattern lookup | `kimi-for-coding/k2p5` |
-| `repo-scout-deep` | Large repo and dependency tracing | `kimi-for-coding/kimi-k2-thinking` |
-| `researcher-fast` | Quick external research | `kimi-for-coding/k2p5` |
-| `researcher-deep` | Long-form docs and edge-case research | `kimi-for-coding/kimi-k2-thinking` |
+## Subagents
 
-## Execution agents
+| Agent                  | Role                                            | Model                                | Variant |
+| ---------------------- | ----------------------------------------------- | ------------------------------------ | ------- |
+| `repo-scout`           | Repository pattern scout and file discovery.    | `anthropic/claude-sonnet-4-6-latest` | `max`   |
+| `researcher`           | External docs, APIs, and library research.      | `anthropic/claude-sonnet-4-6-latest` | `max`   |
+| `builder`              | Scoped implementation within assigned boundary. | `anthropic/claude-sonnet-4-6-latest` | `max`   |
+| `builder-deep`         | Complex multi-file implementation.              | `anthropic/claude-opus-4-6`          | `max`   |
+| `verifier`             | Verification and failure classification.        | `anthropic/claude-opus-4-6`          | `max`   |
+| `repair`               | Scoped repair for verifier-reported failures.   | `anthropic/claude-opus-4-6`          | `max`   |
+| `yet-another-reviewer` | Cross-model independent reviewer (GPT).         | `openai/gpt-5.4`                     | `max`   |
 
-| Agent | Role | Model |
-|---|---|---|
-| `builder` | Scoped implementation | `openai/gpt-5.4` `medium` |
-| `builder-deep` | Complex multi-file implementation | `openai/gpt-5.4` `high` |
-| `verifier-fast` | Fast verification for large outputs | `kimi-for-coding/k2p5` |
-| `verifier` | Full verification and failure classification | `openai/gpt-5.4` `high` |
-| `repair-fast` | Narrow repair loop | `openai/gpt-5.4` `medium` |
-| `repair` | Full scoped repair | `openai/gpt-5.4` `high` |
-| `architect-fast` | Lightweight planning for risky work | `openai/gpt-5.4` `medium` |
-| `memory-curator` | Summarize saved session and project memory | `openai/gpt-5.4` `medium` |
-| `learning-extractor` | Extract reusable preferences and workflow patterns | `openai/gpt-5.4` `medium` |
-| `build-analyzer` | Compress long build and log output into actionable diagnosis | `openai/gpt-5.4` `medium` |
-| `loop-orchestrator` | Plan worktrees, phased loops, and bounded parallel cascades | `openai/gpt-5.4` `medium` |
+## Automatic delegation rules
+
+These fire automatically from `pair` and `autonomous` — no user action needed:
+
+| Trigger                                                  | Action                                          |
+| -------------------------------------------------------- | ----------------------------------------------- |
+| After significant work (multi-file, features, refactors) | `reviewer` + `yet-another-reviewer` in parallel |
+| After writing/modifying code                             | `verifier`                                      |
+| On verifier failure                                      | `repair` → re-verify                            |
+
+| UI/frontend tasks (pages, components, layouts, styling) | `ui-developer` |
+
+Trivial changes (typos, single-line fixes) skip the review cycle.
+
+## Model tier policy
+
+- **Primary agents**: Claude Opus 4.6 `max` — no exceptions.
+- **Subagents (minimum)**: Claude Sonnet 4.6 `max` — no haiku tier.
+- **Cross-model**: GPT 5.4 `max` for review diversity.
 
 ## Language policy
 
 - All internal prompts, delegation packets, and structured outputs are in English.
 - User-facing replies follow the user's language.
-- User-facing replies should be normalized and clean, not a copy of the user's broken keyboard style.

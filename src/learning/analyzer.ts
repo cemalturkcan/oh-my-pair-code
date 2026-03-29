@@ -1,7 +1,11 @@
 import { getAllSignals, matchesAnySignal } from "../i18n";
 import type { PersistedSessionSummary, Observation } from "../hooks/runtime";
 import { getProjectFactLabel, type ProjectFacts } from "../project-facts";
-import type { LearningCandidate, LearningEvidence, LearnedPattern } from "./types";
+import type {
+  LearningCandidate,
+  LearningEvidence,
+  LearnedPattern,
+} from "./types";
 
 const USER_PREFERENCE_RULES: Array<{ id: string; baseConfidence: number }> = [
   {
@@ -11,10 +15,6 @@ const USER_PREFERENCE_RULES: Array<{ id: string; baseConfidence: number }> = [
   {
     id: "user:explain-disagreement-explicitly",
     baseConfidence: 0.7,
-  },
-  {
-    id: "user:pair-plan-markdown-only",
-    baseConfidence: 0.8,
   },
   {
     id: "user:subagents-are-exceptional",
@@ -35,7 +35,10 @@ function asEvidence(text: string, limit = 140): LearningEvidence {
   return {
     messageKey: "learning.evidence.message",
     values: {
-      text: cleaned.length <= limit ? cleaned : `${cleaned.slice(0, Math.max(0, limit - 3))}...`,
+      text:
+        cleaned.length <= limit
+          ? cleaned
+          : `${cleaned.slice(0, Math.max(0, limit - 3))}...`,
     },
   };
 }
@@ -44,24 +47,30 @@ function stackValueFromFacts(facts: ProjectFacts): string {
   return [...facts.languages, ...facts.frameworks].join("|");
 }
 
-function collectUserPreferenceCandidates(summary: PersistedSessionSummary): LearningCandidate[] {
-  const source = [summary.lastUserMessage, summary.lastAssistantMessage].filter(Boolean).join("\n");
+function collectUserPreferenceCandidates(
+  summary: PersistedSessionSummary,
+): LearningCandidate[] {
+  const source = [summary.lastUserMessage, summary.lastAssistantMessage]
+    .filter(Boolean)
+    .join("\n");
   if (!source) {
     return [];
   }
 
-  return USER_PREFERENCE_RULES
-    .filter((rule) => matchesAnySignal(source, getAllSignals("preferences", rule.id)))
-    .map((rule) => ({
-      id: rule.id,
-      kind: "user_preference" as const,
-      summaryKey: `learning.pattern.${rule.id}`,
-      evidence: asEvidence(source),
-      baseConfidence: rule.baseConfidence,
-    }));
+  return USER_PREFERENCE_RULES.filter((rule) =>
+    matchesAnySignal(source, getAllSignals("preferences", rule.id)),
+  ).map((rule) => ({
+    id: rule.id,
+    kind: "user_preference" as const,
+    summaryKey: `learning.pattern.${rule.id}`,
+    evidence: asEvidence(source),
+    baseConfidence: rule.baseConfidence,
+  }));
 }
 
-function collectRepoConventionCandidates(facts: ProjectFacts): LearningCandidate[] {
+function collectRepoConventionCandidates(
+  facts: ProjectFacts,
+): LearningCandidate[] {
   const candidates: LearningCandidate[] = [];
 
   if (facts.packageManager !== "unknown") {
@@ -95,7 +104,9 @@ function collectRepoConventionCandidates(facts: ProjectFacts): LearningCandidate
   return candidates;
 }
 
-function collectObservationCandidates(observations: Observation[]): LearningCandidate[] {
+function collectObservationCandidates(
+  observations: Observation[],
+): LearningCandidate[] {
   const noteCounts = new Map<string, number>();
 
   for (const observation of observations) {
@@ -112,10 +123,13 @@ function collectObservationCandidates(observations: Observation[]): LearningCand
     candidates.push({
       id: "tooling:prefer-pty-for-long-running-commands",
       kind: "tooling_pattern",
-      summaryKey: "learning.pattern.tooling:prefer-pty-for-long-running-commands",
+      summaryKey:
+        "learning.pattern.tooling:prefer-pty-for-long-running-commands",
       evidence: {
         messageKey: "learning.evidence.long_running",
-        values: { count: noteCounts.get("prefer_pty_for_long_running_command") ?? 0 },
+        values: {
+          count: noteCounts.get("prefer_pty_for_long_running_command") ?? 0,
+        },
       },
       baseConfidence: 0.64,
     });
@@ -141,7 +155,9 @@ function collectObservationCandidates(observations: Observation[]): LearningCand
       summaryKey: "learning.pattern.workflow:verify-after-build-failure",
       evidence: {
         messageKey: "learning.evidence.build_failure",
-        values: { count: noteCounts.get("build_or_test_failure_detected") ?? 0 },
+        values: {
+          count: noteCounts.get("build_or_test_failure_detected") ?? 0,
+        },
       },
       baseConfidence: 0.62,
     });
@@ -150,23 +166,29 @@ function collectObservationCandidates(observations: Observation[]): LearningCand
   return candidates;
 }
 
-function mergePattern(existing: LearnedPattern | undefined, candidate: LearningCandidate, now: string): LearnedPattern {
+function mergePattern(
+  existing: LearnedPattern | undefined,
+  candidate: LearningCandidate,
+  now: string,
+): LearnedPattern {
   const evidence = [candidate.evidence, ...(existing?.evidence ?? [])]
     .filter(Boolean)
     .filter((value, index, array) => array.indexOf(value) === index)
     .slice(0, 6);
   const occurrences = (existing?.occurrences ?? 0) + 1;
-  const boosted = Math.max(existing?.confidence ?? 0, candidate.baseConfidence) + (occurrences - 1) * 0.12;
+  const boosted =
+    Math.max(existing?.confidence ?? 0, candidate.baseConfidence) +
+    (occurrences - 1) * 0.12;
 
-    return {
-      id: candidate.id,
-      kind: candidate.kind,
-      summary: existing?.summary ?? candidate.summary,
-      summaryKey: candidate.summaryKey ?? existing?.summaryKey,
-      summaryValues: candidate.summaryValues ?? existing?.summaryValues,
-      confidence: clampConfidence(boosted),
-      occurrences,
-      firstSeen: existing?.firstSeen ?? now,
+  return {
+    id: candidate.id,
+    kind: candidate.kind,
+    summary: existing?.summary ?? candidate.summary,
+    summaryKey: candidate.summaryKey ?? existing?.summaryKey,
+    summaryValues: candidate.summaryValues ?? existing?.summaryValues,
+    confidence: clampConfidence(boosted),
+    occurrences,
+    firstSeen: existing?.firstSeen ?? now,
     lastSeen: now,
     evidence,
     source: existing?.source ?? "automatic",
@@ -194,7 +216,10 @@ export function promoteLearnedPatterns(params: {
   }
 
   return [...map.values()]
-    .sort((a, b) => b.confidence - a.confidence || b.lastSeen.localeCompare(a.lastSeen))
+    .sort(
+      (a, b) =>
+        b.confidence - a.confidence || b.lastSeen.localeCompare(a.lastSeen),
+    )
     .slice(0, maxPatterns);
 }
 
@@ -226,8 +251,6 @@ function renderPatternSummary(pattern: LearnedPattern): string {
       return "Do not ask the user for routine permission; proceed unless an external blocker exists.";
     case "learning.pattern.user:explain-disagreement-explicitly":
       return "When disagreeing, explain the tradeoff explicitly instead of silently overriding the user.";
-    case "learning.pattern.user:pair-plan-markdown-only":
-      return "Keep `pair-plan` as a full-read, Markdown-only planner.";
     case "learning.pattern.user:subagents-are-exceptional":
       return "Use subagents sparingly; reserve them for large scans, async work, research, or bounded repair/verification.";
     case "learning.pattern.user:implement-in-phases":
@@ -305,12 +328,21 @@ export function renderPatternEvidence(evidence: LearningEvidence): string {
   return renderEvidence(evidence);
 }
 
-export function renderInjectedPatterns(patterns: LearnedPattern[], limit: number): string[] {
+export function renderInjectedPatterns(
+  patterns: LearnedPattern[],
+  limit: number,
+): string[] {
   return patterns
     .slice()
-    .sort((a, b) => b.confidence - a.confidence || b.lastSeen.localeCompare(a.lastSeen))
+    .sort(
+      (a, b) =>
+        b.confidence - a.confidence || b.lastSeen.localeCompare(a.lastSeen),
+    )
     .slice(0, limit)
-    .map((pattern) => `- [${renderPatternKind(pattern.kind)}] ${renderPatternSummary(pattern)} (confidence ${pattern.confidence.toFixed(2)})`);
+    .map(
+      (pattern) =>
+        `- [${renderPatternKind(pattern.kind)}] ${renderPatternSummary(pattern)} (confidence ${pattern.confidence.toFixed(2)})`,
+    );
 }
 
 export function getPatternSummary(pattern: LearnedPattern): string {

@@ -6,7 +6,6 @@
       "birlikte",
       "beraber",
       "karar verelim",
-      "sadece plan",
       "otonom",
       "neden",
       "boyle",
@@ -48,17 +47,6 @@
         "bana danis",
         "danisarak ilerle"
       ],
-      "pair_plan": [
-        "pair-plan",
-        "plan modu",
-        "once plan",
-        "once planla",
-        "sadece plan",
-        "bir plan yap",
-        "once analiz et",
-        "henuz kod yazma",
-        "kod yazmadan once planla"
-      ],
       "research": ["arastir", "karsilastir", "hangi kutuphane", "hangi paket", "secenekleri degerlendir", "incele"]
     },
     "preferences": {
@@ -75,13 +63,6 @@
         "karsi ciktiysam",
         "neden katilmadigini acikla",
         "tradeoffu acikla"
-      ],
-      "user:pair-plan-markdown-only": [
-        "sadece markdown",
-        "md disinda",
-        "pair-plan",
-        "sadece md",
-        "markdown disina yazma"
       ],
       "user:subagents-are-exceptional": [
         "nadir subagent",

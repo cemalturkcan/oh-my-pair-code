@@ -1,12 +1,11 @@
 import type { HookRuntime } from "./runtime";
-import { resolveSessionID } from "./runtime";
+import { resolveSessionOrEntityID } from "./runtime";
 
-export function createSessionEndHook(
-  runtime: HookRuntime,
-) {
+export function createSessionEndHook(runtime: HookRuntime) {
   return {
     "session.deleted": async (input?: unknown): Promise<void> => {
-      const sessionID = resolveSessionID(input);
+      // session.deleted input IS the session object, so bare .id is safe
+      const sessionID = resolveSessionOrEntityID(input);
       if (!sessionID) {
         return;
       }
