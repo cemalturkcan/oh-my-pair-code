@@ -7,8 +7,6 @@
       "with me",
       "lets decide",
       "autonomous",
-      "plan first",
-      "analyze first",
       "compare",
       "which library",
       "which package",
@@ -43,17 +41,6 @@
         "consult me",
         "talk it through"
       ],
-      "pair_plan": [
-        "pair-plan",
-        "planning mode",
-        "plan first",
-        "plan it first",
-        "just plan",
-        "make a plan",
-        "analyze first",
-        "do not code yet",
-        "dont code yet"
-      ],
       "research": ["research", "compare", "which library", "which package", "investigate", "evaluate options"]
     },
     "preferences": {
@@ -70,13 +57,6 @@
         "make disagreement explicit",
         "say why you disagree",
         "explain the tradeoff"
-      ],
-      "user:pair-plan-markdown-only": [
-        "markdown-only",
-        "only write markdown",
-        "write only markdown",
-        "pair-plan",
-        "planner only"
       ],
       "user:subagents-are-exceptional": [
         "rarely call subagents",

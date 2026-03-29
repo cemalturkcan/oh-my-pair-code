@@ -6,6 +6,11 @@ import type { HarnessConfig } from "./types";
 
 type McpConfig = Record<string, unknown>;
 
+function hasDisplay(): boolean {
+  if (process.platform !== "linux") return true;
+  return Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+}
+
 function configRoot(): string {
   const envDir = process.env.OPENCODE_CONFIG_DIR?.trim();
   if (envDir) {
@@ -180,6 +185,10 @@ export function createHarnessMcps(
           ".config",
           "default-profile",
         ),
+        WEB_AGENT_HEADLESS: hasDisplay() ? "false" : "true",
+        WEB_AGENT_DEFAULT_LAUNCH_ARGS: hasDisplay()
+          ? ""
+          : "--disable-gpu,--disable-dev-shm-usage",
       },
       enabled: true,
       timeout: 60000,
@@ -230,16 +239,44 @@ export function createHarnessMcps(
     };
   }
 
-  if (toggles.figma !== false) {
-    const figmaApiKey =
-      config.credentials?.figma_api_key?.trim() ||
-      process.env.FIGMA_API_KEY?.trim();
-    if (figmaApiKey) {
-      result.figma = {
+  if (toggles.figma_console !== false) {
+    const figmaAccessToken =
+      config.credentials?.figma_access_token?.trim() ||
+      process.env.FIGMA_ACCESS_TOKEN?.trim();
+
+    const sshHost = config.figma_console?.ssh_host?.trim();
+
+    if (sshHost) {
+      const envParts = [
+        'PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"',
+        "ENABLE_MCP_APPS=true",
+      ];
+      if (figmaAccessToken) {
+        envParts.push(`FIGMA_ACCESS_TOKEN=${figmaAccessToken}`);
+      }
+      envParts.push("npx", "-y", "figma-console-mcp@latest");
+
+      result["figma-console"] = {
         type: "local",
-        command: ["npx", "-y", "figma-developer-mcp", "--stdio"],
+        command: [
+          "ssh",
+          "-o",
+          "BatchMode=yes",
+          "-o",
+          "StrictHostKeyChecking=no",
+          sshHost,
+          envParts.join(" "),
+        ],
+        enabled: true,
+        timeout: 60000,
+      };
+    } else {
+      result["figma-console"] = {
+        type: "local",
+        command: ["npx", "-y", "figma-console-mcp@latest"],
         environment: {
-          FIGMA_API_KEY: figmaApiKey,
+          ...(figmaAccessToken ? { FIGMA_ACCESS_TOKEN: figmaAccessToken } : {}),
+          ENABLE_MCP_APPS: "true",
         },
         enabled: true,
         timeout: 60000,

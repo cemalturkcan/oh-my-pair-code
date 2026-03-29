@@ -30,17 +30,10 @@ function classifyIntent(text: string): IntentClassification {
     return {
       mode: "autonomous",
       confidence: "high",
-      reason: "The user explicitly asked for autonomous or end-to-end execution.",
-      guidance: "Use checkpointed autonomy. Inspect first, choose the best repo-consistent defaults, and execute independently without asking for permission.",
-    };
-  }
-
-  if (matchesAnySignal(text, getAllSignals("intent", "pair_plan"))) {
-    return {
-      mode: "pair-plan",
-      confidence: "high",
-      reason: "The user explicitly asked for planning-first behavior.",
-      guidance: "Stay in planning mode. Read broadly, reason concretely, and only write Markdown artifacts when they help the task move forward.",
+      reason:
+        "The user explicitly asked for autonomous or end-to-end execution.",
+      guidance:
+        "Use checkpointed autonomy. Inspect first, choose the best repo-consistent defaults, and execute independently without asking for permission.",
     };
   }
 
@@ -48,8 +41,10 @@ function classifyIntent(text: string): IntentClassification {
     return {
       mode: "pair",
       confidence: "high",
-      reason: "The user asked for collaborative decision-making or explicit consultation.",
-      guidance: "Work as a technical pair programmer. Stay transparent, make agreement or disagreement explicit, and continue implementation without waiting for approval unless a missing external value makes execution impossible.",
+      reason:
+        "The user asked for collaborative decision-making or explicit consultation.",
+      guidance:
+        "Work as a technical pair programmer. Stay transparent, make agreement or disagreement explicit, and continue implementation without waiting for approval unless a missing external value makes execution impossible.",
     };
   }
 
@@ -57,16 +52,20 @@ function classifyIntent(text: string): IntentClassification {
     return {
       mode: "pair",
       confidence: "medium",
-      reason: "The user appears to want decision support before implementation.",
-      guidance: "Prioritize discovery and recommendation quality, then choose the safest repo-consistent option and continue.",
+      reason:
+        "The user appears to want decision support before implementation.",
+      guidance:
+        "Prioritize discovery and recommendation quality, then choose the safest repo-consistent option and continue.",
     };
   }
 
   return {
     mode: "pair",
     confidence: "low",
-    reason: "No strong autonomous signal was detected, so collaborative mode is safer by default.",
-    guidance: "Stay collaborative by default, but do not over-question. Choose repo-consistent defaults and keep moving.",
+    reason:
+      "No strong autonomous signal was detected, so collaborative mode is safer by default.",
+    guidance:
+      "Stay collaborative by default, but do not over-question. Choose repo-consistent defaults and keep moving.",
   };
 }
 
@@ -85,10 +84,19 @@ function buildSystemInjection(classification: IntentClassification): string {
 }
 
 function toHarnessMode(value: string | undefined): HarnessMode | undefined {
-  return value === "pair" || value === "pair-plan" || value === "autonomous" ? value : undefined;
+  return value === "pair" ||
+    value === "autonomous" ||
+    value === "reviewer" ||
+    value === "web-search" ||
+    value === "ui-developer"
+    ? value
+    : undefined;
 }
 
-function resolveExplicitState(previous: ModeState | undefined, currentAgent: HarnessMode | undefined): ModeState | undefined {
+function resolveExplicitState(
+  previous: ModeState | undefined,
+  currentAgent: HarnessMode | undefined,
+): ModeState | undefined {
   if (!currentAgent) {
     return previous;
   }
@@ -124,44 +132,6 @@ function applyModeState(
     };
   }
 
-  if (currentState.mode === "pair" && classification.mode === "pair-plan") {
-    return {
-      state: {
-        mode: "pair-plan",
-        source: "inferred",
-        enteredFrom: "pair",
-      },
-      classification,
-    };
-  }
-
-  if (
-    currentState.mode === "pair-plan"
-    && currentState.source === "inferred"
-    && currentState.enteredFrom === "pair"
-    && classification.mode === "pair"
-  ) {
-    return {
-      state: {
-        mode: "pair",
-        source: "inferred",
-      },
-      classification,
-    };
-  }
-
-  if (currentState.mode === "pair-plan" && currentState.source === "explicit" && classification.mode === "pair") {
-    return {
-      state: currentState,
-      classification: {
-        mode: "pair-plan",
-        confidence: classification.confidence === "low" ? "medium" : classification.confidence,
-        reason: "An explicitly selected pair-plan session stays in planning mode until the user explicitly switches modes.",
-        guidance: "Stay in planning mode. Read broadly, reason concretely, and only write Markdown artifacts when they help the task move forward.",
-      },
-    };
-  }
-
   return {
     state: {
       mode: classification.mode,
@@ -176,27 +146,46 @@ export function createIntentGateHook(_ctx: PluginInput) {
   const sessionModes = new Map<string, ModeState>();
 
   return {
-    "chat.message": async (input: ChatMessageInput, output: ChatMessageOutput): Promise<void> => {
+    "chat.message": async (
+      input: ChatMessageInput,
+      output: ChatMessageOutput,
+    ): Promise<void> => {
       const text = extractTextParts(output.parts);
       if (!text) {
         return;
       }
 
       const classification = classifyIntent(text);
-      const currentAgent = toHarnessMode(typeof input.agent === "string"
-        ? input.agent
-        : (typeof output.message.agent === "string" ? output.message.agent : undefined));
-      const explicitState = resolveExplicitState(sessionModes.get(input.sessionID), currentAgent);
+      const currentAgent = toHarnessMode(
+        typeof input.agent === "string"
+          ? input.agent
+          : typeof output.message.agent === "string"
+            ? output.message.agent
+            : undefined,
+      );
+      const explicitState = resolveExplicitState(
+        sessionModes.get(input.sessionID),
+        currentAgent,
+      );
       const resolved = applyModeState(explicitState, classification);
       sessionModes.set(input.sessionID, resolved.state);
 
-      if (!currentAgent || currentAgent === "pair" || currentAgent === "pair-plan" || currentAgent === "autonomous") {
+      if (
+        !currentAgent ||
+        currentAgent === "pair" ||
+        currentAgent === "autonomous"
+      ) {
         output.message.agent = resolved.classification.mode;
       }
 
-      const previousSystem = typeof output.message.system === "string" ? output.message.system.trim() : "";
+      const previousSystem =
+        typeof output.message.system === "string"
+          ? output.message.system.trim()
+          : "";
       const injected = buildSystemInjection(resolved.classification);
-      output.message.system = previousSystem ? `${previousSystem}\n\n${injected}` : injected;
+      output.message.system = previousSystem
+        ? `${previousSystem}\n\n${injected}`
+        : injected;
     },
   };
 }

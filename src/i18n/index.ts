@@ -36,14 +36,25 @@ export function normalizeText(text: string): string {
   return replaced.replace(/\s+/g, " ");
 }
 
-export function getSignals(locale: SupportedLocale, group: "intent" | "preferences", key: string): string[] {
+export function getSignals(
+  locale: SupportedLocale,
+  group: "intent" | "preferences",
+  key: string,
+): string[] {
   const raw = getNestedRecord(getCatalog(locale), ["signals", group, key]);
-  return Array.isArray(raw) ? raw.filter((value): value is string => typeof value === "string") : [];
+  return Array.isArray(raw)
+    ? raw.filter((value): value is string => typeof value === "string")
+    : [];
 }
 
 export function getLanguageHints(locale: SupportedLocale): string[] {
-  const raw = getNestedRecord(getCatalog(locale), ["signals", "language_hints"]);
-  return Array.isArray(raw) ? raw.filter((value): value is string => typeof value === "string") : [];
+  const raw = getNestedRecord(getCatalog(locale), [
+    "signals",
+    "language_hints",
+  ]);
+  return Array.isArray(raw)
+    ? raw.filter((value): value is string => typeof value === "string")
+    : [];
 }
 
 export function matchesAnySignal(text: string, phrases: string[]): boolean {
@@ -64,7 +75,7 @@ function scoreLocale(text: string, locale: SupportedLocale): number {
     }
   }
 
-  for (const signalKey of ["autonomous", "pair", "pair_plan", "research"] as const) {
+  for (const signalKey of ["autonomous", "pair", "research"] as const) {
     for (const phrase of getSignals(locale, "intent", signalKey)) {
       if (normalized.includes(normalizeText(phrase))) {
         score += 3;
@@ -75,18 +86,25 @@ function scoreLocale(text: string, locale: SupportedLocale): number {
   return score;
 }
 
-export function detectLocaleFromTexts(...texts: Array<string | undefined>): SupportedLocale {
+export function detectLocaleFromTexts(
+  ...texts: Array<string | undefined>
+): SupportedLocale {
   const combined = texts.filter(Boolean).join("\n");
   if (!combined.trim()) {
     return "en";
   }
 
-  const scores = LOCALES.map((locale) => ({ locale, score: scoreLocale(combined, locale) }));
+  const scores = LOCALES.map((locale) => ({
+    locale,
+    score: scoreLocale(combined, locale),
+  }));
   scores.sort((left, right) => right.score - left.score);
   return scores[0]?.score && scores[0].score > 0 ? scores[0].locale : "en";
 }
 
-export function extractTextParts(parts: Array<{ type?: string; text?: string }>): string {
+export function extractTextParts(
+  parts: Array<{ type?: string; text?: string }>,
+): string {
   return parts
     .filter((part) => part.type === "text" && typeof part.text === "string")
     .map((part) => part.text ?? "")
@@ -94,6 +112,9 @@ export function extractTextParts(parts: Array<{ type?: string; text?: string }>)
     .trim();
 }
 
-export function getAllSignals(group: "intent" | "preferences", key: string): string[] {
+export function getAllSignals(
+  group: "intent" | "preferences",
+  key: string,
+): string[] {
   return LOCALES.flatMap((locale) => getSignals(locale, group, key));
 }

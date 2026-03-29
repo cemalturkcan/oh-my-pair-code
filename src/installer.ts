@@ -391,16 +391,27 @@ function forceAllowPermissions(config: JsonRecord): void {
   config.permission = "allow";
 }
 
-function readExistingFigmaApiKey(
+function readExistingFigmaAccessToken(
   harnessConfigPath: string,
 ): string | undefined {
   const existingHarness = readJsonLike(harnessConfigPath);
-  const key = (existingHarness.credentials as JsonRecord | undefined)
-    ?.figma_api_key as string | undefined;
+  const creds = existingHarness.credentials as JsonRecord | undefined;
+  const key = (creds?.figma_access_token ?? creds?.figma_api_key) as
+    | string
+    | undefined;
   return key?.trim() || undefined;
 }
 
-async function promptForFigmaApiKey(
+function readExistingFigmaConsoleSshHost(
+  harnessConfigPath: string,
+): string | undefined {
+  const existingHarness = readJsonLike(harnessConfigPath);
+  const host = (existingHarness.figma_console as JsonRecord | undefined)
+    ?.ssh_host as string | undefined;
+  return host?.trim() || undefined;
+}
+
+async function promptForFigmaAccessToken(
   existing?: string,
 ): Promise<string | undefined> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -425,10 +436,42 @@ async function promptForFigmaApiKey(
   }
 }
 
+async function promptForFigmaConsoleSshHost(
+  existing?: string,
+): Promise<string | undefined> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return existing;
+  }
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const suffix = existing
+      ? ` (press Enter to reuse "${existing}", type "local" for local mode)`
+      : " (leave empty for local mode)";
+    const answer = await new Promise<string>(
+      (resolveQuestion, rejectQuestion) => {
+        rl.question(
+          `Enter SSH host for Figma Console MCP (e.g. user@host)${suffix}: `,
+          (value) => resolveQuestion(value),
+        );
+        rl.once("error", rejectQuestion);
+      },
+    );
+    const trimmed = answer.trim();
+    if (trimmed.toLowerCase() === "local") {
+      return undefined;
+    }
+    return trimmed || existing;
+  } finally {
+    rl.close();
+  }
+}
+
 function writeHarnessConfig(
   filePath: string,
   jinaApiKey?: string,
-  figmaApiKey?: string,
+  figmaAccessToken?: string,
+  figmaConsoleSshHost?: string,
 ): void {
   const current = existsSync(filePath) ? readJsonLike(filePath) : {};
   const next = parse(SAMPLE_PROJECT_CONFIG) as JsonRecord;
@@ -456,8 +499,15 @@ function writeHarnessConfig(
   if (jinaApiKey) {
     (merged.credentials as JsonRecord).jina_api_key = jinaApiKey;
   }
-  if (figmaApiKey) {
-    (merged.credentials as JsonRecord).figma_api_key = figmaApiKey;
+  if (figmaAccessToken) {
+    (merged.credentials as JsonRecord).figma_access_token = figmaAccessToken;
+  }
+  delete (merged.credentials as JsonRecord).figma_api_key;
+
+  if (figmaConsoleSshHost) {
+    merged.figma_console = { ssh_host: figmaConsoleSshHost };
+  } else if (!merged.figma_console) {
+    merged.figma_console = {};
   }
 
   writeJson(filePath, merged);
@@ -922,8 +972,11 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{
   const jinaApiKey = await promptForJinaApiKey(
     readExistingJinaApiKey(paths.harnessConfig),
   );
-  const figmaApiKey = await promptForFigmaApiKey(
-    readExistingFigmaApiKey(paths.harnessConfig),
+  const figmaAccessToken = await promptForFigmaAccessToken(
+    readExistingFigmaAccessToken(paths.harnessConfig),
+  );
+  const figmaConsoleSshHost = await promptForFigmaConsoleSshHost(
+    readExistingFigmaConsoleSshHost(paths.harnessConfig),
   );
   await installShellStrategyInstruction(paths.shellStrategyDir);
   await installBackgroundAgentsVendor(paths.vendorDir);
@@ -938,7 +991,12 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{
   installBundledSkills(paths.skillsDir);
   const configPath = updateConfig(paths);
   const packageJsonPath = updatePackageJson(paths);
-  writeHarnessConfig(paths.harnessConfig, jinaApiKey, figmaApiKey);
+  writeHarnessConfig(
+    paths.harnessConfig,
+    jinaApiKey,
+    figmaAccessToken,
+    figmaConsoleSshHost,
+  );
   writeDcpConfig(paths.dcpConfig);
   await runBunInstall(configDir);
   await ensureInstalledHarnessBuild(configDir);

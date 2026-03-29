@@ -50,9 +50,7 @@ const PairAutonomyPlugin: Plugin = async (ctx) => {
         mutableConfig.default_agent =
           harnessConfig.default_mode === "autonomous"
             ? "autonomous"
-            : harnessConfig.default_mode === "pair-plan"
-              ? "pair-plan"
-              : "pair";
+            : (harnessConfig.default_mode ?? "pair");
       }
 
       await hooks.config?.(config);

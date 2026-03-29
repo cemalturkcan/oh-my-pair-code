@@ -2,7 +2,7 @@ import type { PluginInput } from "@opencode-ai/plugin";
 import { detectLocaleFromTexts, extractTextParts } from "../i18n";
 import type { HarnessConfig } from "../types";
 import type { HookRuntime } from "./runtime";
-import { resolveSessionID } from "./runtime";
+import { PRIMARY_AGENTS, resolveSessionOrEntityID } from "./runtime";
 
 type ChatMessageInput = {
   sessionID: string;
@@ -21,23 +21,47 @@ export function createSessionStartHook(
 ) {
   return {
     "session.created": async (input?: unknown): Promise<void> => {
-      if (config.memory?.enabled === false && config.learning?.enabled === false) {
+      if (
+        config.memory?.enabled === false &&
+        config.learning?.enabled === false
+      ) {
         return;
       }
 
-      const sessionID = resolveSessionID(input);
+      // session.created input IS the session object, so bare .id is safe
+      const sessionID = resolveSessionOrEntityID(input);
       if (!sessionID) {
         return;
       }
 
       runtime.prepareSessionContext(sessionID);
     },
-    "chat.message": async (input: ChatMessageInput, output: ChatMessageOutput): Promise<void> => {
-      runtime.setSessionAgent(input.sessionID, input.agent ?? (typeof output.message.agent === "string" ? output.message.agent : undefined));
-      const locale = detectLocaleFromTexts(extractTextParts(output.parts ?? []));
+    "chat.message": async (
+      input: ChatMessageInput,
+      output: ChatMessageOutput,
+    ): Promise<void> => {
+      const agentName =
+        input.agent ??
+        (typeof output.message.agent === "string"
+          ? output.message.agent
+          : undefined);
+      runtime.setSessionAgent(input.sessionID, agentName);
+      const locale = detectLocaleFromTexts(
+        extractTextParts(output.parts ?? []),
+      );
       runtime.setSessionLocale(input.sessionID, locale);
 
-      if (config.memory?.enabled === false && config.learning?.enabled === false) {
+      if (
+        config.memory?.enabled === false &&
+        config.learning?.enabled === false
+      ) {
+        return;
+      }
+
+      // Skip previous-session context injection for subagents — they should
+      // only see the task prompt they were spawned with, not stale context
+      // from a prior primary session (which causes session mixing).
+      if (agentName && !PRIMARY_AGENTS.has(agentName)) {
         return;
       }
 
@@ -46,8 +70,13 @@ export function createSessionStartHook(
         return;
       }
 
-      const previousSystem = typeof output.message.system === "string" ? output.message.system.trim() : "";
-      output.message.system = previousSystem ? `${previousSystem}\n\n${injected}` : injected;
+      const previousSystem =
+        typeof output.message.system === "string"
+          ? output.message.system.trim()
+          : "";
+      output.message.system = previousSystem
+        ? `${previousSystem}\n\n${injected}`
+        : injected;
     },
   };
 }

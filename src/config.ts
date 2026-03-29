@@ -7,7 +7,9 @@ import type { HarnessConfig } from "./types";
 import { deepMerge } from "./utils";
 
 const HarnessConfigSchema = z.object({
-  default_mode: z.enum(["pair", "pair-plan", "autonomous"]).optional(),
+  default_mode: z
+    .enum(["pair", "autonomous", "reviewer", "web-search", "ui-developer"])
+    .optional(),
   set_default_agent: z.boolean().optional(),
   commands: z
     .object({
@@ -17,7 +19,12 @@ const HarnessConfigSchema = z.object({
   credentials: z
     .object({
       jina_api_key: z.string().optional(),
-      figma_api_key: z.string().optional(),
+      figma_access_token: z.string().optional(),
+    })
+    .optional(),
+  figma_console: z
+    .object({
+      ssh_host: z.string().optional(),
     })
     .optional(),
   hooks: z
@@ -67,7 +74,7 @@ const HarnessConfigSchema = z.object({
       ssh_mcp: z.boolean().optional(),
       sudo_mcp: z.boolean().optional(),
       jina: z.boolean().optional(),
-      figma: z.boolean().optional(),
+      figma_console: z.boolean().optional(),
     })
     .optional(),
   agents: z
@@ -127,7 +134,7 @@ const DEFAULTS: HarnessConfig = {
     ssh_mcp: true,
     sudo_mcp: false,
     jina: true,
-    figma: true,
+    figma_console: true,
   },
   agents: {},
 };
@@ -140,6 +147,7 @@ const ConfigSectionSchemas = {
   hooks: HarnessConfigSchema.shape.hooks,
   memory: HarnessConfigSchema.shape.memory,
   learning: HarnessConfigSchema.shape.learning,
+  figma_console: HarnessConfigSchema.shape.figma_console,
   mcps: HarnessConfigSchema.shape.mcps,
   agents: HarnessConfigSchema.shape.agents,
 } satisfies Record<keyof HarnessConfig, z.ZodTypeAny>;
@@ -246,7 +254,10 @@ export const SAMPLE_PROJECT_CONFIG = `{
   "default_mode": "pair",
   "credentials": {
     "jina_api_key": "",
-    "figma_api_key": ""
+    "figma_access_token": ""
+  },
+  "figma_console": {
+    "ssh_host": ""
   },
   "hooks": {
     "profile": "standard",
@@ -286,29 +297,7 @@ export const SAMPLE_PROJECT_CONFIG = `{
     "ssh_mcp": true,
     "sudo_mcp": false,
     "jina": true,
-    "figma": true
+    "figma_console": true
   },
-  "agents": {
-    "pair": {
-      "variant": "high"
-    },
-    "pair-plan": {
-      "variant": "high"
-    },
-    "autonomous": {
-      "variant": "high"
-    },
-    "repo-scout-fast": {
-      "model": "kimi-for-coding/k2p5"
-    },
-    "repo-scout-deep": {
-      "model": "kimi-for-coding/kimi-k2-thinking"
-    },
-    "researcher-fast": {
-      "model": "kimi-for-coding/k2p5"
-    },
-    "researcher-deep": {
-      "model": "kimi-for-coding/kimi-k2-thinking"
-    }
-  }
+  "agents": {}
 }`;

@@ -1,14 +1,32 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import type { PluginInput } from "@opencode-ai/plugin";
 import { detectLocaleFromTexts, type SupportedLocale } from "../i18n";
 import type { HarnessConfig, HookProfile } from "../types";
-import { promoteLearnedPatterns, renderInjectedPatterns } from "../learning/analyzer";
-import { loadLearningArtifact, saveLearningArtifact, saveLearningMarkdown } from "../learning/store";
+import {
+  promoteLearnedPatterns,
+  renderInjectedPatterns,
+} from "../learning/analyzer";
+import {
+  loadLearningArtifact,
+  saveLearningArtifact,
+  saveLearningMarkdown,
+} from "../learning/store";
 import type { LearnedPattern } from "../learning/types";
-import { detectProjectFacts, joinProjectFactLabels, type ProjectFacts } from "../project-facts";
+import {
+  detectProjectFacts,
+  joinProjectFactLabels,
+  type ProjectFacts,
+} from "../project-facts";
 
 export type PersistedSessionSummary = {
   sessionID: string;
@@ -43,7 +61,9 @@ function getStateRoot(config: HarnessConfig): string {
   }
 
   const envDir = process.env.OPENCODE_CONFIG_DIR?.trim();
-  const configDir = envDir ? resolve(envDir) : join(homedir(), ".config", "opencode");
+  const configDir = envDir
+    ? resolve(envDir)
+    : join(homedir(), ".config", "opencode");
   return join(configDir, "pair-autonomy-state");
 }
 
@@ -85,7 +105,9 @@ function readText(filePath: string): string | undefined {
 }
 
 function truncate(text: string, maxChars: number): string {
-  return text.length <= maxChars ? text : `${text.slice(0, Math.max(0, maxChars - 3))}...`;
+  return text.length <= maxChars
+    ? text
+    : `${text.slice(0, Math.max(0, maxChars - 3))}...`;
 }
 
 function estimateTokens(chunks: string[]): number {
@@ -97,29 +119,67 @@ export function resolveHookProfile(config: HarnessConfig): HookProfile {
   return config.hooks?.profile ?? "standard";
 }
 
-export function profileMatches(profile: HookProfile, allowed: HookProfile | HookProfile[]): boolean {
+export function profileMatches(
+  profile: HookProfile,
+  allowed: HookProfile | HookProfile[],
+): boolean {
   return (Array.isArray(allowed) ? allowed : [allowed]).includes(profile);
 }
 
-export function resolveSessionID(value: unknown): string | undefined {
-  const candidate = value as {
-    sessionID?: string;
-    id?: string;
-    info?: { id?: string };
-    session?: { id?: string };
-  } | undefined;
+/**
+ * Primary (user-facing) agents that should receive session-context injection.
+ * Subagents spawned via Task tool should NOT get previous-session context
+ * injected into their system prompt — it causes session mixing.
+ */
+export const PRIMARY_AGENTS = new Set([
+  "pair",
+  "autonomous",
+  "reviewer",
+  "web-search",
+  "ui-developer",
+]);
 
-  return candidate?.sessionID ?? candidate?.id ?? candidate?.info?.id ?? candidate?.session?.id;
+/**
+ * Resolve a session ID from a hook input object.
+ *
+ * IMPORTANT: Does NOT fall back to bare `candidate.id` because tool-execution
+ * inputs often carry a tool-call / message `id` that is not a session ID.
+ * Use {@link resolveSessionOrEntityID} in session-lifecycle hooks where the
+ * input object IS the session itself and `.id` is the session ID.
+ */
+export function resolveSessionID(value: unknown): string | undefined {
+  const candidate = value as
+    | {
+        sessionID?: string;
+        info?: { id?: string };
+        session?: { id?: string };
+      }
+    | undefined;
+
+  return candidate?.sessionID ?? candidate?.info?.id ?? candidate?.session?.id;
+}
+
+/**
+ * Like {@link resolveSessionID} but also falls back to bare `.id`.
+ * Use ONLY for session-lifecycle hooks (session.created, session.idle,
+ * session.deleted) where the input object represents the session itself.
+ */
+export function resolveSessionOrEntityID(value: unknown): string | undefined {
+  return resolveSessionID(value) ?? (value as { id?: string } | undefined)?.id;
 }
 
 export function resolveAgentName(value: unknown): string | undefined {
-  const candidate = value as {
-    agent?: string;
-    message?: { agent?: string };
-    info?: { agent?: string };
-  } | undefined;
+  const candidate = value as
+    | {
+        agent?: string;
+        message?: { agent?: string };
+        info?: { agent?: string };
+      }
+    | undefined;
 
-  return candidate?.agent ?? candidate?.message?.agent ?? candidate?.info?.agent;
+  return (
+    candidate?.agent ?? candidate?.message?.agent ?? candidate?.info?.agent
+  );
 }
 
 export function resolveToolName(value: unknown): string | undefined {
@@ -129,10 +189,16 @@ export function resolveToolName(value: unknown): string | undefined {
 
 export function resolveToolArgs(value: unknown): Record<string, unknown> {
   const candidate = value as { args?: Record<string, unknown> } | undefined;
-  return candidate?.args && typeof candidate.args === "object" && !Array.isArray(candidate.args) ? candidate.args : {};
+  return candidate?.args &&
+    typeof candidate.args === "object" &&
+    !Array.isArray(candidate.args)
+    ? candidate.args
+    : {};
 }
 
-export function resolveFilePathFromArgs(args: Record<string, unknown>): string | undefined {
+export function resolveFilePathFromArgs(
+  args: Record<string, unknown>,
+): string | undefined {
   const value = args.filePath ?? args.path;
   return typeof value === "string" ? value : undefined;
 }
@@ -147,10 +213,16 @@ export function stringifyToolOutput(output: unknown): string {
   if (!output || typeof output !== "object") {
     return "";
   }
-  if ("text" in output && typeof (output as { text?: unknown }).text === "string") {
+  if (
+    "text" in output &&
+    typeof (output as { text?: unknown }).text === "string"
+  ) {
     return (output as { text: string }).text;
   }
-  if ("stdout" in output && typeof (output as { stdout?: unknown }).stdout === "string") {
+  if (
+    "stdout" in output &&
+    typeof (output as { stdout?: unknown }).stdout === "string"
+  ) {
     return (output as { stdout: string }).stdout;
   }
   try {
@@ -167,7 +239,8 @@ function renderSessionContext(params: {
   maxInjectedPatterns: number;
   maxChars: number;
 }): string {
-  const { facts, latest, learnedPatterns, maxInjectedPatterns, maxChars } = params;
+  const { facts, latest, learnedPatterns, maxInjectedPatterns, maxChars } =
+    params;
   const parts = [
     "[SessionStart]",
     `Project package manager: ${facts.packageManager}`,
@@ -186,12 +259,17 @@ function renderSessionContext(params: {
     );
   }
 
-  const injectedPatterns = renderInjectedPatterns(learnedPatterns, maxInjectedPatterns);
+  const injectedPatterns = renderInjectedPatterns(
+    learnedPatterns,
+    maxInjectedPatterns,
+  );
   if (injectedPatterns.length > 0) {
     parts.push("Learned project patterns:", ...injectedPatterns);
   }
 
-  parts.push("Use this context only when it helps. Do not restate it unless relevant.");
+  parts.push(
+    "Use this context only when it helps. Do not restate it unless relevant.",
+  );
   return truncate(parts.join("\n"), maxChars);
 }
 
@@ -230,7 +308,10 @@ export function createHookRuntime(ctx: PluginInput, config: HarnessConfig) {
     return sessionAgents.get(sessionID);
   }
 
-  function setSessionLocale(sessionID: string, locale: SupportedLocale | undefined): void {
+  function setSessionLocale(
+    sessionID: string,
+    locale: SupportedLocale | undefined,
+  ): void {
     if (!locale) {
       return;
     }
@@ -241,13 +322,21 @@ export function createHookRuntime(ctx: PluginInput, config: HarnessConfig) {
     return sessionLocales.get(sessionID);
   }
 
-  function resolveLocale(sessionID?: string, ...texts: Array<string | undefined>): SupportedLocale {
+  function resolveLocale(
+    sessionID?: string,
+    ...texts: Array<string | undefined>
+  ): SupportedLocale {
     if (sessionID && sessionLocales.has(sessionID)) {
       return sessionLocales.get(sessionID) ?? "en";
     }
 
     const latest = loadLatestSummary();
-    return detectLocaleFromTexts(...texts, latest?.locale, latest?.lastUserMessage, latest?.lastAssistantMessage);
+    return detectLocaleFromTexts(
+      ...texts,
+      latest?.locale,
+      latest?.lastUserMessage,
+      latest?.lastAssistantMessage,
+    );
   }
 
   function rememberEditedFile(sessionID: string, filePath: string): void {
@@ -266,7 +355,11 @@ export function createHookRuntime(ctx: PluginInput, config: HarnessConfig) {
     return next;
   }
 
-  function shouldSuggestCompact(sessionID: string, threshold = 50, repeat = 25): boolean {
+  function shouldSuggestCompact(
+    sessionID: string,
+    threshold = 50,
+    repeat = 25,
+  ): boolean {
     const count = toolCounts.get(sessionID) ?? 0;
     if (count < threshold) {
       return false;
@@ -281,7 +374,29 @@ export function createHookRuntime(ctx: PluginInput, config: HarnessConfig) {
   }
 
   function loadLatestSummary(): PersistedSessionSummary | undefined {
-    return readJson<PersistedSessionSummary | undefined>(getLatestSummaryPath(), undefined);
+    // Scan timestamped session files instead of relying on latest.json
+    // which suffers from race conditions when multiple sessions go idle
+    // at the same time.  Filenames are ISO-timestamp-prefixed so
+    // lexicographic sort == chronological sort.
+    try {
+      const files = readdirSync(sessionsDir)
+        .filter((f) => f.endsWith(".json") && f !== "latest.json")
+        .sort();
+      const newest = files[files.length - 1];
+      if (newest) {
+        return readJson<PersistedSessionSummary | undefined>(
+          join(sessionsDir, newest),
+          undefined,
+        );
+      }
+    } catch {
+      // Directory may not exist yet — fall through
+    }
+    // Backwards-compat fallback for existing latest.json
+    return readJson<PersistedSessionSummary | undefined>(
+      getLatestSummaryPath(),
+      undefined,
+    );
   }
 
   function prepareSessionContext(sessionID: string): void {
@@ -290,14 +405,18 @@ export function createHookRuntime(ctx: PluginInput, config: HarnessConfig) {
     });
   }
 
-  function consumePendingInjection(sessionID: string, locale?: SupportedLocale): string | undefined {
+  function consumePendingInjection(
+    sessionID: string,
+    locale?: SupportedLocale,
+  ): string | undefined {
     const entry = pendingInjection.get(sessionID);
     if (!entry || entry.injected) {
       return undefined;
     }
     entry.injected = true;
 
-    const latest = config.memory?.enabled === false ? undefined : loadLatestSummary();
+    const latest =
+      config.memory?.enabled === false ? undefined : loadLatestSummary();
     return renderSessionContext({
       facts: detectProjectFacts(ctx.directory),
       latest,
@@ -308,8 +427,16 @@ export function createHookRuntime(ctx: PluginInput, config: HarnessConfig) {
   }
 
   function saveSessionSummary(summary: PersistedSessionSummary): void {
-    writeJson(getLatestSummaryPath(), summary);
-    writeJson(join(sessionsDir, `${summary.savedAt.replace(/[:.]/g, "-")}-${summary.sessionID}.json`), summary);
+    // Write only the timestamped file — each session gets its own file so
+    // concurrent idle events cannot overwrite each other.
+    // loadLatestSummary() now scans the directory for the newest file.
+    writeJson(
+      join(
+        sessionsDir,
+        `${summary.savedAt.replace(/[:.]/g, "-")}-${summary.sessionID}.json`,
+      ),
+      summary,
+    );
   }
 
   function appendObservation(observation: Observation): void {
@@ -317,7 +444,11 @@ export function createHookRuntime(ctx: PluginInput, config: HarnessConfig) {
       return;
     }
     ensureDir(learningDir);
-    appendFileSync(observationsPath, `${JSON.stringify(observation)}\n`, "utf8");
+    appendFileSync(
+      observationsPath,
+      `${JSON.stringify(observation)}\n`,
+      "utf8",
+    );
   }
 
   function loadObservations(limit = 200): Observation[] {
@@ -346,7 +477,10 @@ export function createHookRuntime(ctx: PluginInput, config: HarnessConfig) {
   }
 
   function promoteLearning(summary: PersistedSessionSummary): LearnedPattern[] {
-    if (config.learning?.enabled === false || config.learning?.auto_promote === false) {
+    if (
+      config.learning?.enabled === false ||
+      config.learning?.auto_promote === false
+    ) {
       return loadLearnedPatterns();
     }
 

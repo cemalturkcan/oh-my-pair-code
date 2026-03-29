@@ -1,4 +1,9 @@
-export type HarnessMode = "pair" | "pair-plan" | "autonomous";
+export type HarnessMode =
+  | "pair"
+  | "autonomous"
+  | "reviewer"
+  | "web-search"
+  | "ui-developer";
 
 export type HookProfile = "minimal" | "standard" | "strict";
 
@@ -12,7 +17,11 @@ export type McpToggles = {
   ssh_mcp?: boolean;
   sudo_mcp?: boolean;
   jina?: boolean;
-  figma?: boolean;
+  figma_console?: boolean;
+};
+
+export type FigmaConsoleConfig = {
+  ssh_host?: string;
 };
 
 export type AgentOverride = {
@@ -30,8 +39,9 @@ export type HarnessConfig = {
   };
   credentials?: {
     jina_api_key?: string;
-    figma_api_key?: string;
+    figma_access_token?: string;
   };
+  figma_console?: FigmaConsoleConfig;
   hooks?: {
     profile?: HookProfile;
     intent_gate?: boolean;
