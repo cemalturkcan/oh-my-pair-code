@@ -15,7 +15,7 @@ const NODE_COMMAND_RE =
 
 const NODE_MODULES_BIN_RE = /node_modules\/\.bin\//;
 
-const PLAN_MODE_BLOCKED_TOOLS = new Set(["task", "edit", "write", "patch"]);
+const PLAN_MODE_ALWAYS_BLOCKED = new Set(["edit", "write", "patch"]);
 
 const PLAN_MODE_ALLOWED_AGENTS = new Set([
   "ginko",
@@ -24,19 +24,29 @@ const PLAN_MODE_ALLOWED_AGENTS = new Set([
   "rajdhani",
 ]);
 
-function isBlockedTaskInPlanMode(
+function isWorkerSpawnTool(tool: string): boolean {
+  return (
+    tool === "task" ||
+    tool.startsWith("task_") ||
+    tool === "delegate" ||
+    tool.startsWith("delegate")
+  );
+}
+
+function resolveTargetAgent(args: Record<string, unknown>): string | undefined {
+  if (typeof args.subagent_type === "string") return args.subagent_type;
+  if (typeof args.agent === "string") return args.agent;
+  return undefined;
+}
+
+function isBlockedInPlanMode(
   tool: string,
   args: Record<string, unknown>,
 ): boolean {
-  if (tool !== "task" && !tool.startsWith("task_")) return false;
-  const target =
-    typeof args.subagent_type === "string"
-      ? args.subagent_type
-      : typeof args.agent === "string"
-        ? args.agent
-        : undefined;
-  if (target && PLAN_MODE_ALLOWED_AGENTS.has(target)) return false;
-  return true;
+  if (PLAN_MODE_ALWAYS_BLOCKED.has(tool)) return true;
+  if (!isWorkerSpawnTool(tool)) return false;
+  const target = resolveTargetAgent(args);
+  return !(target && PLAN_MODE_ALLOWED_AGENTS.has(target));
 }
 
 function isNodeCommand(command: string): boolean {
@@ -87,9 +97,7 @@ export function createPreToolUseHook(
         tool &&
         runtime.getPlanMode(sessionID) === "planning"
       ) {
-        const blocked =
-          PLAN_MODE_BLOCKED_TOOLS.has(tool) ||
-          isBlockedTaskInPlanMode(tool, args);
+        const blocked = isBlockedInPlanMode(tool, args);
 
         if (blocked) {
           const count = runtime.incrementPlanModeBlock(sessionID);
