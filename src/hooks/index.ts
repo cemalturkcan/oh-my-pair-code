@@ -198,7 +198,7 @@ export async function createHarnessHooks(
     createPreToolUseHook(config, runtime, profile),
   );
   registerHook("post_tool_use", config.hooks?.post_tool_use !== false, () =>
-    createPostToolUseHook(ctx, config, runtime, profile),
+    createPostToolUseHook(config, runtime, profile),
   );
   registerHook("pre_compact", config.hooks?.pre_compact !== false, () =>
     createPreCompactHook(runtime),

@@ -20,16 +20,44 @@ const SUSPICIOUS_COMMENT_PATTERNS: RegExp[] = [
   /^\s*(\/\/|#|\/\*+|\*)\s*we\s+(now|use|need|do|first|then)\b/i,
   /^\s*(\/\/|#|\/\*+|\*)\s*note\s+(that|:)/i,
   /^\s*(\/\/|#|\/\*+|\*)\s*ensure\s+that\b/i,
+
+  /^\s*(\/\/|#|\/\*+|\*)\s*the\s+following\s+(code|function|section|block|method|class)\b/i,
+  /^\s*(\/\/|#|\/\*+|\*)\s*this\s+(handles|processes|manages|implements|creates|initializes|sets up)\b/i,
+  /^\s*(\/\/|#|\/\*+|\*)\s*(first|next|finally|then),?\s+(we|let's)\b/i,
+  /^\s*(\/\/|#|\/\*+|\*)\s*as\s+(mentioned|described|noted|shown|explained)\b/i,
+  /^\s*(\/\/|#|\/\*+|\*)\s*let'?s\s+(create|define|implement|add|set up|initialize|build)\b/i,
+  /^\s*(\/\/|#|\/\*+|\*)\s*we'?ll\s+(use|need|create|define|implement|add)\b/i,
+  /^\s*(\/\/|#|\/\*+|\*)\s*below\s+(is|are)\b/i,
+  /^\s*(\/\/|#|\/\*+|\*)\s*todo:?\s*(implement|add|fix|update|replace)\s*(this|here|later)?\.?\s*$/i,
+  /^\s*(\/\/|#|\/\*+|\*)\s*import\s+(necessary|required|needed)\b/i,
+  /^\s*(\/\/|#|\/\*+|\*)\s*helper\s+(function|method)\s+(to|for|that)\b/i,
 ];
 
-function collectPaths(input: ToolAfterInput, output: ToolAfterOutput): string[] {
+function collectPaths(
+  input: ToolAfterInput,
+  output: ToolAfterOutput,
+): string[] {
   const directPath = input.args.filePath;
   if (typeof directPath === "string") {
     return [directPath];
   }
 
-  if (input.tool === "apply_patch" && typeof output.metadata === "object" && output.metadata !== null && "files" in output.metadata) {
-    const files = (output.metadata as { files?: Array<{ filePath?: string; movePath?: string; type?: string }> }).files ?? [];
+  if (
+    input.tool === "apply_patch" &&
+    typeof output.metadata === "object" &&
+    output.metadata !== null &&
+    "files" in output.metadata
+  ) {
+    const files =
+      (
+        output.metadata as {
+          files?: Array<{
+            filePath?: string;
+            movePath?: string;
+            type?: string;
+          }>;
+        }
+      ).files ?? [];
     return files
       .filter((file) => file.type !== "delete")
       .map((file) => file.movePath ?? file.filePath)
@@ -59,7 +87,10 @@ function inspectFile(filePath: string): string[] {
 
 export function createCommentGuardHook() {
   return {
-    "tool.execute.after": async (input: ToolAfterInput, output: ToolAfterOutput): Promise<void> => {
+    "tool.execute.after": async (
+      input: ToolAfterInput,
+      output: ToolAfterOutput,
+    ): Promise<void> => {
       if (!["write", "edit", "multiedit", "apply_patch"].includes(input.tool)) {
         return;
       }

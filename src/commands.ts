@@ -9,14 +9,12 @@ export function createHarnessCommands(
 
   return {
     go: {
-      template:
-        "Switch to execution mode. Begin executing the current plan. $ARGUMENTS",
+      template: "[harness:mode:executing] $ARGUMENTS",
       description: "Exit plan mode and start execution.",
       agent: "yang",
     },
     plan: {
-      template:
-        "Switch to planning mode. Pause execution and return to planning. $ARGUMENTS",
+      template: "[harness:mode:planning] $ARGUMENTS",
       description: "Return to plan mode.",
       agent: "yang",
     },

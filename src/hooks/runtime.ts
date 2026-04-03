@@ -1,4 +1,10 @@
-import { appendFileSync, readdirSync } from "node:fs";
+import {
+  appendFileSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
@@ -103,15 +109,22 @@ export const PRIMARY_AGENTS = new Set(["yang", "yang-exp"]);
  * input object IS the session itself and `.id` is the session ID.
  */
 export function resolveSessionID(value: unknown): string | undefined {
-  const candidate = value as
-    | {
-        sessionID?: string;
-        info?: { id?: string };
-        session?: { id?: string };
-      }
-    | undefined;
+  if (!value || typeof value !== "object") return undefined;
+  const obj = value as Record<string, unknown>;
 
-  return candidate?.sessionID ?? candidate?.info?.id ?? candidate?.session?.id;
+  if (typeof obj.sessionID === "string") return obj.sessionID;
+
+  if (obj.info && typeof obj.info === "object") {
+    const info = obj.info as Record<string, unknown>;
+    if (typeof info.id === "string") return info.id;
+  }
+
+  if (obj.session && typeof obj.session === "object") {
+    const session = obj.session as Record<string, unknown>;
+    if (typeof session.id === "string") return session.id;
+  }
+
+  return undefined;
 }
 
 /**
@@ -120,34 +133,47 @@ export function resolveSessionID(value: unknown): string | undefined {
  * session.deleted) where the input object represents the session itself.
  */
 export function resolveSessionOrEntityID(value: unknown): string | undefined {
-  return resolveSessionID(value) ?? (value as { id?: string } | undefined)?.id;
+  const fromSession = resolveSessionID(value);
+  if (fromSession) return fromSession;
+
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.id === "string") return obj.id;
+  }
+
+  return undefined;
 }
 
 export function resolveAgentName(value: unknown): string | undefined {
-  const candidate = value as
-    | {
-        agent?: string;
-        message?: { agent?: string };
-        info?: { agent?: string };
-      }
-    | undefined;
+  if (!value || typeof value !== "object") return undefined;
+  const obj = value as Record<string, unknown>;
 
-  return (
-    candidate?.agent ?? candidate?.message?.agent ?? candidate?.info?.agent
-  );
+  if (typeof obj.agent === "string") return obj.agent;
+
+  if (obj.message && typeof obj.message === "object") {
+    const msg = obj.message as Record<string, unknown>;
+    if (typeof msg.agent === "string") return msg.agent;
+  }
+
+  if (obj.info && typeof obj.info === "object") {
+    const info = obj.info as Record<string, unknown>;
+    if (typeof info.agent === "string") return info.agent;
+  }
+
+  return undefined;
 }
 
 export function resolveToolName(value: unknown): string | undefined {
-  const candidate = value as { tool?: string } | undefined;
-  return typeof candidate?.tool === "string" ? candidate.tool : undefined;
+  if (!value || typeof value !== "object") return undefined;
+  const obj = value as Record<string, unknown>;
+  return typeof obj.tool === "string" ? obj.tool : undefined;
 }
 
 export function resolveToolArgs(value: unknown): Record<string, unknown> {
-  const candidate = value as { args?: Record<string, unknown> } | undefined;
-  return candidate?.args &&
-    typeof candidate.args === "object" &&
-    !Array.isArray(candidate.args)
-    ? candidate.args
+  if (!value || typeof value !== "object") return {};
+  const obj = value as Record<string, unknown>;
+  return obj.args && typeof obj.args === "object" && !Array.isArray(obj.args)
+    ? (obj.args as Record<string, unknown>)
     : {};
 }
 
@@ -445,6 +471,29 @@ export function createHookRuntime(ctx: PluginInput, config: HarnessConfig) {
     });
   }
 
+  function cleanupOldSessions(maxAgeDays = 7): void {
+    try {
+      const files = readdirSync(sessionsDir).filter(
+        (f) => f.endsWith(".json") && f !== "latest.json",
+      );
+      const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+
+      for (const file of files) {
+        const filePath = join(sessionsDir, file);
+        try {
+          const stat = statSync(filePath);
+          if (stat.mtimeMs < cutoff) {
+            unlinkSync(filePath);
+          }
+        } catch {
+          // skip files we can't stat
+        }
+      }
+    } catch {
+      // directory may not exist
+    }
+  }
+
   function saveSessionSummary(summary: PersistedSessionSummary): void {
     // Write only the timestamped file — each session gets its own file so
     // concurrent idle events cannot overwrite each other.
@@ -456,6 +505,21 @@ export function createHookRuntime(ctx: PluginInput, config: HarnessConfig) {
       ),
       summary,
     );
+    cleanupOldSessions(config.memory?.lookback_days ?? 7);
+  }
+
+  let observationAppendCount = 0;
+
+  function rotateObservations(maxLines = 500): void {
+    const content = readText(observationsPath);
+    if (!content) return;
+
+    const lines = content.split("\n").filter(Boolean);
+    if (lines.length <= maxLines) return;
+
+    // Keep the most recent entries
+    const kept = lines.slice(-maxLines);
+    writeFileSync(observationsPath, kept.join("\n") + "\n", "utf8");
   }
 
   function appendObservation(observation: Observation): void {
@@ -468,6 +532,11 @@ export function createHookRuntime(ctx: PluginInput, config: HarnessConfig) {
       `${JSON.stringify(observation)}\n`,
       "utf8",
     );
+
+    observationAppendCount++;
+    if (observationAppendCount % 50 === 0) {
+      rotateObservations();
+    }
   }
 
   function loadObservations(limit = 200): Observation[] {

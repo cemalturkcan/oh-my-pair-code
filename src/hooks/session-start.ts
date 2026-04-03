@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { PluginInput } from "@opencode-ai/plugin";
 import { detectLocaleFromTexts, extractTextParts } from "../i18n";
+import { joinProjectFactLabels } from "../project-facts";
 import type { HarnessConfig } from "../types";
 import type { HookRuntime } from "./runtime";
 import { PRIMARY_AGENTS, resolveSessionOrEntityID } from "./runtime";
@@ -79,30 +80,39 @@ export function createSessionStartHook(
       );
       runtime.setSessionLocale(input.sessionID, locale);
 
-      // Inline /go and /plan detection
-      // OpenCode expands command templates before passing to hooks,
-      // so we detect both raw "/go" and the expanded template text
+      // Detect mode transitions via unique harness markers embedded in command templates.
+      // Markers are collision-resistant — normal conversation cannot trigger them.
       const userText = extractTextParts(output.parts ?? []);
       if (userText) {
         const trimmed = userText.trim().toLowerCase();
-        if (
-          trimmed === "/go" ||
-          trimmed.includes("/go") ||
-          trimmed.includes("switch to execution mode")
-        ) {
+        if (trimmed.includes("[harness:mode:executing]")) {
           runtime.setPlanMode(input.sessionID, "executing");
           runtime.resetPlanModeBlockCount(input.sessionID);
-        } else if (
-          trimmed === "/plan" ||
-          trimmed.includes("/plan") ||
-          trimmed.includes("switch to planning mode")
-        ) {
+        } else if (trimmed.includes("[harness:mode:planning]")) {
           runtime.setPlanMode(input.sessionID, "planning");
         }
       }
 
-      // Skip injection for subagents
+      // Subagents get minimal project facts only (no session context, no mode)
       if (agentName && !PRIMARY_AGENTS.has(agentName)) {
+        const facts = runtime.detectProjectFacts();
+        const languages =
+          facts.languages.length > 0
+            ? joinProjectFactLabels(facts.languages)
+            : "unknown";
+        const frameworks =
+          facts.frameworks.length > 0
+            ? joinProjectFactLabels(facts.frameworks)
+            : "none";
+        const factLine = `[ProjectContext] packageManager: ${facts.packageManager} | languages: ${languages} | frameworks: ${frameworks}`;
+
+        const previousSystem =
+          typeof output.message.system === "string"
+            ? output.message.system.trim()
+            : "";
+        output.message.system = previousSystem
+          ? `${previousSystem}\n\n${factLine}`
+          : factLine;
         return;
       }
 
