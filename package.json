@@ -1,7 +1,7 @@
 {
   "name": "opencode-pair-autonomy",
   "version": "0.1.0",
-  "description": "Lean OpenCode harness plugin with pair and autonomous modes, curated MCPs, and skill-aware prompts.",
+  "description": "OpenCode harness with opinionated agent orchestration. One coordinator, eight specialized workers, automatic verify+review pipeline.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -19,15 +19,73 @@
     "build": "bun build src/index.ts --outdir dist --target bun --format esm && bun build src/cli.ts --outdir dist --target bun --format esm && tsc --emitDeclarationOnly",
     "clean": "rm -rf dist",
     "prepare": "bun run build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "keywords": [
     "opencode",
     "plugin",
     "agent",
-    "pair-programming",
-    "autonomous"
+    "harness",
+    "orchestration",
+    "pair-programming"
   ],
+  "release": {
+    "branches": [
+      "main"
+    ],
+    "plugins": [
+      [
+        "@semantic-release/commit-analyzer",
+        {
+          "releaseRules": [
+            {
+              "type": "refactor",
+              "release": "patch"
+            },
+            {
+              "type": "perf",
+              "release": "patch"
+            },
+            {
+              "type": "test",
+              "release": "patch"
+            },
+            {
+              "type": "chore",
+              "scope": "deps",
+              "release": "patch"
+            }
+          ]
+        }
+      ],
+      "@semantic-release/release-notes-generator",
+      "@semantic-release/npm",
+      [
+        "@semantic-release/github",
+        {
+          "assets": [
+            {
+              "path": "release-binaries/opencode-pair-autonomy-linux-x64",
+              "label": "CLI Binary (Linux x64)"
+            },
+            {
+              "path": "release-binaries/opencode-pair-autonomy-linux-arm64",
+              "label": "CLI Binary (Linux ARM64)"
+            },
+            {
+              "path": "release-binaries/opencode-pair-autonomy-darwin-x64",
+              "label": "CLI Binary (macOS x64)"
+            },
+            {
+              "path": "release-binaries/opencode-pair-autonomy-darwin-arm64",
+              "label": "CLI Binary (macOS ARM64)"
+            }
+          ]
+        }
+      ]
+    ]
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cemalturkcan/oh-my-pair-code.git"
