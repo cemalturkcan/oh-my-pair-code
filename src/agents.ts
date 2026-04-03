@@ -32,14 +32,14 @@ function taskPermissions(...allowedPatterns: string[]) {
 }
 
 const COORDINATOR_TASK_PERMISSIONS = taskPermissions(
-  "thorfinn",
-  "ginko",
-  "kaiki",
-  "odokawa",
-  "ozen",
-  "skull-knight",
-  "paprika",
-  "rajdhani",
+  "memati",
+  "abdulhey",
+  "aslan-akbey",
+  "iskender",
+  "halit",
+  "tuncay",
+  "ebru",
+  "laz-ziya",
 );
 
 // Only the expensive MCPs are disabled on the coordinator (~30k token savings).
@@ -68,60 +68,60 @@ export function createHarnessAgents(
 
   return {
     // ── Coordinator (primary agent) ──────────────────────────────
-    yang: withOverride(
+    polat: withOverride(
       {
         mode: "primary",
         description:
-          "Yang Wenli — Senior technical lead. Plans, argues, delegates, synthesizes.",
-        model: "anthropic/claude-opus-4-6",
-        variant: "max",
-        prompt: buildCoordinatorPrompt(overrides.yang?.prompt_append),
-        color: "#4A90D9",
+          "Polat Alemdar — Derin operasyon şefi. Planlar, yönetir, senkronize eder.",
+        model: "openai/gpt-5.4",
+        variant: "xhigh",
+        prompt: buildCoordinatorPrompt(overrides.polat?.prompt_append),
+        color: "#1a5276",
         tools: COORDINATOR_DISABLED_TOOLS,
         permission: { task: COORDINATOR_TASK_PERMISSIONS },
       },
-      overrides.yang,
+      overrides.polat,
     ),
 
-    "yang-exp": withOverride(
+    "polat-exp": withOverride(
       {
         mode: "primary",
         description:
-          "Yang Wenli (Experimental) — Judgment-based delegation coordinator.",
-        model: "anthropic/claude-opus-4-6",
-        variant: "max",
-        prompt: buildCoordinatorPromptExp(overrides["yang-exp"]?.prompt_append),
-        color: "#7B68EE",
+          "Polat Alemdar (Deneysel) — Yargı tabanlı delegasyon koordinatörü.",
+        model: "openai/gpt-5.4",
+        variant: "xhigh",
+        prompt: buildCoordinatorPromptExp(overrides["polat-exp"]?.prompt_append),
+        color: "#6c3483",
         tools: COORDINATOR_DISABLED_TOOLS,
         permission: { task: COORDINATOR_TASK_PERMISSIONS },
       },
-      overrides["yang-exp"],
+      overrides["polat-exp"],
     ),
 
     // ── Workers (subagents) ──────────────────────────────────────
-    thorfinn: withOverride(
+    memati: withOverride(
       {
         mode: "subagent",
         hidden: true,
-        description: "Thorfinn — General purpose implementation worker.",
-        model: "anthropic/claude-sonnet-4-6",
-        variant: "max",
-        prompt: buildWorkerPrompt(overrides.thorfinn?.prompt_append),
+        description: "Memati Baş — Genel amaçlı uygulama çalışanı.",
+        model: "openai/gpt-5.4",
+        variant: "high",
+        prompt: buildWorkerPrompt(overrides.memati?.prompt_append),
         temperature: 0.2,
-        color: "#2ECC71",
+        color: "#27ae60",
         tools: mcpDenyRules("jina", "web-agent-mcp", "figma-console"),
       },
-      overrides.thorfinn,
+      overrides.memati,
     ),
 
-    ginko: withOverride(
+    abdulhey: withOverride(
       {
         mode: "subagent",
         hidden: true,
-        description: "Ginko — Web and doc researcher.",
-        model: "anthropic/claude-sonnet-4-6",
+        description: "Abdülhey — Web ve belge araştırmacısı.",
+        model: "openai/gpt-5.4",
         variant: "none",
-        prompt: buildResearcherPrompt(overrides.ginko?.prompt_append),
+        prompt: buildResearcherPrompt(overrides.abdulhey?.prompt_append),
         temperature: 0.3,
         color: "#F39C12",
         tools: mcpDenyRules(
@@ -132,18 +132,18 @@ export function createHarnessAgents(
           "mariadb",
         ),
       },
-      overrides.ginko,
+      overrides.abdulhey,
     ),
 
-    kaiki: withOverride(
+    "aslan-akbey": withOverride(
       {
         mode: "subagent",
         hidden: true,
         description:
-          "Kaiki — Senior code reviewer. Finds subtle bugs and security issues.",
-        model: "anthropic/claude-opus-4-6",
-        variant: "max",
-        prompt: buildReviewerPrompt(overrides.kaiki?.prompt_append),
+          "Aslan Akbey — Kıdemli kod incelemecisi. İnce hataları ve güvenlik sorunlarını bulur.",
+        model: "openai/gpt-5.4",
+        variant: "xhigh",
+        prompt: buildReviewerPrompt(overrides["aslan-akbey"]?.prompt_append),
         temperature: 0.1,
         color: "#E74C3C",
         tools: mcpDenyRules(
@@ -160,18 +160,18 @@ export function createHarnessAgents(
           bash: { "*": "deny" },
         },
       },
-      overrides.kaiki,
+      overrides["aslan-akbey"],
     ),
 
-    odokawa: withOverride(
+    iskender: withOverride(
       {
         mode: "subagent",
         hidden: true,
         description:
-          "Odokawa — Cross-model independent reviewer for review diversity.",
+          "İskender Büyük — Çapraz model bağımsız incelemeci.",
         model: "openai/gpt-5.4",
         variant: "xhigh",
-        prompt: buildYetAnotherReviewerPrompt(overrides.odokawa?.prompt_append),
+        prompt: buildYetAnotherReviewerPrompt(overrides.iskender?.prompt_append),
         temperature: 0.4,
         color: "#9B59B6",
         tools: mcpDenyRules(
@@ -188,17 +188,17 @@ export function createHarnessAgents(
           bash: { "*": "deny" },
         },
       },
-      overrides.odokawa,
+      overrides.iskender,
     ),
 
-    ozen: withOverride(
+    halit: withOverride(
       {
         mode: "subagent",
         hidden: true,
-        description: "Ozen — Build, test, lint verifier.",
-        model: "anthropic/claude-sonnet-4-6",
+        description: "Cerrahpaşalı Halit — Derleme, test, lint doğrulayıcı.",
+        model: "openai/gpt-5.4-mini",
         variant: "none",
-        prompt: buildVerifierPrompt(overrides.ozen?.prompt_append),
+        prompt: buildVerifierPrompt(overrides.halit?.prompt_append),
         temperature: 0.0,
         color: "#95A5A6",
         tools: mcpDenyRules(
@@ -213,17 +213,17 @@ export function createHarnessAgents(
           "mariadb",
         ),
       },
-      overrides.ozen,
+      overrides.halit,
     ),
 
-    "skull-knight": withOverride(
+    tuncay: withOverride(
       {
         mode: "subagent",
         hidden: true,
-        description: "Skull Knight — Scoped failure repair agent.",
-        model: "anthropic/claude-sonnet-4-6",
-        variant: "max",
-        prompt: buildRepairPrompt(overrides["skull-knight"]?.prompt_append),
+        description: "Tuncay Kantarcı — Kapsamlı hata tamircisi.",
+        model: "openai/gpt-5.4",
+        variant: "high",
+        prompt: buildRepairPrompt(overrides.tuncay?.prompt_append),
         temperature: 0.1,
         color: "#E67E22",
         tools: mcpDenyRules(
@@ -234,33 +234,33 @@ export function createHarnessAgents(
           "figma-console",
         ),
       },
-      overrides["skull-knight"],
+      overrides.tuncay,
     ),
 
-    paprika: withOverride(
+    ebru: withOverride(
       {
         mode: "subagent",
         hidden: true,
         description:
-          "Paprika — Frontend specialist with Figma and browser automation.",
-        model: "anthropic/claude-sonnet-4-6",
-        variant: "max",
-        prompt: buildUiDeveloperPrompt(overrides.paprika?.prompt_append),
+          "Ebru Duru — Figma ve tarayıcı otomasyonu ile frontend uzmanı.",
+        model: "openai/gpt-5.4",
+        variant: "high",
+        prompt: buildUiDeveloperPrompt(overrides.ebru?.prompt_append),
         temperature: 0.5,
         color: "#FF69B4",
         tools: mcpDenyRules("pg-mcp", "ssh-mcp", "mariadb"),
       },
-      overrides.paprika,
+      overrides.ebru,
     ),
 
-    rajdhani: withOverride(
+    "laz-ziya": withOverride(
       {
         mode: "subagent",
         hidden: true,
-        description: "Rajdhani — Fast codebase explorer.",
-        model: "anthropic/claude-sonnet-4-6",
+        description: "Laz Ziya — Hızlı kod tabanı kaşifi.",
+        model: "openai/gpt-5.4-mini",
         variant: "none",
-        prompt: buildRepoScoutPrompt(overrides["rajdhani"]?.prompt_append),
+        prompt: buildRepoScoutPrompt(overrides["laz-ziya"]?.prompt_append),
         temperature: 0.1,
         color: "#1ABC9C",
         tools: mcpDenyRules(
@@ -275,7 +275,7 @@ export function createHarnessAgents(
           "mariadb",
         ),
       },
-      overrides["rajdhani"],
+      overrides["laz-ziya"],
     ),
 
     // ── Disable OpenCode built-in agents ─────────────────────────

@@ -3,14 +3,14 @@ export type HarnessMode = "coordinator";
 export type PlanModeState = "planning" | "executing";
 
 export type WorkerType =
-  | "thorfinn"
-  | "ginko"
-  | "kaiki"
-  | "odokawa"
-  | "ozen"
-  | "skull-knight"
-  | "paprika"
-  | "rajdhani";
+  | "memati"
+  | "abdulhey"
+  | "aslan-akbey"
+  | "iskender"
+  | "halit"
+  | "tuncay"
+  | "ebru"
+  | "laz-ziya";
 
 export type HookProfile = "minimal" | "standard" | "strict";
 

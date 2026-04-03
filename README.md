@@ -1,11 +1,11 @@
 # oh-my-pair-code
 
-OpenCode harness with opinionated agent orchestration. One coordinator, eight specialized workers, automatic verify+review pipeline.
+OpenCode harness with opinionated agent orchestration — Kurtlar Vadisi edition. One coordinator, eight specialized workers, automatic verify+review pipeline.
 
 ## What it does
 
-- **Yang Wenli** as coordinator — plans, delegates, synthesizes, never asks for routine permission
-- Automatic workflow: implement → build/test (Ozen) → review (Kaiki + Odokawa) → repair (Skull Knight) → re-verify
+- **Polat Alemdar** as coordinator — plans, delegates, synthesizes, never asks for routine permission
+- Automatic workflow: implement → build/test (Halit) → review (Aslan Akbey + İskender) → repair (Tuncay) → re-verify
 - Plan/Execute mode switching via `/go` and `/plan` commands
 - Session memory with cross-session continuity
 - Observation logging and pattern learning
@@ -15,15 +15,15 @@ OpenCode harness with opinionated agent orchestration. One coordinator, eight sp
 
 | Agent | Role | Model |
 |-------|------|-------|
-| **Yang** | Coordinator — plans, argues, delegates | claude-opus-4-6 |
-| **Thorfinn** | General implementation | claude-sonnet-4-6 |
-| **Ginko** | Web and doc research | claude-sonnet-4-6 |
-| **Kaiki** | Senior code review (read-only) | claude-opus-4-6 |
-| **Odokawa** | Cross-model review (read-only) | gpt-5.4 |
-| **Ozen** | Build, test, lint verification | claude-sonnet-4-6 |
-| **Skull Knight** | Scoped failure repair | claude-sonnet-4-6 |
-| **Paprika** | Frontend, Figma, browser testing | claude-sonnet-4-6 |
-| **Rajdhani** | Fast codebase exploration | claude-sonnet-4-6 |
+| **Polat** | Coordinator — plans, argues, delegates | gpt-5.4 |
+| **Memati** | General implementation | gpt-5.4 |
+| **Abdülhey** | Web and doc research | gpt-5.4 |
+| **Aslan Akbey** | Senior code review (read-only) | gpt-5.4 |
+| **İskender** | Cross-model review (read-only) | gpt-5.4 |
+| **Halit** | Build, test, lint verification | gpt-5.4-mini |
+| **Tuncay** | Scoped failure repair | gpt-5.4 |
+| **Ebru** | Frontend, Figma, browser testing | gpt-5.4 |
+| **Laz Ziya** | Fast codebase exploration | gpt-5.4-mini |
 
 ## MCP Servers
 
