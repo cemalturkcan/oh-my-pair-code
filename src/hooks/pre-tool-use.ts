@@ -34,43 +34,17 @@ const NODE_MODULES_BIN_RE = /node_modules\/\.bin\//;
 
 const PLAN_MODE_ALWAYS_BLOCKED = new Set(["edit", "write", "patch"]);
 
-const PLAN_MODE_ALLOWED_AGENTS = new Set([
-  "ginko",
-  "kaiki",
-  "odokawa",
-  "rajdhani",
-]);
-
-function resolveTargetAgent(args: Record<string, unknown>): string | undefined {
-  if (typeof args.subagent_type === "string") return args.subagent_type;
-  if (typeof args.agent === "string") return args.agent;
-  if (typeof args.subagent === "string") return args.subagent;
-  // Deep check: some tools nest agent in prompt or description objects
-  if (typeof args.type === "string") return args.type;
-  return undefined;
-}
-
 function isBlockedInPlanMode(
   tool: string,
-  args: Record<string, unknown>,
+  _args: Record<string, unknown>,
 ): boolean {
-  // edit/write/patch always blocked
+  // edit/write/patch always blocked — real protection against file changes
   if (PLAN_MODE_ALWAYS_BLOCKED.has(tool)) return true;
 
-  // delegate is always safe — restricted to read-only agents by design
-  // (hook doesn't receive delegate args, so we can't check target)
-  if (tool === "delegate" || tool.startsWith("delegation")) return false;
-
-  // If args contain a target agent, this is a worker-spawn call
-  const target = resolveTargetAgent(args);
-  if (target) {
-    return !PLAN_MODE_ALLOWED_AGENTS.has(target);
-  }
-
-  // task tool without determinable target — block to be safe
-  if (tool === "task" || tool.startsWith("task_")) return true;
-
-  // Regular tool (read, glob, grep, bash, etc.)
+  // task/delegate: allowed — prompt enforces which workers to use,
+  // hook can't determine target agent (args are empty in hook input).
+  // delegate internally triggers task, so both must be allowed.
+  // edit/write/patch hard gate still prevents file modifications.
   return false;
 }
 
@@ -122,26 +96,9 @@ export function createPreToolUseHook(
         tool &&
         runtime.getPlanMode(sessionID) === "planning"
       ) {
-        const target = resolveTargetAgent(args);
         const blocked = isBlockedInPlanMode(tool, args);
 
-        debugPlanMode({
-          tool,
-          args: Object.keys(args),
-          argsSnapshot: JSON.parse(
-            JSON.stringify(args, (_, v) =>
-              typeof v === "string" && v.length > 80
-                ? `${v.slice(0, 80)}...`
-                : v,
-            ),
-          ),
-          target,
-          blocked,
-          rawInput:
-            typeof input === "object" && input
-              ? Object.keys(input as Record<string, unknown>)
-              : "not-object",
-        });
+        debugPlanMode({ tool, blocked });
 
         if (blocked) {
           const count = runtime.incrementPlanModeBlock(sessionID);
