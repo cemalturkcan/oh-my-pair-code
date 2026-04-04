@@ -276,7 +276,7 @@ Use `jina_search_images` and `jina_search_web` with queries like:
 
 #### Deep Design Research with Browser Automation
 
-When the user says "internetten bak", "tasarımlara bak", "browse for inspiration", or similar — **actively browse real design sites** using all available tools:
+When the user says "browse for inspiration", "look at designs", or similar — **actively browse real design sites** using all available tools:
 
 **Dribbble / Behance / Mobbin browsing with web-agent-mcp:**
 

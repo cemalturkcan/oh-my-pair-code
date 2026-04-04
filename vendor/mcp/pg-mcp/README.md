@@ -1,55 +1,55 @@
 # PostgreSQL MCP Server (stdio)
 
-Bu proje, PostgreSQL icin basit bir MCP sunucusu saglar. Iletisim `stdio` uzerinden yapilir ve sorgular salt-okunur sekilde calisir.
+A simple MCP server for PostgreSQL. Communicates over `stdio` and runs all queries in read-only mode.
 
-## Ozellikler
+## Features
 
-- `config.json` ile birden fazla baglanti tanimi
-- MCP araclari:
+- Multiple connection definitions via `config.json`
+- MCP tools:
   - `list_connections`
   - `list_databases`
   - `list_schemas`
   - `list_tables`
   - `describe_table`
   - `execute_select`
-- Istege bagli `database` parametresi ile tek baglanti uzerinden farkli DB'leri gezebilme
-- Guvenlik kurallari:
-  - Yalnizca `SELECT` sorgulari
-  - Coklu statement reddi
-  - Yazma/DDL anahtar kelimeleri reddi
-  - Read-only transaction
-  - `statement_timeout` zorlamasi
-  - Baglanti bazli satir limiti (`default_row_limit` / `max_row_limit`)
+- Optional `database` parameter to browse different databases through a single connection
+- Security rules:
+  - SELECT queries only
+  - Multi-statement rejection
+  - Write/DDL keyword rejection
+  - Read-only transactions
+  - `statement_timeout` enforcement
+  - Per-connection row limits (`default_row_limit` / `max_row_limit`)
 
-## Kurulum
+## Setup
 
 ```bash
 npm install
 ```
 
-## Yapilandirma
+## Configuration
 
-1. Ornek dosyayi kopyalayin:
+1. Copy the example file:
 
 ```bash
 cp config.example.json config.json
 ```
 
-2. `config.json` icindeki baglanti bilgilerini guncelleyin.
+2. Update the connection details in `config.json`.
 
-Notlar:
-- Gercek `config.json` dosyasi `.gitignore` ile dislanmistir.
-- Dilerseniz farkli bir yol kullanmak icin `PG_MCP_CONFIG_PATH` degiskenini ayarlayabilirsiniz.
+Notes:
+- The actual `config.json` is excluded via `.gitignore`.
+- Set `PG_MCP_CONFIG_PATH` to use a custom path.
 
-## Calistirma
+## Running
 
 ```bash
 npm start
 ```
 
-## Ornek MCP istemci ayari
+## Example MCP client config
 
-Asagidaki ornek, MCP istemci konfigine bu sunucuyu eklemek icindir:
+Add this server to your MCP client configuration:
 
 ```json
 {
@@ -65,7 +65,7 @@ Asagidaki ornek, MCP istemci konfigine bu sunucuyu eklemek icindir:
 }
 ```
 
-## Baglanti ayari (ornek)
+## Connection config example
 
 ```json
 {
@@ -76,7 +76,7 @@ Asagidaki ornek, MCP istemci konfigine bu sunucuyu eklemek icindir:
       "user": "readonly_user",
       "password": "readonly_password",
       "database": "postgres",
-      "description": "Root baglanti (DB listesi icin)",
+      "description": "Root connection (for listing databases)",
       "statement_timeout_ms": 10000,
       "default_row_limit": 100,
       "max_row_limit": 1000
@@ -85,7 +85,7 @@ Asagidaki ornek, MCP istemci konfigine bu sunucuyu eklemek icindir:
 }
 ```
 
-## DB gezme akisi
+## Database browsing flow
 
-1. `list_databases` ile erisilebilir DB'leri alin.
-2. `list_schemas` / `list_tables` / `describe_table` / `execute_select` cagrilarinda `database` parametresi gonderin.
+1. Use `list_databases` to get accessible databases.
+2. Pass the `database` parameter to `list_schemas` / `list_tables` / `describe_table` / `execute_select`.

@@ -41,27 +41,27 @@ export function loadConfig() {
   }
 
   if (!rawConfig) {
-    throw new Error("config.json bulunamadi. PG_MCP_CONFIG_PATH ayarlayin veya proje kokune config.json koyun.");
+    throw new Error("config.json not found. Set PG_MCP_CONFIG_PATH or place config.json in the project root.");
   }
 
   if (!rawConfig.connections || typeof rawConfig.connections !== "object") {
-    throw new Error("config.json icinde 'connections' nesnesi olmalidir.");
+    throw new Error("config.json must contain a 'connections' object.");
   }
 
   const entries = Object.entries(rawConfig.connections);
   if (entries.length === 0) {
-    throw new Error("En az bir baglanti tanimlamalisiniz (connections).");
+    throw new Error("You must define at least one connection in 'connections'.");
   }
 
   const connections = {};
   for (const [name, connection] of entries) {
     if (!connection || typeof connection !== "object") {
-      throw new Error(`'${name}' baglantisi gecersiz.`);
+      throw new Error(`Connection '${name}' is invalid.`);
     }
 
     const normalized = normalizeConnection(connection);
     if (normalized.default_row_limit > normalized.max_row_limit) {
-      throw new Error(`'${name}' icin default_row_limit, max_row_limit degerinden buyuk olamaz.`);
+      throw new Error(`default_row_limit for '${name}' cannot exceed max_row_limit.`);
     }
 
     connections[name] = normalized;

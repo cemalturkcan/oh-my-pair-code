@@ -15,13 +15,13 @@ const connectionNames = db.getConnectionNames();
 function normalizeDatabaseName(value) {
   if (value == null) return null;
   if (typeof value !== "string") {
-    throw new Error("'database' alani metin olmalidir.");
+    throw new Error("'database' field must be a string.");
   }
 
   const trimmed = value.trim();
   if (!trimmed) return null;
   if (!/^[a-zA-Z0-9_\-]+$/.test(trimmed)) {
-    throw new Error("'database' alani gecersiz karakter iceriyor.");
+    throw new Error("'database' field contains invalid characters.");
   }
 
   return trimmed;
@@ -60,7 +60,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "list_databases": {
         const connection = args?.connection;
-        if (!connection) return fail("'connection' alani zorunludur.");
+        if (!connection) return fail("'connection' field is required.");
 
         const result = await db.runReadOnly(
           connection,
@@ -79,7 +79,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "list_schemas": {
         const connection = args?.connection;
         const database = normalizeDatabaseName(args?.database);
-        if (!connection) return fail("'connection' alani zorunludur.");
+        if (!connection) return fail("'connection' field is required.");
 
         const result = await db.runReadOnly(
           connection,
@@ -100,7 +100,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const connection = args?.connection;
         const database = normalizeDatabaseName(args?.database);
         const schema = args?.schema ?? null;
-        if (!connection) return fail("'connection' alani zorunludur.");
+        if (!connection) return fail("'connection' field is required.");
 
         const result = await db.runReadOnly(
           connection,
@@ -123,8 +123,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const database = normalizeDatabaseName(args?.database);
         const table = args?.table;
         const schema = args?.schema ?? null;
-        if (!connection) return fail("'connection' alani zorunludur.");
-        if (!table) return fail("'table' alani zorunludur.");
+        if (!connection) return fail("'connection' field is required.");
+        if (!table) return fail("'table' field is required.");
 
         const result = await db.runReadOnly(
           connection,
@@ -147,7 +147,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         );
 
         if (result.rows.length === 0) {
-          return fail("Tablo bulunamadi. 'schema' alanini gondererek tekrar deneyin.");
+          return fail("Table not found. Try specifying the 'schema' field.");
         }
 
         return ok(result.rows);
@@ -159,8 +159,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const query = args?.query;
         const requestedRowLimit = args?.row_limit;
 
-        if (!connection) return fail("'connection' alani zorunludur.");
-        if (!query) return fail("'query' alani zorunludur.");
+        if (!connection) return fail("'connection' field is required.");
+        if (!query) return fail("'query' field is required.");
 
         const connectionConfig = db.getConnectionConfig(connection);
         const normalizedQuery = validateAndNormalizeSelect(query);
@@ -176,11 +176,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       default:
-        return fail(`Bilinmeyen arac: ${name}`);
+        return fail(`Unknown tool: ${name}`);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return fail(`Hata: ${message}`);
+    return fail(`Error: ${message}`);
   }
 });
 
@@ -191,7 +191,7 @@ async function main() {
 
 main().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(`Sunucu baslatilamadi: ${message}`);
+  console.error(`Server failed to start: ${message}`);
   process.exit(1);
 });
 

@@ -31,12 +31,12 @@ const blockedKeywordRegex = new RegExp(`\\b(${BLOCKED_KEYWORDS.join("|")})\\b`, 
 
 export function validateAndNormalizeSelect(rawQuery) {
   if (typeof rawQuery !== "string") {
-    throw new Error("Sorgu metin (string) olmalidir.");
+    throw new Error("Query must be a string.");
   }
 
   let query = rawQuery.trim();
   if (!query) {
-    throw new Error("Sorgu bos olamaz.");
+    throw new Error("Query cannot be empty.");
   }
 
   while (query.endsWith(";")) {
@@ -44,15 +44,15 @@ export function validateAndNormalizeSelect(rawQuery) {
   }
 
   if (query.includes(";")) {
-    throw new Error("Tek seferde yalnizca tek bir SQL ifadesi calistirilabilir.");
+    throw new Error("Only a single SQL statement can be executed at a time.");
   }
 
   if (!/^(SELECT|WITH)\b/i.test(query)) {
-    throw new Error("Yalnizca SELECT sorgularina izin verilir.");
+    throw new Error("Only SELECT queries are allowed.");
   }
 
   if (blockedKeywordRegex.test(query)) {
-    throw new Error("Sorgu yazma/DDL iceren ifadeler barindiriyor. Yalnizca salt-okunur SELECT kullanin.");
+    throw new Error("Query contains write/DDL statements. Only read-only SELECT is allowed.");
   }
 
   return query;
@@ -64,7 +64,7 @@ export function resolveRowLimit(requestedRowLimit, connectionConfig) {
   const chosen = requestedRowLimit == null ? defaultLimit : Number(requestedRowLimit);
 
   if (!Number.isFinite(chosen) || chosen <= 0) {
-    throw new Error("row_limit pozitif bir sayi olmalidir.");
+    throw new Error("row_limit must be a positive number.");
   }
 
   return Math.min(Math.floor(chosen), maxLimit);

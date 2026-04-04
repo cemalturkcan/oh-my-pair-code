@@ -36,7 +36,6 @@ const HarnessConfigSchema = z.object({
       stop: z.boolean().optional(),
       session_end: z.boolean().optional(),
       file_edited: z.boolean().optional(),
-      prompt_refiner: z.boolean().optional(),
     })
     .optional(),
   memory: z
@@ -100,7 +99,6 @@ const DEFAULTS: HarnessConfig = {
     stop: true,
     session_end: true,
     file_edited: true,
-    prompt_refiner: false,
   },
   memory: {
     enabled: true,
@@ -254,8 +252,7 @@ export const SAMPLE_PROJECT_CONFIG = `{
     "pre_compact": true,
     "stop": true,
     "session_end": true,
-    "file_edited": true,
-    "prompt_refiner": false
+    "file_edited": true
   },
   "memory": {
     "enabled": true,

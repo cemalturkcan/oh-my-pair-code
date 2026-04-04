@@ -6,7 +6,7 @@
       "user": "readonly_user",
       "password": "readonly_password",
       "database": "app_db",
-      "description": "Yerel gelistirme veritabani",
+      "description": "Local development database",
       "statement_timeout_ms": 10000,
       "default_row_limit": 100,
       "max_row_limit": 1000
@@ -17,7 +17,7 @@
       "user": "readonly_staging",
       "password": "staging_password",
       "database": "app_staging",
-      "description": "Staging ortami",
+      "description": "Staging environment",
       "statement_timeout_ms": 8000,
       "default_row_limit": 50,
       "max_row_limit": 500

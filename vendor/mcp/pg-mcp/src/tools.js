@@ -2,7 +2,7 @@ export function buildToolDefinitions(connectionNames) {
   return [
     {
       name: "list_connections",
-      description: "Tanimli PostgreSQL baglantilarini listeler.",
+      description: "Lists configured PostgreSQL connections.",
       inputSchema: {
         type: "object",
         properties: {},
@@ -10,7 +10,7 @@ export function buildToolDefinitions(connectionNames) {
     },
     {
       name: "list_databases",
-      description: "Secilen baglantidaki erisilebilir veritabanlarini listeler.",
+      description: "Lists accessible databases for the selected connection.",
       inputSchema: {
         type: "object",
         properties: {
@@ -21,7 +21,7 @@ export function buildToolDefinitions(connectionNames) {
     },
     {
       name: "list_schemas",
-      description: "Secilen baglantidaki semalari listeler.",
+      description: "Lists schemas for the selected connection.",
       inputSchema: {
         type: "object",
         properties: {
@@ -33,7 +33,7 @@ export function buildToolDefinitions(connectionNames) {
     },
     {
       name: "list_tables",
-      description: "Secilen baglantida tablolari listeler. Isterseniz schema verebilirsiniz.",
+      description: "Lists tables for the selected connection. Optionally filter by schema.",
       inputSchema: {
         type: "object",
         properties: {
@@ -46,7 +46,7 @@ export function buildToolDefinitions(connectionNames) {
     },
     {
       name: "describe_table",
-      description: "Bir tablonun kolon bilgilerini dondurur.",
+      description: "Returns column information for a table.",
       inputSchema: {
         type: "object",
         properties: {
@@ -60,7 +60,7 @@ export function buildToolDefinitions(connectionNames) {
     },
     {
       name: "execute_select",
-      description: "Salt-okunur SELECT sorgusu calistirir. Satir limiti uygulanir.",
+      description: "Executes a read-only SELECT query. Row limit is enforced.",
       inputSchema: {
         type: "object",
         properties: {

@@ -1,7 +1,7 @@
 {
   "name": "pg-mcp-server",
   "version": "1.0.0",
-  "description": "PostgreSQL icin basit ve salt-okunur MCP sunucusu",
+  "description": "Simple read-only MCP server for PostgreSQL",
   "type": "module",
   "main": "src/index.js",
   "bin": {

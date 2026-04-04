@@ -22,7 +22,7 @@ export class DbManager {
     const cfg = this.config.connections[name];
     if (!cfg) {
       const available = this.getConnectionNames().join(", ");
-      throw new Error(`Baglanti bulunamadi: '${name}'. Mevcut baglantilar: ${available}`);
+      throw new Error(`Connection not found: '${name}'. Available connections: ${available}`);
     }
     return cfg;
   }
@@ -67,7 +67,7 @@ export class DbManager {
       try {
         await client.query("ROLLBACK");
       } catch {
-        // ROLLBACK hatasi olursa asil hatayi koruyoruz.
+        // Preserve the original error if ROLLBACK also fails.
       }
       throw error;
     } finally {

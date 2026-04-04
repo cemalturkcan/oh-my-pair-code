@@ -5,7 +5,6 @@ import { createFileEditedHook } from "./file-edited";
 import { createPostToolUseHook } from "./post-tool-use";
 import { createPreCompactHook } from "./pre-compact";
 import { createPreToolUseHook } from "./pre-tool-use";
-import { createPromptRefinerHook } from "./prompt-refiner";
 import { createHookRuntime, resolveHookProfile } from "./runtime";
 import { safeCreateHook, safeHook } from "./sdk";
 import { createSessionEndHook } from "./session-end";
@@ -213,17 +212,6 @@ export async function createHarnessHooks(
     createFileEditedHook(runtime),
   );
 
-  let promptRefinerHooks:
-    | ReturnType<typeof createPromptRefinerHook>
-    | undefined;
-  if (config.hooks?.prompt_refiner !== false) {
-    try {
-      promptRefinerHooks = createPromptRefinerHook(ctx);
-    } catch {
-      // swallow
-    }
-  }
-
   return {
     config: composeConfig(hooks),
     "chat.message": composeChatMessage(hooks),
@@ -239,9 +227,7 @@ export async function createHarnessHooks(
       hooks,
       "experimental.session.compacting",
     ),
-    "experimental.chat.messages.transform":
-      promptRefinerHooks?.["experimental.chat.messages.transform"],
-    "experimental.text.complete":
-      promptRefinerHooks?.["experimental.text.complete"],
+    "experimental.chat.messages.transform": undefined,
+    "experimental.text.complete": undefined,
   };
 }

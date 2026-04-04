@@ -72,7 +72,6 @@ export type HarnessConfig = {
     stop?: boolean;
     session_end?: boolean;
     file_edited?: boolean;
-    prompt_refiner?: boolean;
   };
   memory?: {
     enabled?: boolean;
