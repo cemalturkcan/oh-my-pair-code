@@ -1,50 +1,72 @@
 # Agent Matrix
 
-## Primary agents (tab-switchable)
+## Coordinator
 
-All primary agents run Claude Opus 4.6 with max thinking and full task permissions.
+| Agent  | Character  | Model                       | Variant | Role                                              |
+| ------ | ---------- | --------------------------- | ------- | ------------------------------------------------- |
+| `yang` | Yang Wenli | `anthropic/claude-opus-4-6` | `max`   | Plans, argues, delegates, synthesizes. Never asks for routine permission. |
 
-| Agent          | Role                                                                          | Model                       | Variant |
-| -------------- | ----------------------------------------------------------------------------- | --------------------------- | ------- |
-| `pair`         | Collaborative pair programmer. Plans first, confirms, executes, auto-reviews. | `anthropic/claude-opus-4-6` | `max`   |
-| `autonomous`   | Checkpointed autonomous executor. Runs independently until done or blocked.   | `anthropic/claude-opus-4-6` | `max`   |
-| `reviewer`     | Primary code reviewer. Launches cross-model review automatically.             | `anthropic/claude-opus-4-6` | `max`   |
-| `web-search`   | Web research agent. Starts researching immediately on activation.             | `anthropic/claude-opus-4-6` | `max`   |
-| `ui-developer` | UI craftsman. Figma extraction, creative design, live UX review.              | `anthropic/claude-opus-4-6` | `max`   |
+## Workers
 
-## Subagents
+| Agent      | Character       | Model                         | Variant | Role                                          |
+| ---------- | --------------- | ----------------------------- | ------- | --------------------------------------------- |
+| `thorfinn` | Thorfinn        | `anthropic/claude-sonnet-4-6` | `max`   | General implementation — features, refactoring, migrations, server ops. |
+| `ginko`    | Ginko           | `anthropic/claude-sonnet-4-6` | `none`  | Web and doc research. Search, synthesize, report. |
+| `rust`     | Rust Cohle      | `anthropic/claude-opus-4-6`   | `max`   | Senior code reviewer. Read-only. Finds subtle bugs and security issues. |
+| `odokawa`  | Odokawa         | `openai/gpt-5.4`             | `xhigh` | Cross-model independent reviewer. Read-only. Different angle, different blind spots. |
+| `spock`    | Spock           | `anthropic/claude-sonnet-4-6` | `none`  | Build, test, typecheck, lint verification. Pass or fail, nothing more. |
+| `geralt`   | Geralt of Rivia | `anthropic/claude-sonnet-4-6` | `max`   | Scoped failure repair. One problem in, one fix out. |
+| `edward`   | Edward Elric    | `anthropic/claude-sonnet-4-6` | `max`   | Frontend specialist. Design-aware implementation and visual validation. |
+| `killua`   | Killua Zoldyck  | `anthropic/claude-sonnet-4-6` | `none`  | Fast codebase exploration. Scans structure, reports locations and patterns. |
 
-| Agent                  | Role                                            | Model                                | Variant |
-| ---------------------- | ----------------------------------------------- | ------------------------------------ | ------- |
-| `repo-scout`           | Repository pattern scout and file discovery.    | `anthropic/claude-sonnet-4-6-latest` | `max`   |
-| `researcher`           | External docs, APIs, and library research.      | `anthropic/claude-sonnet-4-6-latest` | `max`   |
-| `builder`              | Scoped implementation within assigned boundary. | `anthropic/claude-sonnet-4-6-latest` | `max`   |
-| `builder-deep`         | Complex multi-file implementation.              | `anthropic/claude-opus-4-6`          | `max`   |
-| `verifier`             | Verification and failure classification.        | `anthropic/claude-opus-4-6`          | `max`   |
-| `repair`               | Scoped repair for verifier-reported failures.   | `anthropic/claude-opus-4-6`          | `max`   |
-| `yet-another-reviewer` | Cross-model independent reviewer (GPT).         | `openai/gpt-5.4`                     | `max`   |
+## MCP Access Matrix
 
-## Automatic delegation rules
+Defined in `src/prompts/mcp-access.ts` — single source of truth.
 
-These fire automatically from `pair` and `autonomous` — no user action needed:
+| Agent        | context7 | grep_app | searxng | web-agent-mcp | pg-mcp | ssh-mcp | mariadb |
+| ------------ | -------- | -------- | ------- | ------------- | ------ | ------- | ------- |
+| **yang**     | yes      | yes      | —       | —             | yes    | yes     | yes     |
+| **thorfinn** | yes      | yes      | —       | —             | yes    | yes     | yes     |
+| **ginko**    | yes      | yes      | yes     | —             | —      | —       | —       |
+| **rust**     | yes      | yes      | —       | —             | —      | —       | —       |
+| **odokawa**  | yes      | yes      | —       | —             | —      | —       | —       |
+| **spock**    | —        | —        | —       | —             | —      | —       | —       |
+| **geralt**   | yes      | —        | —       | —             | yes    | yes     | yes     |
+| **edward**   | yes      | yes      | yes     | yes           | —      | —       | —       |
+| **killua**   | —        | —        | —       | —             | —      | —       | —       |
 
-| Trigger                                                  | Action                                          |
-| -------------------------------------------------------- | ----------------------------------------------- |
-| After significant work (multi-file, features, refactors) | `reviewer` + `yet-another-reviewer` in parallel |
-| After writing/modifying code                             | `verifier`                                      |
-| On verifier failure                                      | `repair` → re-verify                            |
+`—` = denied at OpenCode runtime level (tool calls blocked).
 
-| UI/frontend tasks (pages, components, layouts, styling) | `ui-developer` |
+## Automatic Workflow
 
-Trivial changes (typos, single-line fixes) skip the review cycle.
+After implementation, the coordinator chooses verification level:
 
-## Model tier policy
+**Trivial** (config change, typo, single-line fix):
+1. Spawn spock (build + test + typecheck). Done if pass.
 
-- **Primary agents**: Claude Opus 4.6 `max` — no exceptions.
-- **Subagents (minimum)**: Claude Sonnet 4.6 `max` — no haiku tier.
-- **Cross-model**: GPT 5.4 `max` for review diversity.
+**Standard** (multi-file changes, new features, refactoring):
+1. Spawn spock (build + test + typecheck).
+2. Spock pass → spawn rust + odokawa in parallel.
+3. Spock fail → spawn geralt, then re-verify. Max 2 cycles.
+4. Rust request-changes → spawn geralt, then re-verify + re-review. Max 2 cycles.
+5. UI tasks → spawn edward for visual verification.
 
-## Language policy
+## Delegation Tools
+
+| Tool         | For                                                  | Session Continuation     |
+| ------------ | ---------------------------------------------------- | ------------------------ |
+| **Task**     | Write workers (thorfinn, spock, geralt, edward)      | Pass task_id to continue |
+| **Delegate** | Read-only workers (ginko, rust, odokawa, killua)     | Always fresh, runs async |
+
+## Model Tier Policy
+
+- **Coordinator**: Claude Opus 4.6 `max`
+- **Senior reviewer**: Claude Opus 4.6 `max`
+- **Cross-model reviewer**: GPT 5.4 `xhigh`
+- **Implementation workers**: Claude Sonnet 4.6 `max`
+- **Read-only workers**: Claude Sonnet 4.6 `none` (no extended thinking needed)
+
+## Language Policy
 
 - All internal prompts, delegation packets, and structured outputs are in English.
 - User-facing replies follow the user's language.

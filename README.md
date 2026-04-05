@@ -5,35 +5,57 @@ OpenCode harness with opinionated agent orchestration. One coordinator, eight sp
 ## What it does
 
 - **Yang Wenli** as coordinator — plans, delegates, synthesizes, never asks for routine permission
-- Automatic workflow: implement → build/test (Ozen) → review (Kaiki + Odokawa) → repair (Skull Knight) → re-verify
+- Automatic workflow: implement → build/test (Spock) → review (Rust + Odokawa) → repair (Geralt) → re-verify
 - Plan/Execute mode switching via `/go` and `/plan` commands
 - Session memory with cross-session continuity
 - Observation logging and pattern learning
 - Comment guard that catches AI-slop in generated code
+- Emotion-informed prompt design based on [Anthropic's research](https://www.anthropic.com/research/emotion-concepts-function)
 
 ## Agents
 
-| Agent            | Role                                   | Model             |
-| ---------------- | -------------------------------------- | ----------------- |
-| **Yang**         | Coordinator — plans, argues, delegates | claude-opus-4-6   |
-| **Thorfinn**     | General implementation                 | claude-sonnet-4-6 |
-| **Ginko**        | Web and doc research                   | claude-sonnet-4-6 |
-| **Kaiki**        | Senior code review (read-only)         | claude-opus-4-6   |
-| **Odokawa**      | Cross-model review (read-only)         | gpt-5.4           |
-| **Ozen**         | Build, test, lint verification         | claude-sonnet-4-6 |
-| **Skull Knight** | Scoped failure repair                  | claude-sonnet-4-6 |
-| **Paprika**      | Frontend, Figma, browser testing       | claude-sonnet-4-6 |
-| **Rajdhani**     | Fast codebase exploration              | claude-sonnet-4-6 |
+| Agent        | Character            | Role                           | Model             |
+| ------------ | -------------------- | ------------------------------ | ----------------- |
+| **yang**     | Yang Wenli           | Coordinator — plans, delegates | claude-opus-4-6   |
+| **thorfinn** | Thorfinn             | General implementation         | claude-sonnet-4-6 |
+| **ginko**    | Ginko                | Web and doc research           | claude-sonnet-4-6 |
+| **rust**     | Rust Cohle           | Senior code review (read-only) | claude-opus-4-6   |
+| **odokawa**  | Odokawa              | Cross-model review (read-only) | gpt-5.4           |
+| **spock**    | Spock                | Build, test, lint verification | claude-sonnet-4-6 |
+| **geralt**   | Geralt of Rivia      | Scoped failure repair          | claude-sonnet-4-6 |
+| **edward**   | Edward Elric         | Frontend, browser testing      | claude-sonnet-4-6 |
+| **killua**   | Killua Zoldyck       | Fast codebase exploration      | claude-sonnet-4-6 |
 
 ## MCP Servers
 
-`context7`, `grep_app`, `searxng`, `web-agent-mcp`, `figma-console`, `pg-mcp`, `ssh-mcp`, `mariadb`
+| MCP           | What                                                  | API Key |
+| ------------- | ----------------------------------------------------- | ------- |
+| `context7`    | Library and framework documentation                   | No      |
+| `grep_app`    | GitHub code search across public repos                | No      |
+| `searxng`     | Web search (Google/Bing/DDG via self-hosted SearXNG)  | No      |
+| `web-agent-mcp` | CloakBrowser — browser testing, screenshots        | No      |
+| `pg-mcp`      | PostgreSQL read-only client                           | No      |
+| `ssh-mcp`     | Remote command execution on configured SSH hosts      | No      |
+| `mariadb`     | MariaDB client                                        | No      |
+
+MCP access is controlled per-agent via `src/prompts/mcp-access.ts` — single source of truth.
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) — required for SearXNG (auto-provisioned by installer)
 
 ## Quick start
 
 ```bash
 bunx opencode-pair-autonomy install
 ```
+
+The installer will:
+1. Wire agents, MCPs, and commands into OpenCode config
+2. Install shell strategy instructions
+3. Vendor `pg-mcp`, `ssh-mcp`, bundled skills
+4. Auto-provision SearXNG Docker container (`--restart unless-stopped`)
+5. Enable JSON format in SearXNG settings
 
 From source:
 
@@ -73,18 +95,24 @@ opencode-pair-autonomy init
 | --------------------- | ---------------------------------------------------------------------------------- |
 | `session.created`     | Prepare session context injection                                                  |
 | `chat.message`        | Inject mode, project docs, session memory (coordinator) or project facts (workers) |
-| `tool.execute.before` | Plan mode gate, long-running command detection                                     |
+| `tool.execute.before` | Plan mode gate, git push build gate, WSL auto-transform                            |
 | `tool.execute.after`  | Comment guard, file tracking, compact suggestions                                  |
 | `session.idle`        | Save session summary, promote learned patterns, cleanup old sessions               |
 | `session.compacting`  | Pre-compact observation snapshot                                                   |
 
-## What install changes
+## Architecture
 
-- Patches OpenCode config with harness agents, MCPs, and commands
-- Installs shell strategy instructions
-- Vendors `pg-mcp`, `ssh-mcp`, bundled skills
-- Preserves existing user config on normal install
-
-## What uninstall removes
-
-Only harness-managed pieces: plugin wrappers, harness plugin entries, shell strategy entry, vendored background-agents. Preserves user config, MCP folders, skills.
+```
+src/
+├── prompts/
+│   ├── mcp-access.ts    # Single source of truth for agent MCP access
+│   ├── shared.ts        # Coordinator core, worker cores, response discipline
+│   ├── workers.ts       # Per-worker character prompts + MCP guidance
+│   └── coordinator.ts   # Worker catalog, delegation, plan mode, workflows
+├── agents.ts            # Agent definitions (models, tools, permissions)
+├── mcp.ts               # MCP server registration
+├── hooks/               # Runtime hooks (plan gate, comment guard, etc.)
+├── config.ts            # Config schema + loading
+├── installer.ts         # CLI installer
+└── index.ts             # Plugin entry point
+```
