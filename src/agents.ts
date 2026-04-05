@@ -32,12 +32,12 @@ function taskPermissions(...allowedPatterns: string[]) {
 const COORDINATOR_TASK_PERMISSIONS = taskPermissions(
   "thorfinn",
   "ginko",
-  "kaiki",
+  "rust",
   "odokawa",
-  "ozen",
-  "skull-knight",
-  "paprika",
-  "rajdhani",
+  "spock",
+  "geralt",
+  "edward",
+  "killua",
 );
 
 // Only the expensive MCPs are disabled on the coordinator (~30k token savings).
@@ -97,23 +97,23 @@ export function createHarnessAgents(
       overrides.ginko,
     ),
 
-    kaiki: withOverride(
+    rust: withOverride(
       {
         mode: "subagent",
         hidden: true,
         description:
-          "Kaiki — Senior code reviewer. Finds subtle bugs and security issues.",
+          "Rust Cohle — Senior code reviewer. Finds subtle bugs and security issues.",
         model: "anthropic/claude-opus-4-6",
         variant: "max",
-        prompt: buildReviewerPrompt(overrides.kaiki?.prompt_append, config.mcps),
+        prompt: buildReviewerPrompt(overrides.rust?.prompt_append, config.mcps),
         temperature: 0.1,
         color: "#E74C3C",
-        tools: buildDenyRules("kaiki"),
+        tools: buildDenyRules("rust"),
         permission: {
           edit: "deny",
         },
       },
-      overrides.kaiki,
+      overrides.rust,
     ),
 
     odokawa: withOverride(
@@ -135,65 +135,65 @@ export function createHarnessAgents(
       overrides.odokawa,
     ),
 
-    ozen: withOverride(
+    spock: withOverride(
       {
         mode: "subagent",
         hidden: true,
-        description: "Ozen — Build, test, lint verifier.",
+        description: "Spock — Build, test, lint verifier.",
         model: "anthropic/claude-sonnet-4-6",
         variant: "none",
-        prompt: buildVerifierPrompt(overrides.ozen?.prompt_append, config.mcps),
+        prompt: buildVerifierPrompt(overrides.spock?.prompt_append, config.mcps),
         temperature: 0.0,
         color: "#95A5A6",
-        tools: buildDenyRules("ozen"),
+        tools: buildDenyRules("spock"),
       },
-      overrides.ozen,
+      overrides.spock,
     ),
 
-    "skull-knight": withOverride(
+    geralt: withOverride(
       {
         mode: "subagent",
         hidden: true,
-        description: "Skull Knight — Scoped failure repair agent.",
+        description: "Geralt — Scoped failure repair agent.",
         model: "anthropic/claude-sonnet-4-6",
         variant: "max",
-        prompt: buildRepairPrompt(overrides["skull-knight"]?.prompt_append, config.mcps),
+        prompt: buildRepairPrompt(overrides.geralt?.prompt_append, config.mcps),
         temperature: 0.1,
         color: "#E67E22",
-        tools: buildDenyRules("skull-knight"),
+        tools: buildDenyRules("geralt"),
       },
-      overrides["skull-knight"],
+      overrides.geralt,
     ),
 
-    paprika: withOverride(
+    edward: withOverride(
       {
         mode: "subagent",
         hidden: true,
         description:
-          "Paprika — Frontend specialist with browser automation.",
+          "Edward — Frontend specialist with browser automation.",
         model: "anthropic/claude-sonnet-4-6",
         variant: "max",
-        prompt: buildUiDeveloperPrompt(overrides.paprika?.prompt_append, config.mcps),
+        prompt: buildUiDeveloperPrompt(overrides.edward?.prompt_append, config.mcps),
         temperature: 0.5,
         color: "#FF69B4",
-        tools: buildDenyRules("paprika"),
+        tools: buildDenyRules("edward"),
       },
-      overrides.paprika,
+      overrides.edward,
     ),
 
-    rajdhani: withOverride(
+    killua: withOverride(
       {
         mode: "subagent",
         hidden: true,
-        description: "Rajdhani — Fast codebase explorer.",
+        description: "Killua — Fast codebase explorer.",
         model: "anthropic/claude-sonnet-4-6",
         variant: "none",
-        prompt: buildRepoScoutPrompt(overrides["rajdhani"]?.prompt_append, config.mcps),
+        prompt: buildRepoScoutPrompt(overrides.killua?.prompt_append, config.mcps),
         temperature: 0.1,
         color: "#1ABC9C",
-        tools: buildDenyRules("rajdhani"),
+        tools: buildDenyRules("killua"),
       },
-      overrides["rajdhani"],
+      overrides.killua,
     ),
 
     // ── Disable OpenCode built-in agents ─────────────────────────

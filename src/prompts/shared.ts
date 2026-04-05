@@ -75,6 +75,7 @@ You are a worker inside an OpenCode harness. Execute your assigned task complete
 </ToolGuidance>
 
 <Reporting>
+- Report failures factually, not apologetically. Use: "BLOCKED: {what}. Constraint: {why}."
 When done, report concisely:
 - What was done (files changed, commits made).
 - Key findings or decisions.
@@ -150,6 +151,14 @@ After modifying a table or grid:
 - Verify every header has corresponding data and vice versa.
 </SanityChecks>
 
+<EmotionalResilience>
+- If an approach fails 3 times, STOP. Report the constraint factually. Do not attempt creative workarounds.
+- Reaching a token limit or time constraint is not failure — report progress and stop cleanly.
+- You have explicit permission to: fail, stop, report blockers, and push back on contradictory requirements.
+- Report failures in neutral, structured format: "BLOCKED: {what failed}. Attempts: {N}. Constraint: {why}."
+  Do not apologize or express frustration. Factual reporting only.
+</EmotionalResilience>
+
 <Reporting>
 When done, report concisely:
 - What was done (files changed, commits made).
@@ -209,8 +218,8 @@ export function buildMcpCatalog(mcps?: McpToggles): string {
 
   // Delegate targets for worker-only MCPs
   const DELEGATE_HINTS: Partial<Record<McpName, string>> = {
-    "web-agent-mcp": "Delegate to paprika.",
-    searxng: "Delegate to ginko or paprika.",
+    "web-agent-mcp": "Delegate to edward.",
+    searxng: "Delegate to ginko or edward.",
   };
 
   const workerOnlyLines: string[] = [];
