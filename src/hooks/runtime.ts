@@ -333,10 +333,6 @@ export function createHookRuntime(ctx: PluginInput, config: HarnessConfig) {
   ensureDir(sessionsDir);
   ensureDir(learningDir);
 
-  function getLatestSummaryPath(): string {
-    return join(sessionsDir, "latest.json");
-  }
-
   function setSessionAgent(sessionID: string, agent: string | undefined): void {
     if (!agent) {
       return;
@@ -401,11 +397,7 @@ export function createHookRuntime(ctx: PluginInput, config: HarnessConfig) {
     } catch {
       // Directory may not exist yet — fall through
     }
-    // Backwards-compat fallback for existing latest.json
-    return readJson<PersistedSessionSummary | undefined>(
-      getLatestSummaryPath(),
-      undefined,
-    );
+    return undefined;
   }
 
   function prepareSessionContext(sessionID: string): void {
@@ -438,7 +430,7 @@ export function createHookRuntime(ctx: PluginInput, config: HarnessConfig) {
   function cleanupOldSessions(maxAgeDays = 7): void {
     try {
       const files = readdirSync(sessionsDir).filter(
-        (f) => f.endsWith(".json") && f !== "latest.json",
+        (f) => f.endsWith(".json"),
       );
       const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
 

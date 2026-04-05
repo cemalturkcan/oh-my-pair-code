@@ -13,7 +13,6 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { parse } from "jsonc-parser";
 import { spawn } from "node:child_process";
-import { createInterface } from "node:readline";
 import { SAMPLE_PROJECT_CONFIG } from "./config";
 
 type JsonRecord = Record<string, unknown>;
@@ -290,7 +289,6 @@ function removeHarnessPluginList(
       !managedEntries.has(item) &&
       !managedBareNames.has(item) &&
       !managedBareNames.has(item.replace(/@latest$/, "")) &&
-      !item.includes("opencode-background-agents-local") &&
       !item.includes("opencode-pair-autonomy"),
   );
   return retained.length > 0 ? retained : undefined;
@@ -308,108 +306,11 @@ function removeHarnessInstructionsList(
   return retained.length > 0 ? retained : undefined;
 }
 
-function normalizePermissionAction(
-  value: unknown,
-): "allow" | "ask" | "deny" | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-
-  switch (value.trim().toLowerCase()) {
-    case "allow":
-    case "always":
-      return "allow";
-    case "ask":
-    case "prompt":
-      return "ask";
-    case "deny":
-    case "block":
-    case "never":
-      return "deny";
-    default:
-      return undefined;
-  }
-}
-
-function normalizePermissionValue(value: unknown): unknown {
-  const action = normalizePermissionAction(value);
-  if (action) {
-    return action;
-  }
-
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-
-  const normalized: JsonRecord = {};
-  for (const [key, nested] of Object.entries(value as JsonRecord)) {
-    const next = normalizePermissionValue(nested);
-    if (next !== undefined) {
-      normalized[key] = next;
-    }
-  }
-
-  return Object.keys(normalized).length > 0 ? normalized : undefined;
-}
-
-function normalizeLegacyRuleset(config: JsonRecord): void {
-  if (!("ruleset" in config)) {
-    return;
-  }
-
-  const normalized = normalizePermissionValue(config.ruleset);
-  delete config.ruleset;
-
-  if (normalized !== undefined && config.permission === undefined) {
-    config.permission = normalized;
-  }
-}
-
 function forceAllowPermissions(config: JsonRecord): void {
-  normalizeLegacyRuleset(config);
   config.permission = "allow";
 }
 
-function readExistingFigmaAccessToken(
-  harnessConfigPath: string,
-): string | undefined {
-  const existingHarness = readJsonLike(harnessConfigPath);
-  const creds = existingHarness.credentials as JsonRecord | undefined;
-  const key = (creds?.figma_access_token ?? creds?.figma_api_key) as
-    | string
-    | undefined;
-  return key?.trim() || undefined;
-}
-
-async function promptForFigmaAccessToken(
-  existing?: string,
-): Promise<string | undefined> {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    return existing;
-  }
-
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const suffix = existing ? " (press Enter to reuse existing value)" : "";
-    const answer = await new Promise<string>(
-      (resolveQuestion, rejectQuestion) => {
-        rl.question(`Enter Figma Personal Access Token${suffix}: `, (value) =>
-          resolveQuestion(value),
-        );
-        rl.once("error", rejectQuestion);
-      },
-    );
-    const trimmed = answer.trim();
-    return trimmed || existing;
-  } finally {
-    rl.close();
-  }
-}
-
-function writeHarnessConfig(
-  filePath: string,
-  figmaAccessToken?: string,
-): void {
+function writeHarnessConfig(filePath: string): void {
   const current = existsSync(filePath) ? readJsonLike(filePath) : {};
   const next = parse(SAMPLE_PROJECT_CONFIG) as JsonRecord;
   const merged: JsonRecord = {
@@ -428,16 +329,6 @@ function writeHarnessConfig(
       ...((current.agents as JsonRecord | undefined) ?? {}),
     },
   };
-
-  if (figmaAccessToken) {
-    merged.credentials = {
-      ...((merged.credentials as JsonRecord | undefined) ?? {}),
-      figma_access_token: figmaAccessToken,
-    };
-  }
-  if (merged.credentials) {
-    delete (merged.credentials as JsonRecord).figma_api_key;
-  }
 
   writeJson(filePath, merged);
 }
@@ -668,7 +559,6 @@ function updatePackageJson(paths: ReturnType<typeof getConfigPaths>): string {
   }
 
   dependencies["opencode-pair-autonomy"] = resolveSelfPackageSpec();
-  delete dependencies["opencode-background-agents-local"];
 
   pkg.dependencies = dependencies;
   writeJson(paths.packageJson, pkg);
@@ -955,9 +845,6 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{
   ensureTuiConfig(configDir);
   ensureSkillsDir(paths.skillsDir);
 
-  const figmaAccessToken = await promptForFigmaAccessToken(
-    readExistingFigmaAccessToken(paths.harnessConfig),
-  );
   await installShellStrategyInstruction(paths.shellStrategyDir);
   await installBackgroundAgentsVendor(paths.vendorDir);
   installSelfContainedMcps(paths.vendorMcpDir, { fresh: options?.fresh });
@@ -965,10 +852,7 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{
   await ensureSearxngContainer();
   const configPath = updateConfig(paths);
   const packageJsonPath = updatePackageJson(paths);
-  writeHarnessConfig(
-    paths.harnessConfig,
-    figmaAccessToken,
-  );
+  writeHarnessConfig(paths.harnessConfig);
   writeNotifierConfig(paths.notifierConfig);
   await runBunInstall(configDir);
   await ensureInstalledHarnessBuild(configDir);
