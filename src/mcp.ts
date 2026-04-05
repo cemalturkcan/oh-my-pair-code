@@ -1,7 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { parse } from "jsonc-parser";
 import type { HarnessConfig } from "./types";
 
 type McpConfig = Record<string, unknown>;
@@ -27,12 +26,6 @@ function binRoot(): string {
   return join(configRoot(), "bin");
 }
 
-function ensureBearer(token: string): string {
-  return token.trim().toLowerCase().startsWith("bearer ")
-    ? token.trim()
-    : `Bearer ${token.trim()}`;
-}
-
 function resolveVendorMcpPath(name: string): string {
   return join(vendorRoot(), "mcp", name);
 }
@@ -43,38 +36,6 @@ function resolveMcpServerRoot(name: string): string {
     return vendorPath;
   }
   return join(configRoot(), "mcp", name);
-}
-
-function readExistingJinaBearer(): string | undefined {
-  const root = configRoot();
-  const candidates = [
-    join(root, "opencode.json"),
-    join(root, "opencode.jsonc"),
-  ];
-
-  for (const filePath of candidates) {
-    if (!existsSync(filePath)) {
-      continue;
-    }
-
-    try {
-      const parsed = parse(readFileSync(filePath, "utf8")) as {
-        mcp?: {
-          jina?: {
-            headers?: {
-              Authorization?: string;
-            };
-          };
-        };
-      };
-      const bearer = parsed?.mcp?.jina?.headers?.Authorization;
-      if (typeof bearer === "string" && bearer.trim()) {
-        return bearer;
-      }
-    } catch {}
-  }
-
-  return undefined;
 }
 
 function localCommand(scriptPath: string): string[] {
@@ -124,21 +85,6 @@ export function createHarnessMcps(
       type: "remote",
       url: "https://mcp.grep.app",
       enabled: true,
-      oauth: false,
-      timeout: 60000,
-    };
-  }
-
-  if (toggles.websearch !== false) {
-    result.websearch = {
-      type: "remote",
-      url: process.env.EXA_API_KEY
-        ? `https://mcp.exa.ai/mcp?tools=web_search_exa&exaApiKey=${encodeURIComponent(process.env.EXA_API_KEY)}`
-        : "https://mcp.exa.ai/mcp?tools=web_search_exa",
-      enabled: true,
-      ...(process.env.EXA_API_KEY
-        ? { headers: { "x-api-key": process.env.EXA_API_KEY } }
-        : {}),
       oauth: false,
       timeout: 60000,
     };
@@ -200,69 +146,17 @@ export function createHarnessMcps(
     }
   }
 
-  if (toggles.jina !== false) {
-    const configuredToken = config.credentials?.jina_api_key?.trim();
-    const bearer = configuredToken
-      ? ensureBearer(configuredToken)
-      : process.env.JINA_API_KEY
-        ? ensureBearer(process.env.JINA_API_KEY)
-        : readExistingJinaBearer();
-
-    if (bearer) {
-      result.jina = {
-        type: "remote",
-        url: "https://mcp.jina.ai/v1",
-        headers: { Authorization: bearer },
-        enabled: true,
-        oauth: false,
-        timeout: 60000,
-      };
-    }
-  }
-
-  if (toggles.figma_console !== false) {
-    const figmaAccessToken =
-      config.credentials?.figma_access_token?.trim() ||
-      process.env.FIGMA_ACCESS_TOKEN?.trim();
-
-    const sshHost = config.figma_console?.ssh_host?.trim();
-
-    if (sshHost) {
-      const envParts = [
-        'PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"',
-        "ENABLE_MCP_APPS=true",
-      ];
-      if (figmaAccessToken) {
-        envParts.push(`FIGMA_ACCESS_TOKEN=${figmaAccessToken}`);
-      }
-      envParts.push("npx", "-y", "figma-console-mcp@latest");
-
-      result["figma-console"] = {
-        type: "local",
-        command: [
-          "ssh",
-          "-o",
-          "BatchMode=yes",
-          "-o",
-          "StrictHostKeyChecking=no",
-          sshHost,
-          envParts.join(" "),
-        ],
-        enabled: true,
-        timeout: 60000,
-      };
-    } else if (figmaAccessToken) {
-      result["figma-console"] = {
-        type: "local",
-        command: ["npx", "-y", "figma-console-mcp@latest"],
-        environment: {
-          FIGMA_ACCESS_TOKEN: figmaAccessToken,
-          ENABLE_MCP_APPS: "true",
-        },
-        enabled: true,
-        timeout: 60000,
-      };
-    }
+  if (toggles.searxng !== false) {
+    const searxngUrl = process.env.SEARXNG_URL?.trim() || "http://localhost:8099";
+    result.searxng = {
+      type: "local",
+      command: ["npx", "-y", "mcp-searxng"],
+      environment: {
+        SEARXNG_URL: searxngUrl,
+      },
+      enabled: true,
+      timeout: 60000,
+    };
   }
 
   if (toggles.mariadb !== false) {

@@ -42,9 +42,8 @@ const COORDINATOR_TASK_PERMISSIONS = taskPermissions(
 // Only the expensive MCPs are disabled on the coordinator (~30k token savings).
 // Lighter MCPs stay open so the coordinator can use them directly.
 const COORDINATOR_DISABLED_TOOLS: Record<string, string> = {
-  "jina_*": "deny",
+  "searxng_*": "deny",
   "web-agent-mcp_*": "deny",
-  "figma-console_*": "deny",
 };
 
 // Per-worker MCP restrictions: disable MCPs they don't need.
@@ -70,7 +69,7 @@ export function createHarnessAgents(
           "Yang Wenli — Senior technical lead. Plans, argues, delegates, synthesizes.",
         model: "anthropic/claude-opus-4-6",
         variant: "max",
-        prompt: buildCoordinatorPrompt(overrides.yang?.prompt_append),
+        prompt: buildCoordinatorPrompt(overrides.yang?.prompt_append, config.mcps),
         color: "#4A90D9",
         tools: COORDINATOR_DISABLED_TOOLS,
         permission: { task: COORDINATOR_TASK_PERMISSIONS },
@@ -89,7 +88,7 @@ export function createHarnessAgents(
         prompt: buildWorkerPrompt(overrides.thorfinn?.prompt_append),
         temperature: 0.2,
         color: "#2ECC71",
-        tools: mcpDenyRules("jina", "web-agent-mcp", "figma-console"),
+        tools: mcpDenyRules("searxng", "web-agent-mcp"),
       },
       overrides.thorfinn,
     ),
@@ -106,7 +105,6 @@ export function createHarnessAgents(
         color: "#F39C12",
         tools: mcpDenyRules(
           "web-agent-mcp",
-          "figma-console",
           "pg-mcp",
           "ssh-mcp",
           "mariadb",
@@ -127,10 +125,8 @@ export function createHarnessAgents(
         temperature: 0.1,
         color: "#E74C3C",
         tools: mcpDenyRules(
-          "jina",
-          "websearch",
+          "searxng",
           "web-agent-mcp",
-          "figma-console",
           "pg-mcp",
           "ssh-mcp",
           "mariadb",
@@ -154,10 +150,8 @@ export function createHarnessAgents(
         temperature: 0.4,
         color: "#9B59B6",
         tools: mcpDenyRules(
-          "jina",
-          "websearch",
+          "searxng",
           "web-agent-mcp",
-          "figma-console",
           "pg-mcp",
           "ssh-mcp",
           "mariadb",
@@ -181,11 +175,9 @@ export function createHarnessAgents(
         color: "#95A5A6",
         tools: mcpDenyRules(
           "context7",
-          "jina",
-          "websearch",
+          "searxng",
           "grep_app",
           "web-agent-mcp",
-          "figma-console",
           "pg-mcp",
           "ssh-mcp",
           "mariadb",
@@ -205,11 +197,9 @@ export function createHarnessAgents(
         temperature: 0.1,
         color: "#E67E22",
         tools: mcpDenyRules(
-          "jina",
-          "websearch",
+          "searxng",
           "grep_app",
           "web-agent-mcp",
-          "figma-console",
         ),
       },
       overrides["skull-knight"],
@@ -220,7 +210,7 @@ export function createHarnessAgents(
         mode: "subagent",
         hidden: true,
         description:
-          "Paprika — Frontend specialist with Figma and browser automation.",
+          "Paprika — Frontend specialist with browser automation.",
         model: "anthropic/claude-sonnet-4-6",
         variant: "max",
         prompt: buildUiDeveloperPrompt(overrides.paprika?.prompt_append),
@@ -243,11 +233,9 @@ export function createHarnessAgents(
         color: "#1ABC9C",
         tools: mcpDenyRules(
           "context7",
-          "jina",
-          "websearch",
+          "searxng",
           "grep_app",
           "web-agent-mcp",
-          "figma-console",
           "pg-mcp",
           "ssh-mcp",
           "mariadb",

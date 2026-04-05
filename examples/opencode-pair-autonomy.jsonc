@@ -11,12 +11,11 @@
   "mcps": {
     "context7": true,
     "grep_app": true,
-    "websearch": true,
     "chrome_devtools": true,
     "pg_mcp": true,
     "ssh_mcp": true,
     "sudo_mcp": true,
-    "jina": true
+    "searxng": true
   },
   "agents": {
     "ryo": {

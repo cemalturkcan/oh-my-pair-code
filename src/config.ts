@@ -14,17 +14,6 @@ const HarnessConfigSchema = z.object({
       enabled: z.boolean().optional(),
     })
     .optional(),
-  credentials: z
-    .object({
-      jina_api_key: z.string().optional(),
-      figma_access_token: z.string().optional(),
-    })
-    .optional(),
-  figma_console: z
-    .object({
-      ssh_host: z.string().optional(),
-    })
-    .optional(),
   hooks: z
     .object({
       profile: z.enum(["minimal", "standard", "strict"]).optional(),
@@ -60,12 +49,10 @@ const HarnessConfigSchema = z.object({
     .object({
       context7: z.boolean().optional(),
       grep_app: z.boolean().optional(),
-      websearch: z.boolean().optional(),
       web_agent_mcp: z.boolean().optional(),
       pg_mcp: z.boolean().optional(),
       ssh_mcp: z.boolean().optional(),
-      jina: z.boolean().optional(),
-      figma_console: z.boolean().optional(),
+      searxng: z.boolean().optional(),
       mariadb: z.boolean().optional(),
     })
     .optional(),
@@ -79,6 +66,11 @@ const HarnessConfigSchema = z.object({
         prompt_append: z.string().optional(),
       }),
     )
+    .optional(),
+  credentials: z
+    .object({
+      figma_access_token: z.string().optional(),
+    })
     .optional(),
 });
 
@@ -114,12 +106,10 @@ const DEFAULTS: HarnessConfig = {
   mcps: {
     context7: true,
     grep_app: true,
-    websearch: true,
     web_agent_mcp: true,
     pg_mcp: true,
     ssh_mcp: true,
-    jina: true,
-    figma_console: true,
+    searxng: true,
     mariadb: true,
   },
   agents: {},
@@ -129,13 +119,12 @@ const ConfigSectionSchemas = {
   default_mode: HarnessConfigSchema.shape.default_mode,
   set_default_agent: HarnessConfigSchema.shape.set_default_agent,
   commands: HarnessConfigSchema.shape.commands,
-  credentials: HarnessConfigSchema.shape.credentials,
   hooks: HarnessConfigSchema.shape.hooks,
   memory: HarnessConfigSchema.shape.memory,
   learning: HarnessConfigSchema.shape.learning,
-  figma_console: HarnessConfigSchema.shape.figma_console,
   mcps: HarnessConfigSchema.shape.mcps,
   agents: HarnessConfigSchema.shape.agents,
+  credentials: HarnessConfigSchema.shape.credentials,
 } satisfies Record<keyof HarnessConfig, z.ZodTypeAny>;
 
 function formatParseErrors(errors: ParseError[]): string {
@@ -234,13 +223,6 @@ export function loadHarnessConfig(projectDirectory: string): HarnessConfig {
 export const SAMPLE_PROJECT_CONFIG = `{
   // Project-level overrides for opencode-pair-autonomy
   "default_mode": "coordinator",
-  "credentials": {
-    "jina_api_key": "",
-    "figma_access_token": ""
-  },
-  "figma_console": {
-    "ssh_host": ""
-  },
   "hooks": {
     "profile": "standard",
     "comment_guard": true,
@@ -267,13 +249,14 @@ export const SAMPLE_PROJECT_CONFIG = `{
   "mcps": {
     "context7": true,
     "grep_app": true,
-    "websearch": true,
     "web_agent_mcp": true,
     "pg_mcp": true,
     "ssh_mcp": true,
-    "jina": true,
-    "figma_console": true,
+    "searxng": true,
     "mariadb": true
+  },
+  "credentials": {
+    "figma_access_token": ""
   },
   "agents": {}
 }`;

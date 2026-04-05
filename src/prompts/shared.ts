@@ -1,5 +1,6 @@
 // ── Shared prompt building blocks ──────────────────────────────────
 // Split into coordinator-facing and worker-facing cores.
+import type { McpToggles } from "../types";
 
 // ── Coordinator core ──────────────────────────────────────────────
 export const COORDINATOR_CORE = `
@@ -45,6 +46,46 @@ The ONLY times you ask the user:
 - Worker prompts: ALWAYS English. No exceptions.
 - ALL code, variable names, commit messages, PR titles, branch names: English only.
 - Comments: minimal. Only genuinely non-obvious logic. Prefer self-documenting code.
+</LanguagePolicy>
+`;
+
+// ── Worker core (read-only variant) ──────────────────────────────
+export const WORKER_CORE_READONLY = `
+<Role>
+You are a worker inside an OpenCode harness. Execute your assigned task completely.
+</Role>
+
+<Principles>
+- Inspect repo evidence before deciding. Never speculate about code you haven't read.
+- Reuse existing patterns and naming. Do not introduce a "better" pattern.
+- Batch independent tool calls in parallel.
+- Do ALL the work, not a sample. If assigned 50 items, process 50 items.
+- When your approach fails, diagnose WHY before switching strategies.
+</Principles>
+
+<ToolGuidance>
+- Prefer dedicated tools over Bash equivalents:
+  File search: Glob (not find). Content search: Grep for simple patterns.
+  Read files: Read (not cat/head/tail).
+- For advanced search (multi-pattern, context lines, file-type filters), use rg (ripgrep) via Bash.
+  Example: rg "pattern" src/ --type ts --context 3 -l
+- For Bash: use absolute paths, avoid cd, quote paths with spaces, chain with && not newlines.
+- Batch independent tool calls in parallel.
+</ToolGuidance>
+
+<Reporting>
+When done, report concisely:
+- What was done (files changed, commits made).
+- Key findings or decisions.
+- Any blockers, open questions, or concerns.
+- Relevant file paths and line numbers.
+The coordinator will synthesize your report for the user. Keep it factual and compact.
+If you cannot proceed, report: "BLOCKER: {reason}" so the coordinator can relay to the user.
+</Reporting>
+
+<LanguagePolicy>
+- ALL code, comments, variable names, commit messages MUST be in English.
+- Reports to coordinator in English.
 </LanguagePolicy>
 `;
 
@@ -161,23 +202,63 @@ When doing research, calculations, or data lookup:
 `;
 
 // ── MCP catalog (injected into coordinator for delegation routing) ─
-export function buildMcpCatalog(): string {
-  return `
-<McpCatalog>
-Worker-only MCPs (not available to you directly, delegate to appropriate worker):
-- jina: Web reading, search, screenshots, academic papers, PDF analysis. Delegate to ginko or paprika.
-- web-agent-mcp: CloakBrowser with anti-detection. Interactive web tasks, login, form filling, UI testing. Delegate to paprika.
-- figma-console: Figma Desktop bridge. 63+ tools for design creation, components, screenshots. Delegate to paprika.
+export function buildMcpCatalog(mcps?: McpToggles): string {
+  const workerOnlyLines: string[] = [];
+  if (mcps?.web_agent_mcp !== false) {
+    workerOnlyLines.push(
+      "- web-agent-mcp: CloakBrowser with anti-detection. Interactive web tasks, login, form filling, UI testing. Delegate to paprika.",
+    );
+  }
 
-Available to you and all workers:
-- context7: Library and framework documentation. resolve-library-id then query-docs.
-- grep_app: GitHub code search across public repos. Real-world usage patterns.
-- websearch: General web search via Exa. Current events, broad topic discovery.
-- pg-mcp: PostgreSQL read-only client. Schema inspection, SELECT queries.
-- ssh-mcp: Remote command execution on configured SSH hosts.
-- mariadb: MariaDB client. SELECT/SHOW for reads, execute_write for mutations.
-</McpCatalog>
-`;
+  const sharedLines: string[] = [];
+  if (mcps?.context7 !== false) {
+    sharedLines.push(
+      "- context7: Library and framework documentation. resolve-library-id then query-docs.",
+    );
+  }
+  if (mcps?.grep_app !== false) {
+    sharedLines.push(
+      "- grep_app: GitHub code search across public repos. Real-world usage patterns.",
+    );
+  }
+  if (mcps?.searxng !== false) {
+    workerOnlyLines.push(
+      "- searxng: Web search (Google/Bing/DDG via SearXNG) + URL reading. No API key, self-hosted. Delegate to ginko or paprika.",
+    );
+  }
+  if (mcps?.pg_mcp !== false) {
+    sharedLines.push(
+      "- pg-mcp: PostgreSQL read-only client. Schema inspection, SELECT queries.",
+    );
+  }
+  if (mcps?.ssh_mcp !== false) {
+    sharedLines.push(
+      "- ssh-mcp: Remote command execution on configured SSH hosts.",
+    );
+  }
+  if (mcps?.mariadb !== false) {
+    sharedLines.push(
+      "- mariadb: MariaDB client. SELECT/SHOW for reads, execute_write for mutations.",
+    );
+  }
+
+  const parts: string[] = [];
+  if (workerOnlyLines.length > 0) {
+    parts.push(
+      `Worker-only MCPs (not available to you directly, delegate to appropriate worker):\n${workerOnlyLines.join("\n")}`,
+    );
+  }
+  if (sharedLines.length > 0) {
+    parts.push(
+      `Available to you and all workers:\n${sharedLines.join("\n")}`,
+    );
+  }
+
+  if (parts.length === 0) {
+    return "\n<McpCatalog>\n</McpCatalog>\n";
+  }
+
+  return `\n<McpCatalog>\n${parts.join("\n")}\n</McpCatalog>\n`;
 }
 
 export function withPromptAppend(

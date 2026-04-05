@@ -139,21 +139,6 @@ function writeJson(filePath: string, value: JsonRecord): void {
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-function normalizeJinaApiKey(value: string | undefined): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-
-  return trimmed.toLowerCase().startsWith("bearer ")
-    ? trimmed.slice(7).trim()
-    : trimmed;
-}
-
 function ensureDir(dirPath: string): void {
   mkdirSync(dirPath, { recursive: true });
 }
@@ -385,53 +370,6 @@ function forceAllowPermissions(config: JsonRecord): void {
   config.permission = "allow";
 }
 
-function readExistingJinaApiKey(harnessConfigPath: string): string | undefined {
-  const existingHarness = readJsonLike(harnessConfigPath);
-  const harnessKey = normalizeJinaApiKey(
-    (existingHarness.credentials as JsonRecord | undefined)?.jina_api_key as
-      | string
-      | undefined,
-  );
-  if (harnessKey) {
-    return harnessKey;
-  }
-
-  const currentConfig = readJsonLike(
-    detectMainConfigPath(getConfigPaths(getConfigDir())).path,
-  );
-  const bearer = (
-    (currentConfig.mcp as JsonRecord | undefined)?.jina as
-      | JsonRecord
-      | undefined
-  )?.headers as JsonRecord | undefined;
-  return normalizeJinaApiKey(bearer?.Authorization as string | undefined);
-}
-
-async function promptForJinaApiKey(
-  existing?: string,
-): Promise<string | undefined> {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    return existing;
-  }
-
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const suffix = existing ? " (press Enter to reuse existing value)" : "";
-    const answer = await new Promise<string>(
-      (resolveQuestion, rejectQuestion) => {
-        rl.question(`Enter Jina API key${suffix}: `, (value) =>
-          resolveQuestion(value),
-        );
-        rl.once("error", rejectQuestion);
-      },
-    );
-    const normalized = normalizeJinaApiKey(answer);
-    return normalized ?? existing;
-  } finally {
-    rl.close();
-  }
-}
-
 function readExistingFigmaAccessToken(
   harnessConfigPath: string,
 ): string | undefined {
@@ -510,7 +448,6 @@ async function promptForFigmaConsoleSshHost(
 
 function writeHarnessConfig(
   filePath: string,
-  jinaApiKey?: string,
   figmaAccessToken?: string,
   figmaConsoleSshHost?: string,
 ): void {
@@ -537,9 +474,6 @@ function writeHarnessConfig(
     },
   };
 
-  if (jinaApiKey) {
-    (merged.credentials as JsonRecord).jina_api_key = jinaApiKey;
-  }
   if (figmaAccessToken) {
     (merged.credentials as JsonRecord).figma_access_token = figmaAccessToken;
   }
@@ -873,6 +807,185 @@ async function ensureInstalledHarnessBuild(configDir: string): Promise<void> {
   });
 }
 
+async function ensureSearxngContainer(): Promise<void> {
+  if (process.env.SEARXNG_URL?.trim()) {
+    console.log("[opencode-pair-autonomy] Using external SearXNG at", process.env.SEARXNG_URL.trim());
+    return;
+  }
+
+  const pathValue = process.env.PATH;
+  const dockerInPath = pathValue
+    ? pathValue
+        .split(":")
+        .some((dir) => existsSync(join(dir, "docker")))
+    : false;
+
+  if (!dockerInPath) {
+    console.warn(
+      "[opencode-pair-autonomy] Docker not found in PATH. Skipping SearXNG container setup.",
+    );
+    return;
+  }
+
+  try {
+    const containerExists = await new Promise<string>((resolve, reject) => {
+      let output = "";
+      const child = spawn(
+        "docker",
+        ["ps", "-a", "--filter", "name=^searxng$", "--format", "{{.Names}}"],
+        { stdio: ["ignore", "pipe", "ignore"] },
+      );
+      child.stdout!.on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+      });
+      child.on("error", reject);
+      child.on("exit", (code) => {
+        if (code === 0) {
+          resolve(output.trim());
+        } else {
+          reject(new Error(`docker command failed with exit code ${code ?? -1}`));
+        }
+      });
+    });
+
+    if (containerExists) {
+      const containerRunning = await new Promise<string>((resolve, reject) => {
+        let output = "";
+        const child = spawn(
+          "docker",
+          ["ps", "--filter", "name=^searxng$", "--format", "{{.Names}}"],
+          { stdio: ["ignore", "pipe", "ignore"] },
+        );
+        child.stdout!.on("data", (chunk: Buffer) => {
+          output += chunk.toString();
+        });
+        child.on("error", reject);
+        child.on("exit", (code) => {
+          if (code === 0) {
+            resolve(output.trim());
+          } else {
+            reject(new Error(`docker command failed with exit code ${code ?? -1}`));
+          }
+        });
+      });
+
+      if (!containerRunning) {
+        await new Promise<void>((resolve, reject) => {
+          const child = spawn("docker", ["start", "searxng"], {
+            stdio: "inherit",
+          });
+          child.on("error", reject);
+          child.on("exit", (code) => {
+            if (code === 0) {
+              resolve();
+              return;
+            }
+            reject(
+              new Error(
+                `docker start searxng failed with exit code ${code ?? -1}`,
+              ),
+            );
+          });
+        });
+      }
+    } else {
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(
+          "docker",
+          [
+            "run",
+            "-d",
+            "--name",
+            "searxng",
+            "--restart",
+            "unless-stopped",
+            "-p",
+            "8099:8080",
+            "searxng/searxng:latest",
+          ],
+          { stdio: "inherit" },
+        );
+        child.on("error", reject);
+        child.on("exit", (code) => {
+          if (code === 0) {
+            resolve();
+            return;
+          }
+          reject(
+            new Error(
+              `docker run searxng failed with exit code ${code ?? -1}`,
+            ),
+          );
+        });
+      });
+    }
+    await ensureSearxngJsonFormat();
+  } catch (error) {
+    console.warn(
+      `[opencode-pair-autonomy] Failed to set up SearXNG container: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+async function ensureSearxngJsonFormat(): Promise<void> {
+  const hasJson = await new Promise<boolean>((resolve) => {
+    let output = "";
+    const child = spawn(
+      "docker",
+      ["exec", "searxng", "grep", "-c", "    - json", "/etc/searxng/settings.yml"],
+      { stdio: ["ignore", "pipe", "ignore"] },
+    );
+    child.stdout!.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    child.on("error", () => resolve(false));
+    child.on("exit", (code) => {
+      resolve(code === 0 && parseInt(output.trim(), 10) > 0);
+    });
+  });
+
+  if (hasJson) {
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(
+      "docker",
+      [
+        "exec",
+        "searxng",
+        "sed",
+        "-i",
+        "/^  formats:/{n;s/    - html/    - html\\n    - json/}",
+        "/etc/searxng/settings.yml",
+      ],
+      { stdio: "inherit" },
+    );
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`Failed to enable JSON format in SearXNG settings`));
+    });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("docker", ["restart", "searxng"], {
+      stdio: "inherit",
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`Failed to restart SearXNG container`));
+    });
+  });
+}
+
 export async function installHarness(options?: { fresh?: boolean }): Promise<{
   configPath: string;
   packageJsonPath: string;
@@ -891,9 +1004,6 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{
   ensureTuiConfig(configDir);
   ensureSkillsDir(paths.skillsDir);
 
-  const jinaApiKey = await promptForJinaApiKey(
-    readExistingJinaApiKey(paths.harnessConfig),
-  );
   const figmaAccessToken = await promptForFigmaAccessToken(
     readExistingFigmaAccessToken(paths.harnessConfig),
   );
@@ -904,11 +1014,11 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{
   await installBackgroundAgentsVendor(paths.vendorDir);
   installSelfContainedMcps(paths.vendorMcpDir, { fresh: options?.fresh });
   installBundledSkills(paths.skillsDir);
+  await ensureSearxngContainer();
   const configPath = updateConfig(paths);
   const packageJsonPath = updatePackageJson(paths);
   writeHarnessConfig(
     paths.harnessConfig,
-    jinaApiKey,
     figmaAccessToken,
     figmaConsoleSshHost,
   );

@@ -239,15 +239,15 @@ Lint categories: `wcag-contrast`, `wcag-text-size`, `wcag-line-height`, `hardcod
 Before creating any screen, research what best-in-class apps look like. You have full access to the internet — USE IT.
 
 ```
-1. jina_search_web / jina_search_images  → find design inspiration
-2. jina_read_url                         → study specific design references
-3. jina_capture_screenshot_url           → capture visual references from live apps
+1. searxng_web_search                    → find design inspiration
+2. searxng_web_url_read                  → study specific design references
+3. web-agent-mcp observe_screenshot      → capture visual references from live apps
 4. grep_app_searchGitHub                 → find real component implementations
 ```
 
 #### Where to Find Inspiration
 
-Use `jina_search_images` and `jina_search_web` with queries like:
+Use `searxng_web_search` with queries like:
 
 - `"[app category] mobile app UI design 2025 dribbble"` — e.g. "fashion tryon app mobile UI design 2025 dribbble"
 - `"[screen type] screen design inspiration behance"` — e.g. "subscription paywall screen design inspiration behance"
@@ -265,11 +265,11 @@ Use `jina_search_images` and `jina_search_web` with queries like:
 #### Research Workflow for a New Screen
 
 ```
-1. jina_search_images("modern [screen type] mobile app UI 2025")
+1. searxng_web_search("modern [screen type] mobile app UI 2025")
    → Study 3-5 top results for layout patterns, color usage, spacing
-2. jina_search_web("[app category] best app design award")
+2. searxng_web_search("[app category] best app design award")
    → Find award-winning apps in the same category
-3. jina_capture_screenshot_url on a reference app
+3. web-agent-mcp observe_screenshot on a reference app
    → Get pixel-level reference for spacing, typography, component density
 4. NOW design — with concrete references, not from imagination
 ```
@@ -290,16 +290,16 @@ When the user says "browse for inspiration", "look at designs", or similar — *
 7. session_close
 ```
 
-**Faster approach with jina (no browser session needed):**
+**Faster approach with searxng (no browser session needed):**
 
 ```
-1. jina_search_images("[app category] app UI design", num=10)
-   → visual thumbnails of top designs
-2. jina_read_url("https://dribbble.com/shots/[id]")
+1. searxng_web_search("[app category] app UI design")
+   → find top design results
+2. searxng_web_url_read("https://dribbble.com/shots/[id]")
    → read shot description, tags, designer notes
-3. jina_capture_screenshot_url("https://dribbble.com/shots/[id]")
-   → full-resolution capture
-4. jina_search_web("site:mobbin.com [screen type]")
+3. web-agent-mcp observe_screenshot on the page
+   → full-resolution capture (use web-agent-mcp for screenshots)
+4. searxng_web_search("site:mobbin.com [screen type]")
    → real app screenshots for that pattern
 ```
 
@@ -316,12 +316,12 @@ When the user says "browse for inspiration", "look at designs", or similar — *
 **Tool selection guide:**
 | Scenario | Tool | Why |
 |----------|------|-----|
-| Quick visual inspiration | `jina_search_images` | Fast, returns thumbnails |
-| Read design article / case study | `jina_read_url` | Clean markdown extraction |
-| Full-page screenshot of a site | `jina_capture_screenshot_url` | No browser needed |
+| Quick visual inspiration | `searxng_web_search` | Fast image results via SearXNG |
+| Read design article / case study | `searxng_web_url_read` | Clean content extraction |
+| Full-page screenshot of a site | `web-agent-mcp observe_screenshot` | Full browser needed for screenshots |
 | Interactive browsing (login walls, filtering, scrolling) | `web-agent-mcp` | Full browser control |
 | Mobile viewport of a live app | `web-agent-mcp` with `viewport: {width:393, height:852}` | Realistic mobile view |
-| Find design system documentation | `context7` or `jina_read_url` | Structured docs |
+| Find design system documentation | `context7` or `searxng_web_url_read` | Structured docs |
 | Real code examples of a component | `grep_app_searchGitHub` | Production implementations |
 
 ### Icons & SVG Assets
@@ -330,7 +330,7 @@ When the user says "browse for inspiration", "look at designs", or similar — *
 
 #### Icon Libraries (Free, High Quality)
 
-Use `jina_read_url` to fetch SVG code directly:
+Use `searxng_web_url_read` to fetch SVG code directly:
 
 | Library       | URL Pattern                                                                                       | Style                     |
 | ------------- | ------------------------------------------------------------------------------------------------- | ------------------------- |
@@ -343,17 +343,17 @@ Use `jina_read_url` to fetch SVG code directly:
 #### How to Use Icons in Figma
 
 ```
-1. jina_read_url("https://lucide.dev/api/icons/home")     → get SVG string
-2. figma_execute with figma.createNodeFromSvg(svgString)   → insert into Figma
+1. searxng_web_url_read("https://lucide.dev/api/icons/home")     → get SVG string
+2. figma_execute with figma.createNodeFromSvg(svgString)          → insert into Figma
 3. Resize, recolor as needed
 ```
 
 **Finding the right icon name:**
 
 ```
-jina_search_web("lucide icons [concept]")           → find icon names
-jina_read_url("https://lucide.dev/icons")           → browse full icon list
-jina_search_images("[concept] icon svg minimal")     → visual search
+searxng_web_search("lucide icons [concept]")           → find icon names
+searxng_web_url_read("https://lucide.dev/icons")        → browse full icon list
+searxng_web_search("[concept] icon svg minimal")        → visual search
 ```
 
 #### SVG Insertion Pattern in figma_execute
@@ -680,9 +680,9 @@ These details separate amateur from professional:
 Use web search to find the right font:
 
 ```
-jina_search_web("best modern sans-serif fonts for mobile app 2025")
-jina_search_web("google fonts similar to SF Pro")
-jina_search_images("[font name] font specimen")
+searxng_web_search("best modern sans-serif fonts for mobile app 2025")
+searxng_web_search("google fonts similar to SF Pro")
+searxng_web_search("[font name] font specimen")
 ```
 
 **Safe modern font choices for Figma:**
@@ -709,14 +709,14 @@ await figma.loadFontAsync({ family: "Inter", style: "Bold" });
 For placeholder photos, illustrations, and assets:
 
 ```
-jina_search_images("fashion model wearing outfit studio photo")   → find reference images
-jina_capture_screenshot_url("https://unsplash.com/s/photos/...")  → capture from Unsplash
+searxng_web_search("fashion model wearing outfit studio photo")   → find reference images
+web-agent-mcp observe_screenshot → capture from Unsplash or similar
 ```
 
 **Use `figma_set_image_fill` with downloaded images:**
 
 ```
-1. jina_read_url or jina_capture_screenshot_url → get image
+1. searxng_web_url_read or web-agent-mcp observe_screenshot → get image
 2. Save to /tmp/ if needed
 3. figma_set_image_fill(nodeIds, imageData, scaleMode="FILL")
 ```

@@ -3,17 +3,11 @@ export type HookProfile = "minimal" | "standard" | "strict";
 export type McpToggles = {
   context7?: boolean;
   grep_app?: boolean;
-  websearch?: boolean;
   web_agent_mcp?: boolean;
   pg_mcp?: boolean;
   ssh_mcp?: boolean;
-  jina?: boolean;
-  figma_console?: boolean;
+  searxng?: boolean;
   mariadb?: boolean;
-};
-
-export type FigmaConsoleConfig = {
-  ssh_host?: string;
 };
 
 export type AgentOverride = {
@@ -29,11 +23,6 @@ export type HarnessConfig = {
   commands?: {
     enabled?: boolean;
   };
-  credentials?: {
-    jina_api_key?: string;
-    figma_access_token?: string;
-  };
-  figma_console?: FigmaConsoleConfig;
   hooks?: {
     profile?: HookProfile;
     comment_guard?: boolean;
@@ -61,6 +50,9 @@ export type HarnessConfig = {
   };
   mcps?: McpToggles;
   agents?: Record<string, AgentOverride>;
+  credentials?: {
+    figma_access_token?: string;
+  };
 };
 
 export type AgentLike = Record<string, unknown>;

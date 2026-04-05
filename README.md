@@ -27,7 +27,7 @@ OpenCode harness with opinionated agent orchestration. One coordinator, eight sp
 
 ## MCP Servers
 
-`context7`, `grep_app`, `websearch`, `jina`, `web-agent-mcp`, `figma-console`, `pg-mcp`, `ssh-mcp`, `mariadb`
+`context7`, `grep_app`, `searxng`, `web-agent-mcp`, `figma-console`, `pg-mcp`, `ssh-mcp`, `mariadb`
 
 ## Quick start
 

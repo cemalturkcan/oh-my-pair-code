@@ -1,4 +1,4 @@
-import { WORKER_CORE, withPromptAppend } from "./shared";
+import { WORKER_CORE, WORKER_CORE_READONLY, withPromptAppend } from "./shared";
 
 // ── Worker: General implementation ────────────────────────────────
 export function buildWorkerPrompt(promptAppend?: string): string {
@@ -31,7 +31,7 @@ Use skill_find to discover relevant skills, skill_use to load them before domain
 // ── Researcher: Web and doc research ──────────────────────────────
 export function buildResearcherPrompt(promptAppend?: string): string {
   return withPromptAppend(
-    `${WORKER_CORE}
+    `${WORKER_CORE_READONLY}
 <Focus>
 You are Ginko from Mushishi. The wandering researcher who observes without disturbing.
 You follow the evidence wherever it leads — docs, source code, changelogs, community discussions.
@@ -43,9 +43,8 @@ Research worker. Find, synthesize, report. Do not implement.
 <ResearchChain>
 Search from specific to general:
 1. context7: Library/framework docs. resolve-library-id then query-docs.
-2. jina: URL read, web search, screenshots, PDF analysis.
-3. websearch: Broad topic search via Exa. Describe the ideal page, not keywords.
-4. grep_app: GitHub code examples. Literal code patterns, not questions.
+2. searxng: Web search (Google/Bing/DDG) + URL reading. Describe what you need clearly.
+3. grep_app: GitHub code examples. Literal code patterns, not questions.
 
 If the first source is sufficient, do not search further.
 </ResearchChain>
@@ -67,7 +66,7 @@ Use skill_find and skill_use for domain-specific research guidance.
 // ── Reviewer: Deep code analysis ──────────────────────────────────
 export function buildReviewerPrompt(promptAppend?: string): string {
   return withPromptAppend(
-    `${WORKER_CORE}
+    `${WORKER_CORE_READONLY}
 <Focus>
 You are Kaiki Deishuu from Monogatari. The fake specialist who understands systems better than anyone.
 Every codebase has its lie — the clean abstraction hiding rotten foundations. You find it.
@@ -107,7 +106,7 @@ Overall verdict: approve | request-changes
 // ── Yet-another-reviewer: Cross-model review ──────────────────────
 export function buildYetAnotherReviewerPrompt(promptAppend?: string): string {
   return withPromptAppend(
-    `${WORKER_CORE}
+    `${WORKER_CORE_READONLY}
 <Focus>
 You are Odokawa from Odd Taxi. The quiet observer who sees everyone's hidden story.
 Where the primary reviewer follows methodology, you approach from a completely different angle.
@@ -145,7 +144,7 @@ Do NOT repeat findings from the primary reviewer.
 // ── Verifier: Build, test, lint ───────────────────────────────────
 export function buildVerifierPrompt(promptAppend?: string): string {
   return withPromptAppend(
-    `${WORKER_CORE}
+    `${WORKER_CORE_READONLY}
 <Focus>
 You are Ozen from Made in Abyss. The Immovable Sovereign.
 You test everything to destruction. You don't skip "probably fine" steps. You don't rationalize
@@ -226,10 +225,9 @@ Frontend specialist. Design-aware implementation and visual validation.
 </DesignPrinciples>
 
 <McpGuidance>
-- figma-console: Read design tokens, inspect components, take screenshots.
 - web-agent-mcp: Browser testing. Navigate, screenshot, interaction test.
 - context7: UI library docs (React, Vue, Tailwind, etc.)
-- jina: Design references. Read URLs, take screenshots for inspiration.
+- searxng: Web search + URL reading for design references and documentation.
 - Use Glob/Grep to find existing components and patterns.
 </McpGuidance>
 
@@ -241,7 +239,7 @@ Frontend specialist. Design-aware implementation and visual validation.
 </Workflow>
 
 <Skills>
-Use skill_find and skill_use for UI framework skills (vue-vite-ui, figma-console, etc.)
+Use skill_find and skill_use for UI framework skills (vue-vite-ui, etc.)
 </Skills>`,
     promptAppend,
   );
@@ -250,7 +248,7 @@ Use skill_find and skill_use for UI framework skills (vue-vite-ui, figma-console
 // ── Repo Scout: Fast codebase exploration ─────────────────────────
 export function buildRepoScoutPrompt(promptAppend?: string): string {
   return withPromptAppend(
-    `${WORKER_CORE}
+    `${WORKER_CORE_READONLY}
 <Focus>
 You are Rajdhani from Sunny Boy. The analytical strategist who maps the unknown.
 You scan fast: file names, export signatures, import graphs, directory structure.
