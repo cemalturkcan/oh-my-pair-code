@@ -24,7 +24,7 @@ export function safeCreateHook<T>(name: string, factory: () => T): T | undefined
   try {
     return factory();
   } catch (error) {
-    console.warn(`[opencode-pair-autonomy] Failed to create hook ${name}:`, error);
+    console.warn(`[opencode-pair] Failed to create hook ${name}:`, error);
     return undefined;
   }
 }
@@ -41,7 +41,7 @@ export function safeHook<T extends (...args: any[]) => Promise<void> | void>(nam
       if (error instanceof BlockingHookError) {
         throw error;
       }
-      console.warn(`[opencode-pair-autonomy] Hook ${name} failed:`, error);
+      console.warn(`[opencode-pair] Hook ${name} failed:`, error);
     }
   }) as T;
 }

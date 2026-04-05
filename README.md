@@ -1,4 +1,4 @@
-# opencode-pair-autonomy
+# opencode-pair
 
 OpenCode harness with opinionated agent orchestration. One coordinator, eight specialized workers, automatic verify+review pipeline.
 
@@ -47,7 +47,7 @@ MCP access is controlled per-agent via `src/prompts/mcp-access.ts` — single so
 ## Quick start
 
 ```bash
-bunx opencode-pair-autonomy install
+bunx opencode-pair install
 ```
 
 The installer will:
@@ -60,33 +60,33 @@ The installer will:
 From source:
 
 ```bash
-git clone https://github.com/cemalturkcan/opencode-pair-autonomy.git
-cd opencode-pair-autonomy
+git clone https://github.com/cemalturkcan/opencode-pair.git
+cd opencode-pair
 bun install && bun run build && bun link
-opencode-pair-autonomy install
+opencode-pair install
 ```
 
 ## Commands
 
 ```bash
-opencode-pair-autonomy install        # wire into OpenCode config
-opencode-pair-autonomy fresh-install  # rebuild harness files, keep user config
-opencode-pair-autonomy uninstall      # remove harness wiring
-opencode-pair-autonomy init           # create project-local config
-opencode-pair-autonomy print-config   # inspect generated config
+opencode-pair install        # wire into OpenCode config
+opencode-pair fresh-install  # rebuild harness files, keep user config
+opencode-pair uninstall      # remove harness wiring
+opencode-pair init           # create project-local config
+opencode-pair print-config   # inspect generated config
 ```
 
 ## Config
 
 Merges from two layers (project wins):
 
-- `~/.config/opencode/opencode-pair-autonomy.jsonc` — user-level
-- `<project>/.opencode/opencode-pair-autonomy.jsonc` — project-level
+- `~/.config/opencode/opencode-pair.jsonc` — user-level
+- `<project>/.opencode/opencode-pair.jsonc` — project-level
 
 Create project config:
 
 ```bash
-opencode-pair-autonomy init
+opencode-pair init
 ```
 
 ## Hooks

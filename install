@@ -14425,7 +14425,7 @@ var ConfigSectionSchemas = {
   agents: HarnessConfigSchema.shape.agents
 };
 var SAMPLE_PROJECT_CONFIG = `{
-  // Project-level overrides for opencode-pair-autonomy
+  // Project-level overrides for opencode-pair
   "default_mode": "coordinator",
   "credentials": {
     "jina_api_key": "",
@@ -14495,7 +14495,7 @@ var MANAGED_PLUGIN_ENTRIES = [
   "opencode-anthropic-login-via-cli"
 ];
 var MANAGED_PACKAGE_NAMES = [
-  "opencode-pair-autonomy",
+  "opencode-pair",
   "opencode-pty",
   "@mohak34/opencode-notifier",
   "@zenobius/opencode-skillful",
@@ -14541,7 +14541,7 @@ function getConfigPaths(configDir) {
     configJson: join(configDir, "opencode.json"),
     configJsonc: join(configDir, "opencode.jsonc"),
     packageJson: join(configDir, "package.json"),
-    harnessConfig: join(configDir, "opencode-pair-autonomy.jsonc"),
+    harnessConfig: join(configDir, "opencode-pair.jsonc"),
     vendorDir: join(configDir, "vendor", "opencode-background-agents-local"),
     vendorMcpDir: join(configDir, "vendor", "mcp"),
     shellStrategyDir: join(configDir, "plugin", "shell-strategy"),
@@ -14687,7 +14687,7 @@ function removeHarnessPluginList(existing, vendorDir) {
     `file://${vendorDir}`
   ]);
   const current = Array.isArray(existing) ? existing.filter((item) => typeof item === "string") : [];
-  const retained = current.filter((item) => !managedEntries.has(item) && !managedBareNames.has(item) && !managedBareNames.has(item.replace(/@latest$/, "")) && !item.includes("opencode-background-agents-local") && !item.includes("opencode-pair-autonomy"));
+  const retained = current.filter((item) => !managedEntries.has(item) && !managedBareNames.has(item) && !managedBareNames.has(item.replace(/@latest$/, "")) && !item.includes("opencode-background-agents-local") && !item.includes("opencode-pair"));
   return retained.length > 0 ? retained : undefined;
 }
 function removeHarnessInstructionsList(existing) {
@@ -15020,7 +15020,7 @@ function updatePackageJson(paths) {
   for (const [name, spec] of Object.entries(PACKAGE_SPECS)) {
     dependencies[name] = spec;
   }
-  dependencies["opencode-pair-autonomy"] = resolveSelfPackageSpec();
+  dependencies["opencode-pair"] = resolveSelfPackageSpec();
   delete dependencies["opencode-background-agents-local"];
   delete dependencies["opencode-shell-non-interactive-strategy"];
   pkg.dependencies = dependencies;
@@ -15070,7 +15070,7 @@ async function runBunInstall(configDir) {
   });
 }
 async function ensureInstalledHarnessBuild(configDir) {
-  const packageDir = join(configDir, "node_modules", "opencode-pair-autonomy");
+  const packageDir = join(configDir, "node_modules", "opencode-pair");
   const builtEntry = join(packageDir, "dist", "index.js");
   const sourceEntry = join(packageDir, "src", "index.ts");
   if (existsSync(builtEntry) || !existsSync(sourceEntry)) {
@@ -15087,7 +15087,7 @@ async function ensureInstalledHarnessBuild(configDir) {
         resolvePromise();
         return;
       }
-      rejectPromise(new Error(`bun run build failed for opencode-pair-autonomy with exit code ${code ?? -1}`));
+      rejectPromise(new Error(`bun run build failed for opencode-pair with exit code ${code ?? -1}`));
     });
   });
 }
@@ -15118,7 +15118,7 @@ async function installHarness(options) {
   try {
     await installWebAgentMcpDeps(paths.vendorMcpDir);
   } catch (error48) {
-    console.warn(`[opencode-pair-autonomy] Failed to install web-agent-mcp dependencies: ${error48 instanceof Error ? error48.message : String(error48)}`);
+    console.warn(`[opencode-pair] Failed to install web-agent-mcp dependencies: ${error48 instanceof Error ? error48.message : String(error48)}`);
   }
   return {
     configPath,
@@ -15180,10 +15180,10 @@ async function uninstallHarness() {
 
 // src/cli.ts
 function printHelp() {
-  console.log(`opencode-pair-autonomy
+  console.log(`opencode-pair
 
 Commands:
-  init [directory]       Create .opencode/opencode-pair-autonomy.jsonc
+  init [directory]       Create .opencode/opencode-pair.jsonc
   install                Install plugin stack into the active OpenCode config
   fresh-install          Delete non-config files, then reinstall the stack
   uninstall              Remove harness-managed wiring and keep user config files
@@ -15193,7 +15193,7 @@ Commands:
 function initProject(directory) {
   const targetRoot = resolve2(directory ?? process.cwd());
   const opencodeDir = join2(targetRoot, ".opencode");
-  const configPath = join2(opencodeDir, "opencode-pair-autonomy.jsonc");
+  const configPath = join2(opencodeDir, "opencode-pair.jsonc");
   if (!existsSync2(opencodeDir)) {
     mkdirSync2(opencodeDir, { recursive: true });
   }
@@ -15221,7 +15221,7 @@ function printConfig() {
   "default_agent": "yang"
 }
 
-Use \`opencode-pair-autonomy install\` for the real path-aware install.`);
+Use \`opencode-pair install\` for the real path-aware install.`);
 }
 function main(argv) {
   const [command, arg] = argv;

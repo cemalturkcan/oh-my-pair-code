@@ -125,7 +125,7 @@ function formatParseErrors(errors: ParseError[]): string {
 }
 
 function logConfigWarning(filePath: string, message: string): void {
-  console.warn(`[opencode-pair-autonomy] ${message} (${filePath})`);
+  console.warn(`[opencode-pair] ${message} (${filePath})`);
 }
 
 function parseConfigPartially(
@@ -197,12 +197,12 @@ export function loadHarnessConfig(projectDirectory: string): HarnessConfig {
     homedir(),
     ".config",
     "opencode",
-    "opencode-pair-autonomy.jsonc",
+    "opencode-pair.jsonc",
   );
   const projectPath = join(
     projectDirectory,
     ".opencode",
-    "opencode-pair-autonomy.jsonc",
+    "opencode-pair.jsonc",
   );
 
   return deepMerge(
@@ -212,7 +212,7 @@ export function loadHarnessConfig(projectDirectory: string): HarnessConfig {
 }
 
 export const SAMPLE_PROJECT_CONFIG = `{
-  // Project-level overrides for opencode-pair-autonomy
+  // Project-level overrides for opencode-pair
   "hooks": {
     "profile": "standard",
     "comment_guard": true,

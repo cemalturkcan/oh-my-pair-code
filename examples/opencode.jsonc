@@ -1,7 +1,7 @@
 {
   // Reference example for the plugin stack after installation.
   "plugin": [
-    "opencode-pair-autonomy",
+    "opencode-pair",
     "opencode-pty",
     "@mohak34/opencode-notifier",
     "@zenobius/opencode-skillful",

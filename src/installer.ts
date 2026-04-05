@@ -31,7 +31,7 @@ const MANAGED_PLUGIN_ENTRIES = [
 ] as const;
 
 const MANAGED_PACKAGE_NAMES = [
-  "opencode-pair-autonomy",
+  "opencode-pair",
   "opencode-pty",
   "@mohak34/opencode-notifier",
   "@zenobius/opencode-skillful",
@@ -82,7 +82,7 @@ function getConfigPaths(configDir: string) {
     configJson: join(configDir, "opencode.json"),
     configJsonc: join(configDir, "opencode.jsonc"),
     packageJson: join(configDir, "package.json"),
-    harnessConfig: join(configDir, "opencode-pair-autonomy.jsonc"),
+    harnessConfig: join(configDir, "opencode-pair.jsonc"),
     vendorDir: join(configDir, "vendor", "opencode-background-agents-local"),
     vendorMcpDir: join(configDir, "vendor", "mcp"),
     shellStrategyDir: join(configDir, "plugin", "shell-strategy"),
@@ -289,7 +289,7 @@ function removeHarnessPluginList(
       !managedEntries.has(item) &&
       !managedBareNames.has(item) &&
       !managedBareNames.has(item.replace(/@latest$/, "")) &&
-      !item.includes("opencode-pair-autonomy"),
+      !item.includes("opencode-pair"),
   );
   return retained.length > 0 ? retained : undefined;
 }
@@ -558,7 +558,7 @@ function updatePackageJson(paths: ReturnType<typeof getConfigPaths>): string {
     dependencies[name] = spec;
   }
 
-  dependencies["opencode-pair-autonomy"] = resolveSelfPackageSpec();
+  dependencies["opencode-pair"] = resolveSelfPackageSpec();
 
   pkg.dependencies = dependencies;
   writeJson(paths.packageJson, pkg);
@@ -619,7 +619,7 @@ async function runBunInstall(configDir: string): Promise<void> {
 }
 
 async function ensureInstalledHarnessBuild(configDir: string): Promise<void> {
-  const packageDir = join(configDir, "node_modules", "opencode-pair-autonomy");
+  const packageDir = join(configDir, "node_modules", "opencode-pair");
   const builtEntry = join(packageDir, "dist", "index.js");
   const sourceEntry = join(packageDir, "src", "index.ts");
 
@@ -641,7 +641,7 @@ async function ensureInstalledHarnessBuild(configDir: string): Promise<void> {
       }
       rejectPromise(
         new Error(
-          `bun run build failed for opencode-pair-autonomy with exit code ${code ?? -1}`,
+          `bun run build failed for opencode-pair with exit code ${code ?? -1}`,
         ),
       );
     });
@@ -650,7 +650,7 @@ async function ensureInstalledHarnessBuild(configDir: string): Promise<void> {
 
 async function ensureSearxngContainer(): Promise<void> {
   if (process.env.SEARXNG_URL?.trim()) {
-    console.log("[opencode-pair-autonomy] Using external SearXNG at", process.env.SEARXNG_URL.trim());
+    console.log("[opencode-pair] Using external SearXNG at", process.env.SEARXNG_URL.trim());
     return;
   }
 
@@ -663,7 +663,7 @@ async function ensureSearxngContainer(): Promise<void> {
 
   if (!dockerInPath) {
     console.warn(
-      "[opencode-pair-autonomy] Docker not found in PATH. Skipping SearXNG container setup.",
+      "[opencode-pair] Docker not found in PATH. Skipping SearXNG container setup.",
     );
     return;
   }
@@ -763,7 +763,7 @@ async function ensureSearxngContainer(): Promise<void> {
     await ensureSearxngJsonFormat();
   } catch (error) {
     console.warn(
-      `[opencode-pair-autonomy] Failed to set up SearXNG container: ${error instanceof Error ? error.message : String(error)}`,
+      `[opencode-pair] Failed to set up SearXNG container: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
@@ -860,7 +860,7 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{
     await installWebAgentMcpDeps(paths.vendorMcpDir);
   } catch (error) {
     console.warn(
-      `[opencode-pair-autonomy] Failed to install web-agent-mcp dependencies: ${error instanceof Error ? error.message : String(error)}`,
+      `[opencode-pair] Failed to install web-agent-mcp dependencies: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 

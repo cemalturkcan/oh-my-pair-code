@@ -1,12 +1,12 @@
 {
-  "name": "opencode-pair-autonomy",
+  "name": "opencode-pair",
   "version": "0.1.0",
   "description": "OpenCode harness with opinionated agent orchestration. One coordinator, eight specialized workers, automatic verify+review pipeline.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "opencode-pair-autonomy": "bin/opencode-pair-autonomy.js"
+    "opencode-pair": "bin/opencode-pair.js"
   },
   "files": [
     "dist",
@@ -66,19 +66,19 @@
         {
           "assets": [
             {
-              "path": "release-binaries/opencode-pair-autonomy-linux-x64",
+              "path": "release-binaries/opencode-pair-linux-x64",
               "label": "CLI Binary (Linux x64)"
             },
             {
-              "path": "release-binaries/opencode-pair-autonomy-linux-arm64",
+              "path": "release-binaries/opencode-pair-linux-arm64",
               "label": "CLI Binary (Linux ARM64)"
             },
             {
-              "path": "release-binaries/opencode-pair-autonomy-darwin-x64",
+              "path": "release-binaries/opencode-pair-darwin-x64",
               "label": "CLI Binary (macOS x64)"
             },
             {
-              "path": "release-binaries/opencode-pair-autonomy-darwin-arm64",
+              "path": "release-binaries/opencode-pair-darwin-arm64",
               "label": "CLI Binary (macOS ARM64)"
             }
           ]
@@ -88,7 +88,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cemalturkcan/opencode-pair-autonomy.git"
+    "url": "git+https://github.com/cemalturkcan/opencode-pair.git"
   },
   "license": "MIT",
   "dependencies": {

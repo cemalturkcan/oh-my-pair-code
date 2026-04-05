@@ -5,6 +5,6 @@ bun install
 bun run build
 bun link
 
-printf '\nLinked package: opencode-pair-autonomy\n'
+printf '\nLinked package: opencode-pair\n'
 printf 'Run this next to patch your real OpenCode config and install plugin dependencies:\n\n'
-printf '  opencode-pair-autonomy install\n'
+printf '  opencode-pair install\n'

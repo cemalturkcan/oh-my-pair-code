@@ -5,7 +5,7 @@ description: Build and refine OpenCode harness, MCP, plugin, prompt, and agent-t
 
 ## Purpose
 
-Use this skill for work in `opencode-pair-autonomy`, related OpenCode plugins, and MCP or agent-tooling repositories in this workspace.
+Use this skill for work in `opencode-pair`, related OpenCode plugins, and MCP or agent-tooling repositories in this workspace.
 
 ## Use When
 

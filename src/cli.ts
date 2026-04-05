@@ -5,10 +5,10 @@ import { SAMPLE_PROJECT_CONFIG } from "./config";
 import { installHarness, uninstallHarness } from "./installer";
 
 function printHelp(): void {
-  console.log(`opencode-pair-autonomy
+  console.log(`opencode-pair
 
 Commands:
-  init [directory]       Create .opencode/opencode-pair-autonomy.jsonc
+  init [directory]       Create .opencode/opencode-pair.jsonc
   install                Install plugin stack into the active OpenCode config
   fresh-install          Delete non-config files, then reinstall the stack
   uninstall              Remove harness-managed wiring and keep user config files
@@ -19,7 +19,7 @@ Commands:
 function initProject(directory?: string): void {
   const targetRoot = resolve(directory ?? process.cwd());
   const opencodeDir = join(targetRoot, ".opencode");
-  const configPath = join(opencodeDir, "opencode-pair-autonomy.jsonc");
+  const configPath = join(opencodeDir, "opencode-pair.jsonc");
 
   if (!existsSync(opencodeDir)) {
     mkdirSync(opencodeDir, { recursive: true });
@@ -50,7 +50,7 @@ function printConfig(): void {
   "default_agent": "yang"
 }
 
-Use \`opencode-pair-autonomy install\` for the real path-aware install.`);
+Use \`opencode-pair install\` for the real path-aware install.`);
 }
 
 export function main(argv: string[]): void {
