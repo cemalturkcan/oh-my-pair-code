@@ -381,15 +381,6 @@ function readExistingFigmaAccessToken(
   return key?.trim() || undefined;
 }
 
-function readExistingFigmaConsoleSshHost(
-  harnessConfigPath: string,
-): string | undefined {
-  const existingHarness = readJsonLike(harnessConfigPath);
-  const host = (existingHarness.figma_console as JsonRecord | undefined)
-    ?.ssh_host as string | undefined;
-  return host?.trim() || undefined;
-}
-
 async function promptForFigmaAccessToken(
   existing?: string,
 ): Promise<string | undefined> {
@@ -415,41 +406,9 @@ async function promptForFigmaAccessToken(
   }
 }
 
-async function promptForFigmaConsoleSshHost(
-  existing?: string,
-): Promise<string | undefined> {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    return existing;
-  }
-
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const suffix = existing
-      ? ` (press Enter to reuse "${existing}", type "local" for local mode)`
-      : " (leave empty for local mode)";
-    const answer = await new Promise<string>(
-      (resolveQuestion, rejectQuestion) => {
-        rl.question(
-          `Enter SSH host for Figma Console MCP (e.g. user@host)${suffix}: `,
-          (value) => resolveQuestion(value),
-        );
-        rl.once("error", rejectQuestion);
-      },
-    );
-    const trimmed = answer.trim();
-    if (trimmed.toLowerCase() === "local") {
-      return undefined;
-    }
-    return trimmed || existing;
-  } finally {
-    rl.close();
-  }
-}
-
 function writeHarnessConfig(
   filePath: string,
   figmaAccessToken?: string,
-  figmaConsoleSshHost?: string,
 ): void {
   const current = existsSync(filePath) ? readJsonLike(filePath) : {};
   const next = parse(SAMPLE_PROJECT_CONFIG) as JsonRecord;
@@ -468,24 +427,17 @@ function writeHarnessConfig(
       ...((next.agents as JsonRecord | undefined) ?? {}),
       ...((current.agents as JsonRecord | undefined) ?? {}),
     },
-    credentials: {
-      ...((next.credentials as JsonRecord | undefined) ?? {}),
-      ...((current.credentials as JsonRecord | undefined) ?? {}),
-    },
   };
 
   if (figmaAccessToken) {
-    (merged.credentials as JsonRecord).figma_access_token = figmaAccessToken;
+    merged.credentials = {
+      ...((merged.credentials as JsonRecord | undefined) ?? {}),
+      figma_access_token: figmaAccessToken,
+    };
   }
-  delete (merged.credentials as JsonRecord).figma_api_key;
-
-  if (figmaConsoleSshHost) {
-    merged.figma_console = { ssh_host: figmaConsoleSshHost };
-  } else if (!merged.figma_console) {
-    merged.figma_console = {};
+  if (merged.credentials) {
+    delete (merged.credentials as JsonRecord).figma_api_key;
   }
-
-  delete (merged.mcps as Record<string, unknown>).fff;
 
   writeJson(filePath, merged);
 }
@@ -717,7 +669,6 @@ function updatePackageJson(paths: ReturnType<typeof getConfigPaths>): string {
 
   dependencies["opencode-pair-autonomy"] = resolveSelfPackageSpec();
   delete dependencies["opencode-background-agents-local"];
-  delete dependencies["opencode-shell-non-interactive-strategy"];
 
   pkg.dependencies = dependencies;
   writeJson(paths.packageJson, pkg);
@@ -1007,9 +958,6 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{
   const figmaAccessToken = await promptForFigmaAccessToken(
     readExistingFigmaAccessToken(paths.harnessConfig),
   );
-  const figmaConsoleSshHost = await promptForFigmaConsoleSshHost(
-    readExistingFigmaConsoleSshHost(paths.harnessConfig),
-  );
   await installShellStrategyInstruction(paths.shellStrategyDir);
   await installBackgroundAgentsVendor(paths.vendorDir);
   installSelfContainedMcps(paths.vendorMcpDir, { fresh: options?.fresh });
@@ -1020,7 +968,6 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{
   writeHarnessConfig(
     paths.harnessConfig,
     figmaAccessToken,
-    figmaConsoleSshHost,
   );
   writeNotifierConfig(paths.notifierConfig);
   await runBunInstall(configDir);
@@ -1096,8 +1043,6 @@ export async function uninstallHarness(): Promise<{
     }
   }
 
-  rmSync(join(paths.binDir, "fff-mcp"), { force: true });
-  rmSync(join(paths.binDir, "fff-mcp.exe"), { force: true });
   rmSync(paths.vendorDir, { recursive: true, force: true });
   rmSync(join(paths.shellStrategyDir, "shell_strategy.md"), { force: true });
 

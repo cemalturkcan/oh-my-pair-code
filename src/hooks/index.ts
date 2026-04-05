@@ -14,7 +14,6 @@ import { createStopHook } from "./stop";
 type HookRecord = {
   config?: (config: any) => Promise<void>;
   "chat.message"?: (input: any, output: any) => Promise<void>;
-  "chat.headers"?: (input: any, output: any) => Promise<void>;
   event?: (input: {
     event: { type: string; properties?: unknown };
   }) => Promise<void>;
@@ -25,11 +24,6 @@ type HookRecord = {
   "session.idle"?: (input?: any) => Promise<void>;
   "session.deleted"?: (input?: any) => Promise<void>;
   "experimental.session.compacting"?: (input?: any) => Promise<void>;
-  "experimental.chat.messages.transform"?: (
-    input: any,
-    output: any,
-  ) => Promise<void>;
-  "experimental.text.complete"?: (input: any, output: any) => Promise<void>;
 };
 
 function wrapHookRecord(
@@ -43,7 +37,6 @@ function wrapHookRecord(
   return {
     config: safeHook(`${name}.config`, hook.config),
     "chat.message": safeHook(`${name}.chat.message`, hook["chat.message"]),
-    "chat.headers": safeHook(`${name}.chat.headers`, hook["chat.headers"]),
     event: safeHook(`${name}.event`, hook.event),
     "tool.execute.before": safeHook(
       `${name}.tool.execute.before`,
@@ -66,14 +59,6 @@ function wrapHookRecord(
     "experimental.session.compacting": safeHook(
       `${name}.experimental.session.compacting`,
       hook["experimental.session.compacting"],
-    ),
-    "experimental.chat.messages.transform": safeHook(
-      `${name}.experimental.chat.messages.transform`,
-      hook["experimental.chat.messages.transform"],
-    ),
-    "experimental.text.complete": safeHook(
-      `${name}.experimental.text.complete`,
-      hook["experimental.text.complete"],
     ),
   };
 }
@@ -213,7 +198,6 @@ export async function createHarnessHooks(
   return {
     config: composeConfig(hooks),
     "chat.message": composeChatMessage(hooks),
-    "chat.headers": undefined,
     event: composeEvent(hooks),
     "tool.execute.before": composeToolBefore(hooks),
     "tool.execute.after": composeToolAfter(hooks),
@@ -225,7 +209,5 @@ export async function createHarnessHooks(
       hooks,
       "experimental.session.compacting",
     ),
-    "experimental.chat.messages.transform": undefined,
-    "experimental.text.complete": undefined,
   };
 }

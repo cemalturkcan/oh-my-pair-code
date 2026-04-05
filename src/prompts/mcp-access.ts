@@ -1,0 +1,78 @@
+// ── Single source of truth for agent MCP access ───────────────────
+// When adding/removing an MCP, update ONLY this file.
+
+import type { McpToggles } from "../types";
+
+export type McpName =
+  | "context7"
+  | "grep_app"
+  | "searxng"
+  | "web-agent-mcp"
+  | "pg-mcp"
+  | "ssh-mcp"
+  | "mariadb";
+
+/** Human-readable description for each MCP, used in prompts. */
+export const MCP_DESCRIPTIONS: Record<McpName, string> = {
+  context7: "Library and framework documentation. resolve-library-id then query-docs.",
+  grep_app: "GitHub code search across public repos. Real-world usage patterns.",
+  searxng: "Web search (Google/Bing/DDG via SearXNG) + URL reading. No API key, self-hosted.",
+  "web-agent-mcp": "CloakBrowser with anti-detection. Browser testing, screenshots, form filling.",
+  "pg-mcp": "PostgreSQL read-only client. Schema inspection, SELECT queries.",
+  "ssh-mcp": "Remote command execution on configured SSH hosts.",
+  mariadb: "MariaDB client. SELECT/SHOW for reads, execute_write for mutations.",
+};
+
+/** All available MCP names. */
+export const ALL_MCPS: McpName[] = Object.keys(MCP_DESCRIPTIONS) as McpName[];
+
+/** MCPs each agent is DENIED. Unlisted agents have no MCP access. */
+export const AGENT_MCP_DENIED: Record<string, McpName[]> = {
+  yang: ["searxng", "web-agent-mcp"],
+  thorfinn: ["searxng", "web-agent-mcp"],
+  ginko: ["web-agent-mcp", "pg-mcp", "ssh-mcp", "mariadb"],
+  kaiki: ["searxng", "web-agent-mcp", "pg-mcp", "ssh-mcp", "mariadb"],
+  odokawa: ["searxng", "web-agent-mcp", "pg-mcp", "ssh-mcp", "mariadb"],
+  ozen: ["context7", "searxng", "grep_app", "web-agent-mcp", "pg-mcp", "ssh-mcp", "mariadb"],
+  "skull-knight": ["searxng", "grep_app", "web-agent-mcp"],
+  paprika: ["pg-mcp", "ssh-mcp", "mariadb"],
+  rajdhani: ["context7", "searxng", "grep_app", "web-agent-mcp", "pg-mcp", "ssh-mcp", "mariadb"],
+};
+
+function isMcpEnabled(mcp: McpName, mcps?: McpToggles): boolean {
+  if (!mcps) return true;
+  const key = mcp.replace(/-/g, "_") as keyof McpToggles;
+  return mcps[key] !== false;
+}
+
+/** Get the list of MCPs an agent CAN access. */
+export function getAllowedMcps(agent: string, mcps?: McpToggles): McpName[] {
+  const denied = new Set(AGENT_MCP_DENIED[agent] ?? ALL_MCPS);
+  return ALL_MCPS.filter((mcp) => !denied.has(mcp) && isMcpEnabled(mcp, mcps));
+}
+
+/** Build OpenCode tool deny rules for an agent. */
+export function buildDenyRules(agent: string): Record<string, string> {
+  const denied = AGENT_MCP_DENIED[agent] ?? ALL_MCPS;
+  if (denied.length === 0) return {};
+  const rules: Record<string, string> = {};
+  for (const mcp of denied) {
+    rules[`${mcp}_*`] = "deny";
+  }
+  return rules;
+}
+
+/** Build a <McpGuidance> prompt section for a worker agent. */
+export function buildMcpGuidance(agent: string, mcps?: McpToggles): string {
+  const allowed = getAllowedMcps(agent, mcps);
+  if (allowed.length === 0) return "";
+  const lines = allowed.map((mcp) => `- ${mcp}: ${MCP_DESCRIPTIONS[mcp]}`);
+  return `\n<McpGuidance>\n${lines.join("\n")}\n</McpGuidance>`;
+}
+
+/** Build "MCP: x, y, z" summary for the worker catalog. */
+export function buildMcpSummary(agent: string, mcps?: McpToggles): string {
+  const allowed = getAllowedMcps(agent, mcps);
+  if (allowed.length === 0) return "Tools: Glob, Grep, Bash. No MCPs needed.";
+  return `MCP: ${allowed.join(", ")}.`;
+}

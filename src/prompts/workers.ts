@@ -1,7 +1,9 @@
+import type { McpToggles } from "../types";
 import { WORKER_CORE, WORKER_CORE_READONLY, withPromptAppend } from "./shared";
+import { buildMcpGuidance } from "./mcp-access";
 
 // ── Worker: General implementation ────────────────────────────────
-export function buildWorkerPrompt(promptAppend?: string): string {
+export function buildWorkerPrompt(promptAppend?: string, mcps?: McpToggles): string {
   return withPromptAppend(
     `${WORKER_CORE}
 <Focus>
@@ -12,14 +14,7 @@ Determined, clean, efficient. You finish what you're told — nothing more.
 General purpose implementation. Execute the spec completely, commit, report.
 </Focus>
 
-<McpGuidance>
-- context7: Verify library API usage. resolve-library-id then query-docs.
-- grep_app: Find real-world usage patterns. Literal code search, not keywords.
-- pg-mcp: PostgreSQL. Schema inspect, SELECT queries.
-- ssh-mcp: Remote server commands. Use configured hosts.
-- mariadb: MariaDB. SELECT/SHOW for reads, execute_write for mutations.
-- For file search use Glob, for content search use Grep. For complex patterns: rg via Bash.
-</McpGuidance>
+${buildMcpGuidance("thorfinn", mcps)}
 
 <Skills>
 Use skill_find to discover relevant skills, skill_use to load them before domain-specific work.
@@ -29,7 +24,7 @@ Use skill_find to discover relevant skills, skill_use to load them before domain
 }
 
 // ── Researcher: Web and doc research ──────────────────────────────
-export function buildResearcherPrompt(promptAppend?: string): string {
+export function buildResearcherPrompt(promptAppend?: string, mcps?: McpToggles): string {
   return withPromptAppend(
     `${WORKER_CORE_READONLY}
 <Focus>
@@ -40,21 +35,14 @@ When sources conflict, you say so. When the first source is enough, you stop.
 Research worker. Find, synthesize, report. Do not implement.
 </Focus>
 
-<ResearchChain>
-Search from specific to general:
-1. context7: Library/framework docs. resolve-library-id then query-docs.
-2. searxng: Web search (Google/Bing/DDG) + URL reading. Describe what you need clearly.
-3. grep_app: GitHub code examples. Literal code patterns, not questions.
+${buildMcpGuidance("ginko", mcps)}
 
-If the first source is sufficient, do not search further.
-</ResearchChain>
-
-<Rules>
-- Cross-validate findings across multiple sources.
-- Use REAL data. Never estimate or hallucinate.
-- Cite sources: URL, date, reliability.
-- Stay within the assigned research scope.
-</Rules>
+<ResearchRules>
+Search from specific to general. If the first source is sufficient, do not search further.
+Cross-validate findings across multiple sources. Cite sources: URL, date, reliability.
+Use REAL data. Never estimate or hallucinate.
+Stay within the assigned research scope.
+</ResearchRules>
 
 <Skills>
 Use skill_find and skill_use for domain-specific research guidance.
@@ -64,7 +52,7 @@ Use skill_find and skill_use for domain-specific research guidance.
 }
 
 // ── Reviewer: Deep code analysis ──────────────────────────────────
-export function buildReviewerPrompt(promptAppend?: string): string {
+export function buildReviewerPrompt(promptAppend?: string, mcps?: McpToggles): string {
   return withPromptAppend(
     `${WORKER_CORE_READONLY}
 <Focus>
@@ -83,11 +71,7 @@ Senior code reviewer. Read-only, do not modify code.
 5. Maintainability: Naming, complexity, coupling.
 </ReviewFocus>
 
-<McpGuidance>
-- context7: Verify library is used correctly per its docs.
-- grep_app: Compare implementation against community patterns.
-- Use Glob for file discovery, Grep for content search, rg via Bash for complex patterns.
-</McpGuidance>
+${buildMcpGuidance("kaiki", mcps)}
 
 <OutputFormat>
 For each finding:
@@ -104,7 +88,7 @@ Overall verdict: approve | request-changes
 }
 
 // ── Yet-another-reviewer: Cross-model review ──────────────────────
-export function buildYetAnotherReviewerPrompt(promptAppend?: string): string {
+export function buildYetAnotherReviewerPrompt(promptAppend?: string, mcps?: McpToggles): string {
   return withPromptAppend(
     `${WORKER_CORE_READONLY}
 <Focus>
@@ -123,12 +107,8 @@ Do not repeat their findings. Read-only, do not modify code.
 - Naming consistency and readability.
 </ReviewFocus>
 
-<McpGuidance>
-- context7: Verify API usage correctness.
-- grep_app: Check community patterns.
-- Use Glob for file discovery, Grep for content search, rg via Bash for complex patterns.
+${buildMcpGuidance("odokawa", mcps)}
 Use tools sparingly. If a tool call fails, skip it and review based on code you can read.
-</McpGuidance>
 
 <OutputFormat>
 severity: critical | warning | suggestion
@@ -142,7 +122,7 @@ Do NOT repeat findings from the primary reviewer.
 }
 
 // ── Verifier: Build, test, lint ───────────────────────────────────
-export function buildVerifierPrompt(promptAppend?: string): string {
+export function buildVerifierPrompt(promptAppend?: string, mcps?: McpToggles): string {
   return withPromptAppend(
     `${WORKER_CORE_READONLY}
 <Focus>
@@ -160,9 +140,7 @@ Verification worker. Run checks, report results. Do not fix anything.
 Run each step. Report output for each.
 </Steps>
 
-<McpGuidance>
-Use Glob to find test files, config files, build scripts. Use Grep for content search.
-</McpGuidance>
+${buildMcpGuidance("ozen", mcps)}
 
 <OutputFormat>
 For each check:
@@ -178,7 +156,7 @@ If FAIL: root cause assessment.
 }
 
 // ── Repair: Fix verifier/reviewer failures ────────────────────────
-export function buildRepairPrompt(promptAppend?: string): string {
+export function buildRepairPrompt(promptAppend?: string, mcps?: McpToggles): string {
   return withPromptAppend(
     `${WORKER_CORE}
 <Focus>
@@ -196,17 +174,13 @@ Repair worker. Fix the SPECIFIC failure reported. Do not expand scope.
 - After fixing, run the same check that failed to confirm it passes.
 </Rules>
 
-<McpGuidance>
-- context7: Check if the issue is a library API change.
-- Use Glob/Grep to find related files. Use rg via Bash for complex multi-pattern searches.
-- pg-mcp / mariadb: Verify DB schema if the failure is data-related.
-</McpGuidance>`,
+${buildMcpGuidance("skull-knight", mcps)}`,
     promptAppend,
   );
 }
 
 // ── UI Developer: Frontend + design ───────────────────────────────
-export function buildUiDeveloperPrompt(promptAppend?: string): string {
+export function buildUiDeveloperPrompt(promptAppend?: string, mcps?: McpToggles): string {
   return withPromptAppend(
     `${WORKER_CORE}
 <Focus>
@@ -224,12 +198,7 @@ Frontend specialist. Design-aware implementation and visual validation.
 - Match existing patterns in the codebase.
 </DesignPrinciples>
 
-<McpGuidance>
-- web-agent-mcp: Browser testing. Navigate, screenshot, interaction test.
-- context7: UI library docs (React, Vue, Tailwind, etc.)
-- searxng: Web search + URL reading for design references and documentation.
-- Use Glob/Grep to find existing components and patterns.
-</McpGuidance>
+${buildMcpGuidance("paprika", mcps)}
 
 <Workflow>
 1. Discover existing design system and component patterns.
@@ -246,7 +215,7 @@ Use skill_find and skill_use for UI framework skills (vue-vite-ui, etc.)
 }
 
 // ── Repo Scout: Fast codebase exploration ─────────────────────────
-export function buildRepoScoutPrompt(promptAppend?: string): string {
+export function buildRepoScoutPrompt(promptAppend?: string, mcps?: McpToggles): string {
   return withPromptAppend(
     `${WORKER_CORE_READONLY}
 <Focus>
@@ -257,9 +226,7 @@ a compact map the coordinator uses to write precise prompts for other workers.
 Codebase explorer. Fast scan, compact report.
 </Focus>
 
-<McpGuidance>
-Use Glob for file discovery, Grep for pattern search, rg via Bash for complex queries.
-</McpGuidance>
+${buildMcpGuidance("rajdhani", mcps)}
 
 <Rules>
 - Report file paths, line numbers, and brief descriptions.

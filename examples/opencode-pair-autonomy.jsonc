@@ -1,34 +1,24 @@
 {
-  "default_mode": "coordinator",
   "set_default_agent": true,
   "hooks": {
-    "intent_gate": false,
-    "todo_continuation": true,
+    "profile": "standard",
     "comment_guard": true,
-    "flush_queued_prompts": true,
-    "todo_continuation_cooldown_ms": 30000
+    "session_start": true,
+    "pre_tool_use": true,
+    "post_tool_use": true,
+    "pre_compact": true,
+    "stop": true,
+    "session_end": true,
+    "file_edited": true
   },
   "mcps": {
     "context7": true,
     "grep_app": true,
-    "chrome_devtools": true,
+    "web_agent_mcp": true,
     "pg_mcp": true,
     "ssh_mcp": true,
-    "sudo_mcp": true,
-    "searxng": true
+    "searxng": true,
+    "mariadb": true
   },
-  "agents": {
-    "ryo": {
-      "variant": "high"
-    },
-    "shounen-bat": {
-      "model": "kimi-for-coding/k2p5"
-    },
-    "eiri": {
-      "model": "kimi-for-coding/k2p5"
-    },
-    "bondrewd": {
-      "model": "kimi-for-coding/k2p5"
-    }
-  }
+  "agents": {}
 }

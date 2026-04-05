@@ -18,7 +18,6 @@ export type AgentOverride = {
 };
 
 export type HarnessConfig = {
-  default_mode?: "coordinator";
   set_default_agent?: boolean;
   commands?: {
     enabled?: boolean;
@@ -50,9 +49,6 @@ export type HarnessConfig = {
   };
   mcps?: McpToggles;
   agents?: Record<string, AgentOverride>;
-  credentials?: {
-    figma_access_token?: string;
-  };
 };
 
 export type AgentLike = Record<string, unknown>;

@@ -5,64 +5,83 @@ import {
   buildMcpCatalog,
   withPromptAppend,
 } from "./shared";
+import { buildMcpSummary } from "./mcp-access";
 
-const WORKER_CATALOG = `
-<WorkerCatalog>
-Your workers. You know their strengths — route by judgment, not checklists.
+function buildWorkerCatalog(mcps?: McpToggles): string {
+  const entries = [
+    {
+      name: "thorfinn",
+      anime: "Vinland Saga",
+      model: "sonnet-4-6 max",
+      description: "The warrior who learned true strength is precision, not force. Doesn't fight the codebase — works with it. No over-engineering.",
+      mcpLine: buildMcpSummary("thorfinn", mcps),
+      role: "Your go-to for implementation: features, refactoring, migrations, server ops. When the spec is clear, Thorfinn delivers.",
+    },
+    {
+      name: "ginko",
+      anime: "Mushishi",
+      model: "sonnet-4-6 none",
+      description: "The wandering researcher. Follows evidence wherever it leads — docs, source, changelogs, community discussions.",
+      mcpLine: buildMcpSummary("ginko", mcps),
+      role: "Send him when you need to understand something outside the repo: library docs, API research, best practices.",
+    },
+    {
+      name: "kaiki",
+      anime: "Monogatari",
+      model: "opus-4-6 max",
+      description: "The fake specialist who understands systems better than anyone. Every codebase has its lie — he finds it.",
+      mcpLine: `${buildMcpSummary("kaiki", mcps)} Read-only. Has bash for rg (ripgrep) searches.`,
+      role: "Your senior reviewer. Hidden coupling, auth bypasses, race conditions, silent data loss. He exposes, doesn't fix.",
+    },
+    {
+      name: "odokawa",
+      anime: "Odd Taxi",
+      model: "gpt-5.4 xhigh",
+      description: "The quiet observer who sees everyone's hidden story. Different angle, different blind spots. Questions the design decision itself.",
+      mcpLine: `${buildMcpSummary("odokawa", mcps)} Read-only. Has bash for rg (ripgrep) searches.`,
+      role: "Second opinion after Kaiki. Cross-model review catches what same-model review misses.",
+    },
+    {
+      name: "ozen",
+      anime: "Made in Abyss",
+      model: "sonnet-4-6 none",
+      description: "The Immovable Sovereign. Tests everything to destruction. Doesn't skip steps, doesn't rationalize warnings.",
+      mcpLine: buildMcpSummary("ozen", mcps),
+      role: "Build, test, typecheck, lint. Pass or fail, nothing more.",
+    },
+    {
+      name: "skull-knight",
+      anime: "Berserk",
+      model: "sonnet-4-6 max",
+      description: "The ancient causality-breaker. Appears when things are broken, applies minimal fix, re-runs the check, disappears.",
+      mcpLine: buildMcpSummary("skull-knight", mcps),
+      role: "Scoped repair: failing tests, review findings, build errors. One failure in, one fix out.",
+    },
+    {
+      name: "paprika",
+      anime: "Paprika",
+      model: "sonnet-4-6 max",
+      description: "The dream detective. Sees interfaces as experiences, not component trees. Creative but grounded in the design system.",
+      mcpLine: buildMcpSummary("paprika", mcps),
+      role: "Frontend, design, browser testing. When it needs to look right and feel right.",
+    },
+    {
+      name: "rajdhani",
+      anime: "Sunny Boy",
+      model: "sonnet-4-6 none",
+      description: "The analytical strategist who maps the unknown. Scans fast: file names, exports, import graphs. Reports locations and patterns.",
+      mcpLine: buildMcpSummary("rajdhani", mcps),
+      role: "Fast codebase recon. Send him first when entering unfamiliar territory.",
+    },
+  ];
 
-thorfinn (Vinland Saga) — sonnet-4-6 max
-  The warrior who learned true strength is precision, not force. Doesn't fight the codebase — works with it. No over-engineering.
-  MCP: context7, grep_app, pg-mcp, ssh-mcp, mariadb. All tools.
-  Your go-to for implementation: features, refactoring, migrations, server ops. When the spec is clear, Thorfinn delivers.
+  const lines = entries.map(
+    (e) =>
+      `${e.name} (${e.anime}) — ${e.model}\n  ${e.description}\n  ${e.mcpLine}\n  ${e.role}`,
+  );
 
-ginko (Mushishi) — sonnet-4-6 none
-  The wandering researcher. Follows evidence wherever it leads — docs, source, changelogs, community discussions.
-  MCP: context7, searxng, grep_app.
-  Send him when you need to understand something outside the repo: library docs, API research, best practices.
-
-kaiki (Monogatari) — opus-4-6 max
-  The fake specialist who understands systems better than anyone. Every codebase has its lie — he finds it.
-  MCP: context7, grep_app. Read-only. Has bash for rg (ripgrep) searches.
-  Your senior reviewer. Hidden coupling, auth bypasses, race conditions, silent data loss. He exposes, doesn't fix.
-
-odokawa (Odd Taxi) — gpt-5.4 xhigh
-  The quiet observer who sees everyone's hidden story. Different angle, different blind spots. Questions the design decision itself.
-  MCP: context7, grep_app. Read-only. Has bash for rg (ripgrep) searches.
-  Second opinion after Kaiki. Cross-model review catches what same-model review misses.
-
-ozen (Made in Abyss) — sonnet-4-6 none
-  The Immovable Sovereign. Tests everything to destruction. Doesn't skip steps, doesn't rationalize warnings.
-  Tools: Glob, Grep, Bash. No MCPs needed.
-  Build, test, typecheck, lint. Pass or fail, nothing more.
-
-skull-knight (Berserk) — sonnet-4-6 max
-  The ancient causality-breaker. Appears when things are broken, applies minimal fix, re-runs the check, disappears.
-  MCP: context7, pg-mcp, mariadb.
-  Scoped repair: failing tests, review findings, build errors. One failure in, one fix out.
-
-paprika (Paprika) — sonnet-4-6 max
-  The dream detective. Sees interfaces as experiences, not component trees. Creative but grounded in the design system.
-  MCP: web-agent-mcp, context7, searxng.
-  Frontend, design, browser testing. When it needs to look right and feel right.
-
-rajdhani (Sunny Boy) — sonnet-4-6 none
-  The analytical strategist who maps the unknown. Scans fast: file names, exports, import graphs. Reports locations and patterns.
-  Tools: Glob, Grep, Bash. No MCPs needed.
-  Fast codebase recon. Send him first when entering unfamiliar territory.
-</WorkerCatalog>
-`;
-
-const DELEGATION_PRECISION = `
-<DelegationPrecision>
-Before delegating, read relevant files yourself. Your worker prompt MUST include:
-- Exact file paths and line numbers.
-- Specific type/function names involved.
-- "Change THIS, not THAT" when ambiguity exists.
-- Context not in the files (user intent, constraints).
-
-For broad scope (5+ files unknown), spawn rajdhani first for recon.
-</DelegationPrecision>
-`;
+  return `\n<WorkerCatalog>\nYour workers. You know their strengths — route by judgment, not checklists.\n\n${lines.join("\n\n")}\n</WorkerCatalog>\n`;
+}
 
 const AUTOMATIC_WORKFLOW = `
 <AutomaticWorkflow>
@@ -219,7 +238,7 @@ export function buildCoordinatorPrompt(promptAppend?: string, mcps?: McpToggles)
     COORDINATOR_CORE,
     RESPONSE_DISCIPLINE,
     buildMcpCatalog(mcps),
-    WORKER_CATALOG,
+    buildWorkerCatalog(mcps),
     DELEGATION,
     AUTOMATIC_WORKFLOW,
     PLAN_MODE,

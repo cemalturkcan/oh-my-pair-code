@@ -22,7 +22,6 @@ const PROJECT_FACT_LABELS = {
   react: "React",
   vue: "Vue",
   vite: "Vite",
-  "vite-vue": "Vite/Vue",
   angular: "Angular",
   svelte: "Svelte",
 } as const;

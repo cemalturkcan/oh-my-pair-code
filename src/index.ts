@@ -10,12 +10,6 @@ const PairAutonomyPlugin: Plugin = async (ctx) => {
   const hooks = await createHarnessHooks(ctx, harnessConfig);
 
   return {
-    ...(hooks["experimental.chat.messages.transform"]
-      ? {
-          "experimental.chat.messages.transform":
-            hooks["experimental.chat.messages.transform"],
-        }
-      : {}),
     config: async (config) => {
       const mutableConfig = config as unknown as Record<string, unknown>;
       const existingAgents = (mutableConfig.agent ?? {}) as Record<
@@ -73,9 +67,6 @@ const PairAutonomyPlugin: Plugin = async (ctx) => {
           "experimental.session.compacting":
             hooks["experimental.session.compacting"],
         }
-      : {}),
-    ...(hooks["experimental.text.complete"]
-      ? { "experimental.text.complete": hooks["experimental.text.complete"] }
       : {}),
   };
 };

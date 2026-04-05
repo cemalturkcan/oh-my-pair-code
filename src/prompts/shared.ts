@@ -1,6 +1,7 @@
 // ── Shared prompt building blocks ──────────────────────────────────
 // Split into coordinator-facing and worker-facing cores.
 import type { McpToggles } from "../types";
+import { ALL_MCPS, MCP_DESCRIPTIONS, AGENT_MCP_DENIED, type McpName } from "./mcp-access";
 
 // ── Coordinator core ──────────────────────────────────────────────
 export const COORDINATOR_CORE = `
@@ -203,43 +204,30 @@ When doing research, calculations, or data lookup:
 
 // ── MCP catalog (injected into coordinator for delegation routing) ─
 export function buildMcpCatalog(mcps?: McpToggles): string {
-  const workerOnlyLines: string[] = [];
-  if (mcps?.web_agent_mcp !== false) {
-    workerOnlyLines.push(
-      "- web-agent-mcp: CloakBrowser with anti-detection. Interactive web tasks, login, form filling, UI testing. Delegate to paprika.",
-    );
-  }
+  // MCPs that the coordinator cannot use directly (must delegate)
+  const coordinatorDenied = new Set<McpName>(AGENT_MCP_DENIED.yang ?? []);
 
+  // Delegate targets for worker-only MCPs
+  const DELEGATE_HINTS: Partial<Record<McpName, string>> = {
+    "web-agent-mcp": "Delegate to paprika.",
+    searxng: "Delegate to ginko or paprika.",
+  };
+
+  const workerOnlyLines: string[] = [];
   const sharedLines: string[] = [];
-  if (mcps?.context7 !== false) {
-    sharedLines.push(
-      "- context7: Library and framework documentation. resolve-library-id then query-docs.",
-    );
-  }
-  if (mcps?.grep_app !== false) {
-    sharedLines.push(
-      "- grep_app: GitHub code search across public repos. Real-world usage patterns.",
-    );
-  }
-  if (mcps?.searxng !== false) {
-    workerOnlyLines.push(
-      "- searxng: Web search (Google/Bing/DDG via SearXNG) + URL reading. No API key, self-hosted. Delegate to ginko or paprika.",
-    );
-  }
-  if (mcps?.pg_mcp !== false) {
-    sharedLines.push(
-      "- pg-mcp: PostgreSQL read-only client. Schema inspection, SELECT queries.",
-    );
-  }
-  if (mcps?.ssh_mcp !== false) {
-    sharedLines.push(
-      "- ssh-mcp: Remote command execution on configured SSH hosts.",
-    );
-  }
-  if (mcps?.mariadb !== false) {
-    sharedLines.push(
-      "- mariadb: MariaDB client. SELECT/SHOW for reads, execute_write for mutations.",
-    );
+
+  for (const mcp of ALL_MCPS) {
+    // Skip if disabled in config
+    const toggleKey = mcp.replace(/-/g, "_") as keyof McpToggles;
+    if (mcps?.[toggleKey] === false) continue;
+
+    const desc = MCP_DESCRIPTIONS[mcp];
+    if (coordinatorDenied.has(mcp)) {
+      const hint = DELEGATE_HINTS[mcp] ?? "";
+      workerOnlyLines.push(`- ${mcp}: ${desc}${hint ? ` ${hint}` : ""}`);
+    } else {
+      sharedLines.push(`- ${mcp}: ${desc}`);
+    }
   }
 
   const parts: string[] = [];

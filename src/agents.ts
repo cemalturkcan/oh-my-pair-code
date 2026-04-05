@@ -1,6 +1,7 @@
-import type { AgentLike, HarnessConfig } from "./types";
+import type { AgentLike, HarnessConfig, McpToggles } from "./types";
 import { deepMerge } from "./utils";
 import { buildCoordinatorPrompt } from "./prompts/coordinator";
+import { buildDenyRules } from "./prompts/mcp-access";
 import {
   buildWorkerPrompt,
   buildResearcherPrompt,
@@ -41,19 +42,7 @@ const COORDINATOR_TASK_PERMISSIONS = taskPermissions(
 
 // Only the expensive MCPs are disabled on the coordinator (~30k token savings).
 // Lighter MCPs stay open so the coordinator can use them directly.
-const COORDINATOR_DISABLED_TOOLS: Record<string, string> = {
-  "searxng_*": "deny",
-  "web-agent-mcp_*": "deny",
-};
-
-// Per-worker MCP restrictions: disable MCPs they don't need.
-function mcpDenyRules(...disabledPrefixes: string[]): Record<string, string> {
-  const tools: Record<string, string> = {};
-  for (const prefix of disabledPrefixes) {
-    tools[`${prefix}_*`] = "deny";
-  }
-  return tools;
-}
+const COORDINATOR_DISABLED_TOOLS = buildDenyRules("yang");
 
 export function createHarnessAgents(
   config: HarnessConfig,
@@ -85,10 +74,10 @@ export function createHarnessAgents(
         description: "Thorfinn — General purpose implementation worker.",
         model: "anthropic/claude-sonnet-4-6",
         variant: "max",
-        prompt: buildWorkerPrompt(overrides.thorfinn?.prompt_append),
+        prompt: buildWorkerPrompt(overrides.thorfinn?.prompt_append, config.mcps),
         temperature: 0.2,
         color: "#2ECC71",
-        tools: mcpDenyRules("searxng", "web-agent-mcp"),
+        tools: buildDenyRules("thorfinn"),
       },
       overrides.thorfinn,
     ),
@@ -100,15 +89,10 @@ export function createHarnessAgents(
         description: "Ginko — Web and doc researcher.",
         model: "anthropic/claude-sonnet-4-6",
         variant: "none",
-        prompt: buildResearcherPrompt(overrides.ginko?.prompt_append),
+        prompt: buildResearcherPrompt(overrides.ginko?.prompt_append, config.mcps),
         temperature: 0.3,
         color: "#F39C12",
-        tools: mcpDenyRules(
-          "web-agent-mcp",
-          "pg-mcp",
-          "ssh-mcp",
-          "mariadb",
-        ),
+        tools: buildDenyRules("ginko"),
       },
       overrides.ginko,
     ),
@@ -121,16 +105,10 @@ export function createHarnessAgents(
           "Kaiki — Senior code reviewer. Finds subtle bugs and security issues.",
         model: "anthropic/claude-opus-4-6",
         variant: "max",
-        prompt: buildReviewerPrompt(overrides.kaiki?.prompt_append),
+        prompt: buildReviewerPrompt(overrides.kaiki?.prompt_append, config.mcps),
         temperature: 0.1,
         color: "#E74C3C",
-        tools: mcpDenyRules(
-          "searxng",
-          "web-agent-mcp",
-          "pg-mcp",
-          "ssh-mcp",
-          "mariadb",
-        ),
+        tools: buildDenyRules("kaiki"),
         permission: {
           edit: "deny",
         },
@@ -146,16 +124,10 @@ export function createHarnessAgents(
           "Odokawa — Cross-model independent reviewer for review diversity.",
         model: "openai/gpt-5.4",
         variant: "xhigh",
-        prompt: buildYetAnotherReviewerPrompt(overrides.odokawa?.prompt_append),
+        prompt: buildYetAnotherReviewerPrompt(overrides.odokawa?.prompt_append, config.mcps),
         temperature: 0.4,
         color: "#9B59B6",
-        tools: mcpDenyRules(
-          "searxng",
-          "web-agent-mcp",
-          "pg-mcp",
-          "ssh-mcp",
-          "mariadb",
-        ),
+        tools: buildDenyRules("odokawa"),
         permission: {
           edit: "deny",
         },
@@ -170,18 +142,10 @@ export function createHarnessAgents(
         description: "Ozen — Build, test, lint verifier.",
         model: "anthropic/claude-sonnet-4-6",
         variant: "none",
-        prompt: buildVerifierPrompt(overrides.ozen?.prompt_append),
+        prompt: buildVerifierPrompt(overrides.ozen?.prompt_append, config.mcps),
         temperature: 0.0,
         color: "#95A5A6",
-        tools: mcpDenyRules(
-          "context7",
-          "searxng",
-          "grep_app",
-          "web-agent-mcp",
-          "pg-mcp",
-          "ssh-mcp",
-          "mariadb",
-        ),
+        tools: buildDenyRules("ozen"),
       },
       overrides.ozen,
     ),
@@ -193,14 +157,10 @@ export function createHarnessAgents(
         description: "Skull Knight — Scoped failure repair agent.",
         model: "anthropic/claude-sonnet-4-6",
         variant: "max",
-        prompt: buildRepairPrompt(overrides["skull-knight"]?.prompt_append),
+        prompt: buildRepairPrompt(overrides["skull-knight"]?.prompt_append, config.mcps),
         temperature: 0.1,
         color: "#E67E22",
-        tools: mcpDenyRules(
-          "searxng",
-          "grep_app",
-          "web-agent-mcp",
-        ),
+        tools: buildDenyRules("skull-knight"),
       },
       overrides["skull-knight"],
     ),
@@ -213,10 +173,10 @@ export function createHarnessAgents(
           "Paprika — Frontend specialist with browser automation.",
         model: "anthropic/claude-sonnet-4-6",
         variant: "max",
-        prompt: buildUiDeveloperPrompt(overrides.paprika?.prompt_append),
+        prompt: buildUiDeveloperPrompt(overrides.paprika?.prompt_append, config.mcps),
         temperature: 0.5,
         color: "#FF69B4",
-        tools: mcpDenyRules("pg-mcp", "ssh-mcp", "mariadb"),
+        tools: buildDenyRules("paprika"),
       },
       overrides.paprika,
     ),
@@ -228,18 +188,10 @@ export function createHarnessAgents(
         description: "Rajdhani — Fast codebase explorer.",
         model: "anthropic/claude-sonnet-4-6",
         variant: "none",
-        prompt: buildRepoScoutPrompt(overrides["rajdhani"]?.prompt_append),
+        prompt: buildRepoScoutPrompt(overrides["rajdhani"]?.prompt_append, config.mcps),
         temperature: 0.1,
         color: "#1ABC9C",
-        tools: mcpDenyRules(
-          "context7",
-          "searxng",
-          "grep_app",
-          "web-agent-mcp",
-          "pg-mcp",
-          "ssh-mcp",
-          "mariadb",
-        ),
+        tools: buildDenyRules("rajdhani"),
       },
       overrides["rajdhani"],
     ),

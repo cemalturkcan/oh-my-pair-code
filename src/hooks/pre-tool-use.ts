@@ -1,6 +1,3 @@
-import { appendFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type { HarnessConfig } from "../types";
 import type { HookRuntime } from "./runtime";
 import { BlockingHookError } from "./sdk";
@@ -12,20 +9,6 @@ import {
   resolveToolName,
   PRIMARY_AGENTS,
 } from "./runtime";
-
-const PLAN_MODE_DEBUG_LOG = join(
-  homedir(),
-  ".config",
-  "opencode",
-  "plan-mode-debug.log",
-);
-
-function debugPlanMode(data: Record<string, unknown>): void {
-  try {
-    const line = `${new Date().toISOString()} ${JSON.stringify(data)}\n`;
-    appendFileSync(PLAN_MODE_DEBUG_LOG, line, "utf8");
-  } catch {}
-}
 
 const NODE_COMMAND_RE =
   /^(npm|pnpm|yarn|bun|npx|bunx|node|tsc|tsx|vite|next|nuxt|vitest|jest|eslint|prettier)\b/;
@@ -97,8 +80,6 @@ export function createPreToolUseHook(
         runtime.getPlanMode(sessionID) === "planning"
       ) {
         const blocked = isBlockedInPlanMode(tool, args);
-
-        debugPlanMode({ tool, blocked });
 
         if (blocked) {
           const count = runtime.incrementPlanModeBlock(sessionID);

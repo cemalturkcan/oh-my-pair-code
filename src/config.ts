@@ -7,7 +7,6 @@ import type { HarnessConfig } from "./types";
 import { deepMerge, isObject } from "./utils";
 
 const HarnessConfigSchema = z.object({
-  default_mode: z.enum(["coordinator"]).optional(),
   set_default_agent: z.boolean().optional(),
   commands: z
     .object({
@@ -67,15 +66,9 @@ const HarnessConfigSchema = z.object({
       }),
     )
     .optional(),
-  credentials: z
-    .object({
-      figma_access_token: z.string().optional(),
-    })
-    .optional(),
 });
 
 const DEFAULTS: HarnessConfig = {
-  default_mode: "coordinator",
   set_default_agent: true,
   commands: {
     enabled: true,
@@ -116,7 +109,6 @@ const DEFAULTS: HarnessConfig = {
 };
 
 const ConfigSectionSchemas = {
-  default_mode: HarnessConfigSchema.shape.default_mode,
   set_default_agent: HarnessConfigSchema.shape.set_default_agent,
   commands: HarnessConfigSchema.shape.commands,
   hooks: HarnessConfigSchema.shape.hooks,
@@ -124,7 +116,6 @@ const ConfigSectionSchemas = {
   learning: HarnessConfigSchema.shape.learning,
   mcps: HarnessConfigSchema.shape.mcps,
   agents: HarnessConfigSchema.shape.agents,
-  credentials: HarnessConfigSchema.shape.credentials,
 } satisfies Record<keyof HarnessConfig, z.ZodTypeAny>;
 
 function formatParseErrors(errors: ParseError[]): string {
@@ -222,7 +213,6 @@ export function loadHarnessConfig(projectDirectory: string): HarnessConfig {
 
 export const SAMPLE_PROJECT_CONFIG = `{
   // Project-level overrides for opencode-pair-autonomy
-  "default_mode": "coordinator",
   "hooks": {
     "profile": "standard",
     "comment_guard": true,
@@ -254,9 +244,6 @@ export const SAMPLE_PROJECT_CONFIG = `{
     "ssh_mcp": true,
     "searxng": true,
     "mariadb": true
-  },
-  "credentials": {
-    "figma_access_token": ""
   },
   "agents": {}
 }`;
