@@ -648,17 +648,54 @@ async function ensureInstalledHarnessBuild(configDir: string): Promise<void> {
   });
 }
 
+function dockerExec(
+  args: string[],
+  options?: { captureStdout?: boolean },
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    const child = spawn("docker", args, {
+      stdio: ["ignore", options?.captureStdout ? "pipe" : "inherit", "pipe"],
+    });
+    if (child.stdout) {
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString();
+      });
+    }
+    // stderr is always "pipe" per the stdio config above
+    child.stderr!.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (err) =>
+      reject(new Error(`Failed to spawn docker: ${err.message}`)),
+    );
+    // Use "close" instead of "exit" — streams may not be fully flushed at "exit"
+    child.on("close", (code, signal) => {
+      if (code === 0) {
+        resolve(stdout.trim());
+      } else {
+        const detail =
+          stderr.trim() ||
+          (signal ? `killed by ${signal}` : `exit code ${code ?? -1}`);
+        reject(new Error(`docker ${args[0]} failed: ${detail}`));
+      }
+    });
+  });
+}
+
 async function ensureSearxngContainer(): Promise<void> {
   if (process.env.SEARXNG_URL?.trim()) {
-    console.log("[opencode-pair] Using external SearXNG at", process.env.SEARXNG_URL.trim());
+    console.log(
+      "[opencode-pair] Using external SearXNG at",
+      process.env.SEARXNG_URL.trim(),
+    );
     return;
   }
 
   const pathValue = process.env.PATH;
   const dockerInPath = pathValue
-    ? pathValue
-        .split(":")
-        .some((dir) => existsSync(join(dir, "docker")))
+    ? pathValue.split(":").some((dir) => existsSync(join(dir, "docker")))
     : false;
 
   if (!dockerInPath) {
@@ -669,96 +706,49 @@ async function ensureSearxngContainer(): Promise<void> {
   }
 
   try {
-    const containerExists = await new Promise<string>((resolve, reject) => {
-      let output = "";
-      const child = spawn(
-        "docker",
-        ["ps", "-a", "--filter", "name=^searxng$", "--format", "{{.Names}}"],
-        { stdio: ["ignore", "pipe", "ignore"] },
-      );
-      child.stdout!.on("data", (chunk: Buffer) => {
-        output += chunk.toString();
-      });
-      child.on("error", reject);
-      child.on("exit", (code) => {
-        if (code === 0) {
-          resolve(output.trim());
-        } else {
-          reject(new Error(`docker command failed with exit code ${code ?? -1}`));
-        }
-      });
+    await dockerExec(["info", "--format", "{{.ServerVersion}}"], {
+      captureStdout: true,
     });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    const isWSL = Boolean(process.env.WSL_DISTRO_NAME);
+    const hint = isWSL
+      ? `\n  Hint: Enable WSL Integration for "${process.env.WSL_DISTRO_NAME}" in Docker Desktop → Settings → Resources → WSL Integration.`
+      : "";
+    console.warn(
+      `[opencode-pair] Docker daemon is not reachable. Skipping SearXNG container setup.\n` +
+        `  ${detail}${hint}`,
+    );
+    return;
+  }
+
+  try {
+    const containerExists = await dockerExec(
+      ["ps", "-a", "--filter", "name=^searxng$", "--format", "{{.Names}}"],
+      { captureStdout: true },
+    );
 
     if (containerExists) {
-      const containerRunning = await new Promise<string>((resolve, reject) => {
-        let output = "";
-        const child = spawn(
-          "docker",
-          ["ps", "--filter", "name=^searxng$", "--format", "{{.Names}}"],
-          { stdio: ["ignore", "pipe", "ignore"] },
-        );
-        child.stdout!.on("data", (chunk: Buffer) => {
-          output += chunk.toString();
-        });
-        child.on("error", reject);
-        child.on("exit", (code) => {
-          if (code === 0) {
-            resolve(output.trim());
-          } else {
-            reject(new Error(`docker command failed with exit code ${code ?? -1}`));
-          }
-        });
-      });
+      const containerRunning = await dockerExec(
+        ["ps", "--filter", "name=^searxng$", "--format", "{{.Names}}"],
+        { captureStdout: true },
+      );
 
       if (!containerRunning) {
-        await new Promise<void>((resolve, reject) => {
-          const child = spawn("docker", ["start", "searxng"], {
-            stdio: "inherit",
-          });
-          child.on("error", reject);
-          child.on("exit", (code) => {
-            if (code === 0) {
-              resolve();
-              return;
-            }
-            reject(
-              new Error(
-                `docker start searxng failed with exit code ${code ?? -1}`,
-              ),
-            );
-          });
-        });
+        await dockerExec(["start", "searxng"]);
       }
     } else {
-      await new Promise<void>((resolve, reject) => {
-        const child = spawn(
-          "docker",
-          [
-            "run",
-            "-d",
-            "--name",
-            "searxng",
-            "--restart",
-            "unless-stopped",
-            "-p",
-            "8099:8080",
-            "searxng/searxng:latest",
-          ],
-          { stdio: "inherit" },
-        );
-        child.on("error", reject);
-        child.on("exit", (code) => {
-          if (code === 0) {
-            resolve();
-            return;
-          }
-          reject(
-            new Error(
-              `docker run searxng failed with exit code ${code ?? -1}`,
-            ),
-          );
-        });
-      });
+      await dockerExec([
+        "run",
+        "-d",
+        "--name",
+        "searxng",
+        "--restart",
+        "unless-stopped",
+        "-p",
+        "8099:8080",
+        "searxng/searxng:latest",
+      ]);
     }
     await ensureSearxngJsonFormat();
   } catch (error) {
@@ -769,62 +759,38 @@ async function ensureSearxngContainer(): Promise<void> {
 }
 
 async function ensureSearxngJsonFormat(): Promise<void> {
-  const hasJson = await new Promise<boolean>((resolve) => {
-    let output = "";
-    const child = spawn(
-      "docker",
-      ["exec", "searxng", "grep", "-c", "    - json", "/etc/searxng/settings.yml"],
-      { stdio: ["ignore", "pipe", "ignore"] },
+  let hasJson = false;
+  try {
+    const output = await dockerExec(
+      [
+        "exec",
+        "searxng",
+        "grep",
+        "-c",
+        "    - json",
+        "/etc/searxng/settings.yml",
+      ],
+      { captureStdout: true },
     );
-    child.stdout!.on("data", (chunk: Buffer) => {
-      output += chunk.toString();
-    });
-    child.on("error", () => resolve(false));
-    child.on("exit", (code) => {
-      resolve(code === 0 && parseInt(output.trim(), 10) > 0);
-    });
-  });
+    hasJson = parseInt(output, 10) > 0;
+  } catch {
+    hasJson = false;
+  }
 
   if (hasJson) {
     return;
   }
 
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(
-      "docker",
-      [
-        "exec",
-        "searxng",
-        "sed",
-        "-i",
-        "/^  formats:/{n;s/    - html/    - html\\n    - json/}",
-        "/etc/searxng/settings.yml",
-      ],
-      { stdio: "inherit" },
-    );
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      reject(new Error(`Failed to enable JSON format in SearXNG settings`));
-    });
-  });
+  await dockerExec([
+    "exec",
+    "searxng",
+    "sed",
+    "-i",
+    "/^  formats:/{n;s/    - html/    - html\\n    - json/}",
+    "/etc/searxng/settings.yml",
+  ]);
 
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn("docker", ["restart", "searxng"], {
-      stdio: "inherit",
-    });
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      reject(new Error(`Failed to restart SearXNG container`));
-    });
-  });
+  await dockerExec(["restart", "searxng"]);
 }
 
 export async function installHarness(options?: { fresh?: boolean }): Promise<{
