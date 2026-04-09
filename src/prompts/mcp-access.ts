@@ -32,7 +32,6 @@ export const AGENT_MCP_DENIED: Record<string, McpName[]> = {
   thorfinn: ["searxng", "web-agent-mcp"],
   ginko: ["web-agent-mcp", "pg-mcp", "ssh-mcp", "mariadb"],
   rust: ["searxng", "web-agent-mcp", "pg-mcp", "ssh-mcp", "mariadb"],
-  odokawa: ["searxng", "web-agent-mcp", "pg-mcp", "ssh-mcp", "mariadb"],
   spock: ["context7", "searxng", "grep_app", "web-agent-mcp", "pg-mcp", "ssh-mcp", "mariadb"],
   geralt: ["searxng", "grep_app", "web-agent-mcp"],
   edward: ["pg-mcp", "ssh-mcp", "mariadb"],

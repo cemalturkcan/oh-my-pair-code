@@ -1,11 +1,11 @@
 # opencode-pair
 
-OpenCode harness with opinionated agent orchestration. One coordinator, eight specialized workers, automatic verify+review pipeline.
+OpenCode harness with opinionated agent orchestration. One coordinator, seven specialized workers, automatic verify+review pipeline.
 
 ## What it does
 
 - **Yang Wenli** as coordinator — plans, delegates, synthesizes, never asks for routine permission
-- Automatic workflow: implement → build/test (Spock) → review (Rust + Odokawa) → repair (Geralt) → re-verify
+- Automatic workflow: implement → build/test (Spock) → review (Rust) → repair (Geralt) → re-verify
 - Plan/Execute mode switching via `/go` and `/plan` commands
 - Session memory with cross-session continuity
 - Observation logging and pattern learning
@@ -16,15 +16,14 @@ OpenCode harness with opinionated agent orchestration. One coordinator, eight sp
 
 | Agent        | Character            | Role                           | Model             |
 | ------------ | -------------------- | ------------------------------ | ----------------- |
-| **yang**     | Yang Wenli           | Coordinator — plans, delegates | claude-opus-4-6   |
-| **thorfinn** | Thorfinn             | General implementation         | claude-sonnet-4-6 |
-| **ginko**    | Ginko                | Web and doc research           | claude-sonnet-4-6 |
-| **rust**     | Rust Cohle           | Senior code review (read-only) | claude-opus-4-6   |
-| **odokawa**  | Odokawa              | Cross-model review (read-only) | gpt-5.4           |
-| **spock**    | Spock                | Build, test, lint verification | claude-sonnet-4-6 |
-| **geralt**   | Geralt of Rivia      | Scoped failure repair          | claude-sonnet-4-6 |
-| **edward**   | Edward Elric         | Frontend, browser testing      | claude-sonnet-4-6 |
-| **killua**   | Killua Zoldyck       | Fast codebase exploration      | claude-sonnet-4-6 |
+| **yang**     | Yang Wenli           | Coordinator — plans, delegates | gpt-5.4           |
+| **thorfinn** | Thorfinn             | General implementation         | gpt-5.3-codex-spark |
+| **ginko**    | Ginko                | Web and doc research           | gpt-5.4           |
+| **rust**     | Rust Cohle           | Senior code review (read-only) | gpt-5.4           |
+| **spock**    | Spock                | Build, test, lint verification | gpt-5.4           |
+| **geralt**   | Geralt of Rivia      | Scoped failure repair          | gpt-5.3-codex-spark |
+| **edward**   | Edward Elric         | Frontend, browser testing      | gpt-5.4           |
+| **killua**   | Killua Zoldyck       | Fast codebase exploration      | gpt-5.4           |
 
 ## MCP Servers
 

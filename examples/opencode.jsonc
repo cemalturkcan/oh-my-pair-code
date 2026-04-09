@@ -6,7 +6,6 @@
     "@mohak34/opencode-notifier",
     "@zenobius/opencode-skillful",
     "@franlol/opencode-md-table-formatter",
-    "opencode-anthropic-login-via-cli",
     "file:///ABSOLUTE/PATH/TO/opencode-background-agents-local"
   ],
   "instructions": [

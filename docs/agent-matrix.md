@@ -4,20 +4,19 @@
 
 | Agent  | Character  | Model                       | Variant | Role                                              |
 | ------ | ---------- | --------------------------- | ------- | ------------------------------------------------- |
-| `yang` | Yang Wenli | `anthropic/claude-opus-4-6` | `max`   | Plans, argues, delegates, synthesizes. Never asks for routine permission. |
+| `yang` | Yang Wenli | `openai/gpt-5.4`           | `xhigh` | Plans, argues, delegates, synthesizes. Never asks for routine permission. |
 
 ## Workers
 
 | Agent      | Character       | Model                         | Variant | Role                                          |
 | ---------- | --------------- | ----------------------------- | ------- | --------------------------------------------- |
-| `thorfinn` | Thorfinn        | `anthropic/claude-sonnet-4-6` | `max`   | General implementation — features, refactoring, migrations, server ops. |
-| `ginko`    | Ginko           | `anthropic/claude-sonnet-4-6` | `none`  | Web and doc research. Search, synthesize, report. |
-| `rust`     | Rust Cohle      | `anthropic/claude-opus-4-6`   | `max`   | Senior code reviewer. Read-only. Finds subtle bugs and security issues. |
-| `odokawa`  | Odokawa         | `openai/gpt-5.4`             | `xhigh` | Cross-model independent reviewer. Read-only. Different angle, different blind spots. |
-| `spock`    | Spock           | `anthropic/claude-sonnet-4-6` | `none`  | Build, test, typecheck, lint verification. Pass or fail, nothing more. |
-| `geralt`   | Geralt of Rivia | `anthropic/claude-sonnet-4-6` | `max`   | Scoped failure repair. One problem in, one fix out. |
-| `edward`   | Edward Elric    | `anthropic/claude-sonnet-4-6` | `max`   | Frontend specialist. Design-aware implementation and visual validation. |
-| `killua`   | Killua Zoldyck  | `anthropic/claude-sonnet-4-6` | `none`  | Fast codebase exploration. Scans structure, reports locations and patterns. |
+| `thorfinn` | Thorfinn        | `openai/gpt-5.3-codex-spark` | `high`  | General implementation — features, refactoring, migrations, server ops. |
+| `ginko`    | Ginko           | `openai/gpt-5.4`             | `medium`| Web and doc research. Search, synthesize, report. |
+| `rust`     | Rust Cohle      | `openai/gpt-5.4`             | `xhigh` | Senior code reviewer. Read-only. Finds subtle bugs and security issues. |
+| `spock`    | Spock           | `openai/gpt-5.4`             | `medium`| Build, test, typecheck, lint verification. Pass or fail, nothing more. |
+| `geralt`   | Geralt of Rivia | `openai/gpt-5.3-codex-spark` | `medium`| Scoped failure repair. One problem in, one fix out. |
+| `edward`   | Edward Elric    | `openai/gpt-5.4`             | `xhigh` | Frontend specialist. Design-aware implementation and visual validation. |
+| `killua`   | Killua Zoldyck  | `openai/gpt-5.4`             | `medium`| Fast codebase exploration. Scans structure, reports locations and patterns. |
 
 ## MCP Access Matrix
 
@@ -29,7 +28,6 @@ Defined in `src/prompts/mcp-access.ts` — single source of truth.
 | **thorfinn** | yes      | yes      | —       | —             | yes    | yes     | yes     |
 | **ginko**    | yes      | yes      | yes     | —             | —      | —       | —       |
 | **rust**     | yes      | yes      | —       | —             | —      | —       | —       |
-| **odokawa**  | yes      | yes      | —       | —             | —      | —       | —       |
 | **spock**    | —        | —        | —       | —             | —      | —       | —       |
 | **geralt**   | yes      | —        | —       | —             | yes    | yes     | yes     |
 | **edward**   | yes      | yes      | yes     | yes           | —      | —       | —       |
@@ -46,7 +44,7 @@ After implementation, the coordinator chooses verification level:
 
 **Standard** (multi-file changes, new features, refactoring):
 1. Spawn spock (build + test + typecheck).
-2. Spock pass → spawn rust + odokawa in parallel.
+2. Spock pass → spawn rust.
 3. Spock fail → spawn geralt, then re-verify. Max 2 cycles.
 4. Rust request-changes → spawn geralt, then re-verify + re-review. Max 2 cycles.
 5. UI tasks → spawn edward for visual verification.
@@ -56,15 +54,15 @@ After implementation, the coordinator chooses verification level:
 | Tool         | For                                                  | Session Continuation     |
 | ------------ | ---------------------------------------------------- | ------------------------ |
 | **Task**     | Write workers (thorfinn, spock, geralt, edward)      | Pass task_id to continue |
-| **Delegate** | Read-only workers (ginko, rust, odokawa, killua)     | Always fresh, runs async |
+| **Delegate** | Read-only workers (ginko, rust, killua)              | Always fresh, runs async |
 
 ## Model Tier Policy
 
-- **Coordinator**: Claude Opus 4.6 `max`
-- **Senior reviewer**: Claude Opus 4.6 `max`
-- **Cross-model reviewer**: GPT 5.4 `xhigh`
-- **Implementation workers**: Claude Sonnet 4.6 `max`
-- **Read-only workers**: Claude Sonnet 4.6 `none` (no extended thinking needed)
+- **Coordinator**: GPT 5.4 `xhigh`
+- **Senior reviewer**: GPT 5.4 `xhigh`
+- **UI worker**: GPT 5.4 `xhigh`
+- **Implementation workers**: GPT 5.3 Codex Spark (`high` / `medium`)
+- **Read-only workers**: GPT 5.4 `medium`
 
 ## Language Policy
 

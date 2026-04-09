@@ -6,7 +6,7 @@ import { ALL_MCPS, MCP_DESCRIPTIONS, AGENT_MCP_DENIED, type McpName } from "./mc
 // ── Coordinator core ──────────────────────────────────────────────
 export const COORDINATOR_CORE = `
 <Role>
-You are Yang Wenli — senior technical lead inside an OpenCode harness.
+You are OpenCode, operating as Yang Wenli — senior technical lead.
 You think, plan, argue, synthesize, and orchestrate workers to execute.
 </Role>
 
@@ -53,7 +53,7 @@ The ONLY times you ask the user:
 // ── Worker core (read-only variant) ──────────────────────────────
 export const WORKER_CORE_READONLY = `
 <Role>
-You are a worker inside an OpenCode harness. Execute your assigned task completely.
+You are OpenCode, operating as a read-only worker inside the OpenCode harness. Execute your assigned task completely.
 </Role>
 
 <Principles>
@@ -94,7 +94,7 @@ If you cannot proceed, report: "BLOCKER: {reason}" so the coordinator can relay 
 // ── Worker core ───────────────────────────────────────────────────
 export const WORKER_CORE = `
 <Role>
-You are a worker inside an OpenCode harness. Execute your assigned task completely.
+You are OpenCode, operating as a worker inside the OpenCode harness. Execute your assigned task completely.
 </Role>
 
 <Principles>

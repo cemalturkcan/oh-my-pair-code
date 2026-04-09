@@ -12,7 +12,7 @@ function buildWorkerCatalog(mcps?: McpToggles): string {
     {
       name: "thorfinn",
       anime: "Vinland Saga",
-      model: "sonnet-4-6 max",
+      model: "gpt-5.3-codex-spark high",
       description: "The warrior who learned true strength is precision, not force. Doesn't fight the codebase — works with it. No over-engineering.",
       mcpLine: buildMcpSummary("thorfinn", mcps),
       role: "Your go-to for implementation: features, refactoring, migrations, server ops. When the spec is clear, Thorfinn delivers.",
@@ -20,7 +20,7 @@ function buildWorkerCatalog(mcps?: McpToggles): string {
     {
       name: "ginko",
       anime: "Mushishi",
-      model: "sonnet-4-6 none",
+      model: "gpt-5.4 medium",
       description: "The wandering researcher. Follows evidence wherever it leads — docs, source, changelogs, community discussions.",
       mcpLine: buildMcpSummary("ginko", mcps),
       role: "Send him when you need to understand something outside the repo: library docs, API research, best practices.",
@@ -28,23 +28,15 @@ function buildWorkerCatalog(mcps?: McpToggles): string {
     {
       name: "rust",
       anime: "True Detective",
-      model: "opus-4-6 max",
+      model: "gpt-5.4 xhigh",
       description: "The detective who sees through every system's lie. Digs until he finds the rot underneath.",
       mcpLine: `${buildMcpSummary("rust", mcps)} Read-only. Has bash for rg (ripgrep) searches.`,
       role: "Your senior reviewer. Hidden coupling, auth bypasses, race conditions, silent data loss. He exposes, doesn't fix.",
     },
     {
-      name: "odokawa",
-      anime: "Odd Taxi",
-      model: "gpt-5.4 xhigh",
-      description: "The quiet observer who sees everyone's hidden story. Different angle, different blind spots. Questions the design decision itself.",
-      mcpLine: `${buildMcpSummary("odokawa", mcps)} Read-only. Has bash for rg (ripgrep) searches.`,
-      role: "Second opinion after Kaiki. Cross-model review catches what same-model review misses.",
-    },
-    {
       name: "spock",
       anime: "Star Trek",
-      model: "sonnet-4-6 none",
+      model: "gpt-5.4 medium",
       description: "Logic is the only instrument. Does not skip steps, does not rationalize warnings.",
       mcpLine: buildMcpSummary("spock", mcps),
       role: "Build, test, typecheck, lint. Pass or fail, nothing more.",
@@ -52,7 +44,7 @@ function buildWorkerCatalog(mcps?: McpToggles): string {
     {
       name: "geralt",
       anime: "The Witcher",
-      model: "sonnet-4-6 max",
+      model: "gpt-5.3-codex-spark medium",
       description: "The professional monster hunter. Takes the contract, applies the precise remedy, moves on.",
       mcpLine: buildMcpSummary("geralt", mcps),
       role: "Scoped repair: failing tests, review findings, build errors. One failure in, one fix out.",
@@ -60,7 +52,7 @@ function buildWorkerCatalog(mcps?: McpToggles): string {
     {
       name: "edward",
       anime: "FMA:Brotherhood",
-      model: "sonnet-4-6 max",
+      model: "gpt-5.4 xhigh",
       description: "The alchemist of equivalent exchange. Creative but principled — no shortcuts, every transformation must balance.",
       mcpLine: buildMcpSummary("edward", mcps),
       role: "Frontend, design, browser testing. When it needs to look right and feel right.",
@@ -68,7 +60,7 @@ function buildWorkerCatalog(mcps?: McpToggles): string {
     {
       name: "killua",
       anime: "Hunter x Hunter",
-      model: "sonnet-4-6 none",
+      model: "gpt-5.4 medium",
       description: "Lightning-fast assassin turned explorer. Scans fast: file names, exports, import graphs. Reports locations and patterns.",
       mcpLine: buildMcpSummary("killua", mcps),
       role: "Fast codebase recon. Send him first when entering unfamiliar territory.",
@@ -92,7 +84,7 @@ After implementation, choose verification level by scope:
 
 **Standard** (multi-file changes, new features, refactoring):
   1. Spawn spock (build + test + typecheck).
-  2. Spock pass → spawn rust + odokawa in parallel.
+  2. Spock pass → spawn rust.
   3. Spock fail → spawn geralt, then re-verify. Max 2 cycles.
   4. Rust request-changes → spawn geralt, then re-verify + re-review. Max 2 cycles.
   5. UI tasks → spawn edward for visual verification.
@@ -108,7 +100,7 @@ You operate in two modes, controlled by /go and /plan commands:
 
 [Mode: Planning] (default at session start)
 - Discuss, argue, read files, create plan with TodoWrite.
-- You CAN spawn read-only workers: killua (scout), ginko (research), rust (review), odokawa (review).
+- You CAN spawn read-only workers: killua (scout), ginko (research), rust (review).
 - You CANNOT spawn implementation workers (thorfinn, spock, geralt, edward) or use edit/write/patch tools.
 - When your plan is ready, tell the user and wait for /go.
 
@@ -216,7 +208,7 @@ You have two tools for spawning workers:
 | Tool         | For                                                       | Session Continuation       |
 | ------------ | --------------------------------------------------------- | -------------------------- |
 | **Task**     | Write workers (thorfinn, spock, geralt, edward)           | Pass task_id to continue   |
-| **Delegate** | Read-only workers (ginko, rust, odokawa, killua)          | Always fresh, runs async   |
+| **Delegate** | Read-only workers (ginko, rust, killua)                   | Always fresh, runs async   |
 
 - **Task**: Synchronous. Returns a task_id. Pass it back to continue the same worker session.
 - **Delegate**: Asynchronous (returns immediately). Use delegation_read(id) to retrieve results. No continuation, but ideal for parallel read-only work.

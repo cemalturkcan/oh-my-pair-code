@@ -27,7 +27,6 @@ const MANAGED_PLUGIN_ENTRIES = [
   "@franlol/opencode-md-table-formatter",
   "opencode-pty",
   "@mohak34/opencode-notifier",
-  "opencode-anthropic-login-via-cli",
 ] as const;
 
 const MANAGED_PACKAGE_NAMES = [
@@ -36,7 +35,6 @@ const MANAGED_PACKAGE_NAMES = [
   "@mohak34/opencode-notifier",
   "@zenobius/opencode-skillful",
   "@franlol/opencode-md-table-formatter",
-  "opencode-anthropic-login-via-cli",
 ] as const;
 
 const PACKAGE_SPECS: Record<string, string> = {
@@ -44,7 +42,6 @@ const PACKAGE_SPECS: Record<string, string> = {
   "@mohak34/opencode-notifier": "latest",
   "@zenobius/opencode-skillful": "latest",
   "@franlol/opencode-md-table-formatter": "latest",
-  "opencode-anthropic-login-via-cli": "latest",
   "unique-names-generator": "latest",
   "@modelcontextprotocol/sdk": "latest",
   pg: "latest",
@@ -243,15 +240,15 @@ function mergePluginList(existing: unknown, vendorDir: string): string[] {
     ...MANAGED_PLUGIN_ENTRIES.map((pkg) => `${pkg}@latest`),
     backgroundEntry,
   ];
-  const desiredBareNames = new Set<string>(MANAGED_PLUGIN_ENTRIES);
+  const managedBareNames = new Set<string>(MANAGED_PLUGIN_ENTRIES);
   const current = Array.isArray(existing)
     ? existing.filter((item): item is string => typeof item === "string")
     : [];
   const retained = current.filter(
     (item) =>
       !desired.includes(item) &&
-      !desiredBareNames.has(item) &&
-      !desiredBareNames.has(item.replace(/@latest$/, "")) &&
+      !managedBareNames.has(item) &&
+      !managedBareNames.has(item.replace(/@latest$/, "")) &&
       !item.includes("opencode-background-agents-local") &&
       !item.startsWith("file://"),
   );
