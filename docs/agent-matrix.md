@@ -4,20 +4,20 @@
 
 | Agent  | Character  | Model                       | Variant | Role                                              |
 | ------ | ---------- | --------------------------- | ------- | ------------------------------------------------- |
-| `yang` | Yang Wenli | `openai/gpt-5.4`           | `high`  | Plans, argues, delegates, synthesizes. Never asks for routine permission. |
+| `yang` | Yang Wenli | `openai/gpt-5.4-fast`      | `high`  | Plans, argues, delegates, synthesizes. Never asks for routine permission. |
 
 ## Workers
 
 | Agent      | Character       | Model                         | Variant | Role                                          |
 | ---------- | --------------- | ----------------------------- | ------- | --------------------------------------------- |
-| `thorfinn` | Thorfinn        | `openai/gpt-5.3-codex` | `high`  | Main implementation — backend changes, refactoring, migrations, server ops. |
-| `ginko`    | Ginko           | `openai/gpt-5.4`             | `medium`| Web and doc research. Search, synthesize, report. |
-| `rust`     | Rust Cohle      | `openai/gpt-5.4`             | `high`  | Default senior reviewer. Read-only. Faster lane for medium/high-risk review. |
-| `rust_deep`| Rust Deep       | `openai/gpt-5.4`             | `xhigh` | Escalation reviewer. Read-only. Slower/deeper analysis for subtle or high-risk cases. |
-| `spock`    | Spock           | `openai/gpt-5.4`             | `medium`| Build, test, typecheck, lint verification. Pass or fail, nothing more. |
-| `geralt`   | Geralt of Rivia | `openai/gpt-5.3-codex` | `medium`| Scoped failure repair. One problem in, one fix out. |
-| `edward`   | Edward Elric    | `openai/gpt-5.4`             | `high`  | Frontend specialist. Design-aware implementation and visual validation. |
-| `killua`   | Killua Zoldyck  | `openai/gpt-5.4`             | `medium`| Fast codebase exploration. Scans structure, reports locations and patterns. |
+| `thorfinn` | Thorfinn        | `openai/gpt-5.4-fast`        | `high`  | Main implementation — backend changes, refactoring, migrations, server ops. |
+| `ginko`    | Ginko           | `openai/gpt-5.4-fast`        | `medium`| Web and doc research. Search, synthesize, report. |
+| `rust`     | Rust Cohle      | `openai/gpt-5.4-fast`        | `high`  | Default senior reviewer. Read-only. Faster lane for medium/high-risk review. |
+| `rust_deep`| Rust Deep       | `openai/gpt-5.4-fast`        | `xhigh` | Escalation reviewer. Read-only. Slower/deeper analysis for subtle or high-risk cases. |
+| `spock`    | Spock           | `openai/gpt-5.4-fast`        | `medium`| Build, test, typecheck, lint verification. Pass or fail, nothing more. |
+| `geralt`   | Geralt of Rivia | `openai/gpt-5.4-fast`        | `medium`| Scoped failure repair. One problem in, one fix out. |
+| `edward`   | Edward Elric    | `openai/gpt-5.4-fast`        | `high`  | Frontend specialist. Design-aware implementation and visual validation. |
+| `killua`   | Killua Zoldyck  | `openai/gpt-5.4-fast`        | `medium`| Fast codebase exploration. Scans structure, reports locations and patterns. |
 
 ## MCP Access Matrix
 
@@ -68,12 +68,12 @@ Read-only workers remain in the coordinator task allowlist only for internal Del
 
 ## Model Tier Policy
 
-- **Coordinator**: GPT 5.4 `high`
-- **Default senior reviewer**: GPT 5.4 `high`
-- **Escalation reviewer**: GPT 5.4 `xhigh`
-- **UI worker**: GPT 5.4 `high`
-- **Implementation workers**: GPT 5.3 Codex (`high` / `medium`)
-- **Read-only scout/research workers**: GPT 5.4 `medium`
+- **Coordinator**: openai/gpt-5.4-fast `high`
+- **Default senior reviewer**: openai/gpt-5.4-fast `high`
+- **Escalation reviewer**: openai/gpt-5.4-fast `xhigh`
+- **UI worker**: openai/gpt-5.4-fast `high`
+- **Implementation workers**: openai/gpt-5.4-fast (`high` / `medium`)
+- **Read-only scout/research workers**: openai/gpt-5.4-fast `medium`
 
 ## Language Policy
 

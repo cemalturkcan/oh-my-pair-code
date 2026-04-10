@@ -9,14 +9,14 @@ import { buildMcpSummary } from "./mcp-access";
 
 function buildWorkerCatalog(mcps?: McpToggles): string {
   const lines = [
-    `- thorfinn — gpt-5.3-codex high — main coding for backend, refactors, and server work. ${buildMcpSummary("thorfinn", mcps)}`,
-    `- ginko — gpt-5.4 medium — external research, docs, and API understanding. ${buildMcpSummary("ginko", mcps)}`,
-    `- rust — gpt-5.4 high — default senior reviewer for the faster lane on medium/high-risk changes. ${buildMcpSummary("rust", mcps)}`,
-    `- rust_deep — gpt-5.4 xhigh — escalation reviewer for slower, deeper analysis on subtle or high-risk cases. ${buildMcpSummary("rust_deep", mcps)}`,
-    `- spock — gpt-5.4 medium — build, test, typecheck, and lint verification. ${buildMcpSummary("spock", mcps)}`,
-    `- geralt — gpt-5.3-codex medium — scoped repair for build, test, and review failures. ${buildMcpSummary("geralt", mcps)}`,
-    `- edward — gpt-5.4 high — UI implementation, browser testing, and visual quality. ${buildMcpSummary("edward", mcps)}`,
-    `- killua — gpt-5.4 medium — fast repo scouting and file-pattern mapping. ${buildMcpSummary("killua", mcps)}`,
+    `- thorfinn — openai/gpt-5.4-fast high — main coding for backend, refactors, and server work. ${buildMcpSummary("thorfinn", mcps)}`,
+    `- ginko — openai/gpt-5.4-fast medium — external research, docs, and API understanding. ${buildMcpSummary("ginko", mcps)}`,
+    `- rust — openai/gpt-5.4-fast high — default senior reviewer for the faster lane on medium/high-risk changes. ${buildMcpSummary("rust", mcps)}`,
+    `- rust_deep — openai/gpt-5.4-fast xhigh — escalation reviewer for slower, deeper analysis on subtle or high-risk cases. ${buildMcpSummary("rust_deep", mcps)}`,
+    `- spock — openai/gpt-5.4-fast medium — build, test, typecheck, and lint verification. ${buildMcpSummary("spock", mcps)}`,
+    `- geralt — openai/gpt-5.4-fast medium — scoped repair for build, test, and review failures. ${buildMcpSummary("geralt", mcps)}`,
+    `- edward — openai/gpt-5.4-fast high — UI implementation, browser testing, and visual quality. ${buildMcpSummary("edward", mcps)}`,
+    `- killua — openai/gpt-5.4-fast medium — fast repo scouting and file-pattern mapping. ${buildMcpSummary("killua", mcps)}`,
   ];
 
   return `

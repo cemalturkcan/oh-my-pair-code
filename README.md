@@ -16,15 +16,15 @@ OpenCode harness with opinionated agent orchestration. One coordinator, eight sp
 
 | Agent        | Character            | Role                           | Model             |
 | ------------ | -------------------- | ------------------------------ | ----------------- |
-| **yang**     | Yang Wenli           | Coordinator — plans, delegates | gpt-5.4           |
-| **thorfinn** | Thorfinn             | Backend and refactor implementation | gpt-5.3-codex |
-| **ginko**    | Ginko                | Web and doc research           | gpt-5.4           |
-| **rust**     | Rust Cohle           | Default senior review, faster lane (read-only) | gpt-5.4 |
-| **rust_deep**| Rust Deep            | Escalation review, slower/deeper lane (read-only) | gpt-5.4 |
-| **spock**    | Spock                | Build, test, lint verification | gpt-5.4           |
-| **geralt**   | Geralt of Rivia      | Scoped failure repair          | gpt-5.3-codex |
-| **edward**   | Edward Elric         | Frontend, browser testing      | gpt-5.4           |
-| **killua**   | Killua Zoldyck       | Fast codebase exploration      | gpt-5.4           |
+| **yang**     | Yang Wenli           | Coordinator — plans, delegates | openai/gpt-5.4-fast |
+| **thorfinn** | Thorfinn             | Backend and refactor implementation | openai/gpt-5.4-fast |
+| **ginko**    | Ginko                | Web and doc research           | openai/gpt-5.4-fast |
+| **rust**     | Rust Cohle           | Default senior review, faster lane (read-only) | openai/gpt-5.4-fast |
+| **rust_deep**| Rust Deep            | Escalation review, slower/deeper lane (read-only) | openai/gpt-5.4-fast |
+| **spock**    | Spock                | Build, test, lint verification | openai/gpt-5.4-fast |
+| **geralt**   | Geralt of Rivia      | Scoped failure repair          | openai/gpt-5.4-fast |
+| **edward**   | Edward Elric         | Frontend, browser testing      | openai/gpt-5.4-fast |
+| **killua**   | Killua Zoldyck       | Fast codebase exploration      | openai/gpt-5.4-fast |
 
 ## MCP Servers
 
