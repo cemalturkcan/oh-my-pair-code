@@ -44,6 +44,11 @@ const HarnessConfigSchema = z.object({
       max_injected_patterns: z.number().int().positive().optional(),
     })
     .optional(),
+  workflow: z
+    .object({
+      compact_subagent_context: z.boolean().optional(),
+    })
+    .optional(),
   mcps: z
     .object({
       context7: z.boolean().optional(),
@@ -96,6 +101,9 @@ const DEFAULTS: HarnessConfig = {
     max_patterns: 24,
     max_injected_patterns: 5,
   },
+  workflow: {
+    compact_subagent_context: true,
+  },
   mcps: {
     context7: true,
     grep_app: true,
@@ -114,6 +122,7 @@ const ConfigSectionSchemas = {
   hooks: HarnessConfigSchema.shape.hooks,
   memory: HarnessConfigSchema.shape.memory,
   learning: HarnessConfigSchema.shape.learning,
+  workflow: HarnessConfigSchema.shape.workflow,
   mcps: HarnessConfigSchema.shape.mcps,
   agents: HarnessConfigSchema.shape.agents,
 } satisfies Record<keyof HarnessConfig, z.ZodTypeAny>;
@@ -235,6 +244,9 @@ export const SAMPLE_PROJECT_CONFIG = `{
     "auto_promote": true,
     "max_patterns": 24,
     "max_injected_patterns": 5
+  },
+  "workflow": {
+    "compact_subagent_context": true
   },
   "mcps": {
     "context7": true,

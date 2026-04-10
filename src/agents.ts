@@ -32,6 +32,7 @@ const COORDINATOR_TASK_PERMISSIONS = taskPermissions(
   "thorfinn",
   "ginko",
   "rust",
+  "rust_deep",
   "spock",
   "geralt",
   "edward",
@@ -55,7 +56,7 @@ export function createHarnessAgents(
         description:
           "Yang Wenli — Senior technical lead. Plans, argues, delegates, synthesizes.",
         model: "openai/gpt-5.4",
-        variant: "xhigh",
+        variant: "high",
         prompt: buildCoordinatorPrompt(overrides.yang?.prompt_append, config.mcps),
         color: "#4A90D9",
         tools: COORDINATOR_DISABLED_TOOLS,
@@ -69,8 +70,8 @@ export function createHarnessAgents(
       {
         mode: "subagent",
         hidden: true,
-        description: "Thorfinn — General purpose implementation worker.",
-        model: "openai/gpt-5.3-codex-spark",
+        description: "Thorfinn — Main implementation worker for backend and refactors.",
+        model: "openai/gpt-5.3-codex",
         variant: "high",
         prompt: buildWorkerPrompt(overrides.thorfinn?.prompt_append, config.mcps),
         temperature: 0.2,
@@ -104,10 +105,14 @@ export function createHarnessAgents(
         mode: "subagent",
         hidden: true,
         description:
-          "Rust Cohle — Senior code reviewer. Finds subtle bugs and security issues.",
+          "Rust Cohle — Default senior reviewer. Faster lane for medium/high-risk review.",
         model: "openai/gpt-5.4",
-        variant: "xhigh",
-        prompt: buildReviewerPrompt(overrides.rust?.prompt_append, config.mcps),
+        variant: "high",
+        prompt: buildReviewerPrompt(
+          overrides.rust?.prompt_append,
+          config.mcps,
+          "rust",
+        ),
         temperature: 0.1,
         color: "#E74C3C",
         tools: buildDenyRules("rust"),
@@ -117,6 +122,30 @@ export function createHarnessAgents(
         },
       },
       overrides.rust,
+    ),
+
+    rust_deep: withOverride(
+      {
+        mode: "subagent",
+        hidden: true,
+        description:
+          "Rust Deep — Escalation reviewer. Slower, deeper review for subtle or high-risk cases.",
+        model: "openai/gpt-5.4",
+        variant: "xhigh",
+        prompt: buildReviewerPrompt(
+          overrides.rust_deep?.prompt_append,
+          config.mcps,
+          "rust_deep",
+        ),
+        temperature: 0.1,
+        color: "#C0392B",
+        tools: buildDenyRules("rust_deep"),
+        permission: {
+          edit: "deny",
+          write: "deny",
+        },
+      },
+      overrides.rust_deep,
     ),
 
     spock: withOverride(
@@ -138,8 +167,8 @@ export function createHarnessAgents(
       {
         mode: "subagent",
         hidden: true,
-        description: "Geralt — Scoped failure repair agent.",
-        model: "openai/gpt-5.3-codex-spark",
+        description: "Geralt — Scoped failure repair worker.",
+        model: "openai/gpt-5.3-codex",
         variant: "medium",
         prompt: buildRepairPrompt(overrides.geralt?.prompt_append, config.mcps),
         temperature: 0.1,
@@ -156,7 +185,7 @@ export function createHarnessAgents(
         description:
           "Edward — Frontend specialist with browser automation.",
         model: "openai/gpt-5.4",
-        variant: "xhigh",
+        variant: "high",
         prompt: buildUiDeveloperPrompt(overrides.edward?.prompt_append, config.mcps),
         temperature: 0.5,
         color: "#FF69B4",

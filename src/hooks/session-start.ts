@@ -24,6 +24,28 @@ type ChatMessageOutput = {
   parts?: Array<{ type?: string; text?: string }>;
 };
 
+function compactFactList(values: string[]): string {
+  return values.length > 0 ? values.join("/") : "-";
+}
+
+function buildSubagentProjectContext(
+  config: HarnessConfig,
+  runtime: HookRuntime,
+): string {
+  const facts = runtime.detectProjectFacts();
+  if (config.workflow?.compact_subagent_context !== false) {
+    return `[ProjectContext] pkg=${facts.packageManager} lang=${compactFactList(
+      facts.languages,
+    )} fw=${compactFactList(facts.frameworks)}`;
+  }
+
+  const languages =
+    facts.languages.length > 0 ? joinProjectFactLabels(facts.languages) : "unknown";
+  const frameworks =
+    facts.frameworks.length > 0 ? joinProjectFactLabels(facts.frameworks) : "none";
+  return `[ProjectContext] packageManager: ${facts.packageManager} | languages: ${languages} | frameworks: ${frameworks}`;
+}
+
 function detectProjectDocs(directory: string): string[] {
   const candidates = [
     "AGENTS.md",
@@ -98,16 +120,7 @@ export function createSessionStartHook(
 
       // Subagents get minimal project facts only (no session context, no mode)
       if (agentName && !PRIMARY_AGENTS.has(agentName)) {
-        const facts = runtime.detectProjectFacts();
-        const languages =
-          facts.languages.length > 0
-            ? joinProjectFactLabels(facts.languages)
-            : "unknown";
-        const frameworks =
-          facts.frameworks.length > 0
-            ? joinProjectFactLabels(facts.frameworks)
-            : "none";
-        const factLine = `[ProjectContext] packageManager: ${facts.packageManager} | languages: ${languages} | frameworks: ${frameworks}`;
+        const factLine = buildSubagentProjectContext(config, runtime);
 
         const previousSystem =
           typeof output.message.system === "string"

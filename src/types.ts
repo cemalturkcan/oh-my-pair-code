@@ -17,6 +17,10 @@ export type AgentOverride = {
   prompt_append?: string;
 };
 
+export type WorkflowConfig = {
+  compact_subagent_context?: boolean;
+};
+
 export type HarnessConfig = {
   set_default_agent?: boolean;
   commands?: {
@@ -47,6 +51,7 @@ export type HarnessConfig = {
     max_patterns?: number;
     max_injected_patterns?: number;
   };
+  workflow?: WorkflowConfig;
   mcps?: McpToggles;
   agents?: Record<string, AgentOverride>;
 };
