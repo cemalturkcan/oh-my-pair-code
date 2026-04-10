@@ -14,13 +14,13 @@ export type McpName =
 
 /** Human-readable description for each MCP, used in prompts. */
 export const MCP_DESCRIPTIONS: Record<McpName, string> = {
-  context7: "Library and framework documentation. resolve-library-id then query-docs.",
-  grep_app: "GitHub code search across public repos. Real-world usage patterns.",
-  searxng: "Web search (Google/Bing/DDG via SearXNG) + URL reading. No API key, self-hosted.",
-  "web-agent-mcp": "CloakBrowser with anti-detection. Browser testing, screenshots, form filling.",
-  "pg-mcp": "PostgreSQL read-only client. Schema inspection, SELECT queries.",
-  "ssh-mcp": "Remote command execution on configured SSH hosts.",
-  mariadb: "MariaDB client. SELECT/SHOW for reads, execute_write for mutations.",
+  context7: "Library/framework docs.",
+  grep_app: "GitHub code search.",
+  searxng: "Web search + URL read.",
+  "web-agent-mcp": "Browser automation.",
+  "pg-mcp": "PostgreSQL read-only queries.",
+  "ssh-mcp": "Remote commands.",
+  mariadb: "MariaDB queries.",
 };
 
 /** All available MCP names. */
@@ -32,6 +32,7 @@ export const AGENT_MCP_DENIED: Record<string, McpName[]> = {
   thorfinn: ["searxng", "web-agent-mcp"],
   ginko: ["web-agent-mcp", "pg-mcp", "ssh-mcp", "mariadb"],
   rust: ["searxng", "web-agent-mcp", "pg-mcp", "ssh-mcp", "mariadb"],
+  rust_deep: ["searxng", "web-agent-mcp", "pg-mcp", "ssh-mcp", "mariadb"],
   spock: ["context7", "searxng", "grep_app", "web-agent-mcp", "pg-mcp", "ssh-mcp", "mariadb"],
   geralt: ["searxng", "grep_app", "web-agent-mcp"],
   edward: ["pg-mcp", "ssh-mcp", "mariadb"],
@@ -65,8 +66,7 @@ export function buildDenyRules(agent: string): Record<string, string> {
 export function buildMcpGuidance(agent: string, mcps?: McpToggles): string {
   const allowed = getAllowedMcps(agent, mcps);
   if (allowed.length === 0) return "";
-  const lines = allowed.map((mcp) => `- ${mcp}: ${MCP_DESCRIPTIONS[mcp]}`);
-  return `\n<McpGuidance>\n${lines.join("\n")}\n</McpGuidance>`;
+  return `\n<McpGuidance>\nMCP: ${allowed.join(", ")}.\n</McpGuidance>`;
 }
 
 /** Build "MCP: x, y, z" summary for the worker catalog. */

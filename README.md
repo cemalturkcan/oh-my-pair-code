@@ -1,11 +1,11 @@
 # opencode-pair
 
-OpenCode harness with opinionated agent orchestration. One coordinator, seven specialized workers, automatic verify+review pipeline.
+OpenCode harness with opinionated agent orchestration. One coordinator, eight specialized workers, automatic verification, and risk-based review.
 
 ## What it does
 
 - **Yang Wenli** as coordinator — plans, delegates, synthesizes, never asks for routine permission
-- Automatic workflow: implement → build/test (Spock) → review (Rust) → repair (Geralt) → re-verify
+- Automatic workflow: scout/packetize → implement → verify → repair/re-verify as needed → risk-based review
 - Plan/Execute mode switching via `/go` and `/plan` commands
 - Session memory with cross-session continuity
 - Observation logging and pattern learning
@@ -17,11 +17,12 @@ OpenCode harness with opinionated agent orchestration. One coordinator, seven sp
 | Agent        | Character            | Role                           | Model             |
 | ------------ | -------------------- | ------------------------------ | ----------------- |
 | **yang**     | Yang Wenli           | Coordinator — plans, delegates | gpt-5.4           |
-| **thorfinn** | Thorfinn             | General implementation         | gpt-5.3-codex-spark |
+| **thorfinn** | Thorfinn             | Backend and refactor implementation | gpt-5.3-codex |
 | **ginko**    | Ginko                | Web and doc research           | gpt-5.4           |
-| **rust**     | Rust Cohle           | Senior code review (read-only) | gpt-5.4           |
+| **rust**     | Rust Cohle           | Default senior review, faster lane (read-only) | gpt-5.4 |
+| **rust_deep**| Rust Deep            | Escalation review, slower/deeper lane (read-only) | gpt-5.4 |
 | **spock**    | Spock                | Build, test, lint verification | gpt-5.4           |
-| **geralt**   | Geralt of Rivia      | Scoped failure repair          | gpt-5.3-codex-spark |
+| **geralt**   | Geralt of Rivia      | Scoped failure repair          | gpt-5.3-codex |
 | **edward**   | Edward Elric         | Frontend, browser testing      | gpt-5.4           |
 | **killua**   | Killua Zoldyck       | Fast codebase exploration      | gpt-5.4           |
 
@@ -87,6 +88,10 @@ Create project config:
 ```bash
 opencode-pair init
 ```
+
+Workflow defaults are quality-balanced: complex tasks scout first, broad work is packetized into focused changes, verification starts targeted when possible, Rust is the default faster review lane, and Rust Deep is escalation-only for deeper high-risk review.
+
+`workflow.compact_subagent_context` defaults to `true`. It shortens the project-fact line injected into subagent sessions; set it to `false` to keep the longer human-readable format.
 
 ## Hooks
 
