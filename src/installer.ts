@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   mkdirSync,
   existsSync,
@@ -14,13 +15,16 @@ import { fileURLToPath } from "node:url";
 import { parse } from "jsonc-parser";
 import { spawn } from "node:child_process";
 import { SAMPLE_PROJECT_CONFIG } from "./config";
+import { getManagedMcpRoot } from "./mcp";
 
 type JsonRecord = Record<string, unknown>;
+type ManagedEntriesManifest = {
+  entries?: Record<string, string>;
+};
 
 /**
  * npm package names used as plugin entries in opencode.json.
  * Each entry is written as `"<package>@latest"` in the config.
- * The vendor background-agents-local plugin stays as a `file://` entry.
  */
 const MANAGED_PLUGIN_ENTRIES = [
   "@zenobius/opencode-skillful",
@@ -49,19 +53,19 @@ const PACKAGE_SPECS: Record<string, string> = {
 };
 
 const MCP_NAMES = ["pg-mcp", "ssh-mcp", "web-agent-mcp"] as const;
-
-const BACKGROUND_AGENT_FILES = [
-  "background-agents.ts",
-  "kdco-primitives/get-project-id.ts",
-  "kdco-primitives/index.ts",
-  "kdco-primitives/log-warn.ts",
-  "kdco-primitives/mutex.ts",
-  "kdco-primitives/shell.ts",
-  "kdco-primitives/temp.ts",
-  "kdco-primitives/terminal-detect.ts",
-  "kdco-primitives/types.ts",
-  "kdco-primitives/with-timeout.ts",
-] as const;
+const MANAGED_SKILLS_MANIFEST = ".opencode-pair-managed-skills.json";
+const MANAGED_MCP_STAMP = ".opencode-pair-managed-mcp.json";
+const MANAGED_SOURCE_HASH_KEY = "__sourceHash";
+const MCP_REQUIRED_PACKAGES: Record<(typeof MCP_NAMES)[number], string[]> = {
+  "pg-mcp": ["@modelcontextprotocol/sdk", "pg"],
+  "ssh-mcp": ["@modelcontextprotocol/sdk", "zod"],
+  "web-agent-mcp": [
+    "@modelcontextprotocol/sdk",
+    "zod",
+    "cloakbrowser",
+    "playwright-core",
+  ],
+};
 
 function getConfigDir(): string {
   const envDir = process.env.OPENCODE_CONFIG_DIR?.trim();
@@ -81,7 +85,6 @@ function getConfigPaths(configDir: string) {
     packageJson: join(configDir, "package.json"),
     harnessConfig: join(configDir, "opencode-pair.jsonc"),
     vendorDir: join(configDir, "vendor", "opencode-background-agents-local"),
-    vendorMcpDir: join(configDir, "vendor", "mcp"),
     shellStrategyDir: join(configDir, "plugin", "shell-strategy"),
     notifierConfig: join(configDir, "opencode-notifier.json"),
   };
@@ -139,10 +142,14 @@ function ensureDir(dirPath: string): void {
   mkdirSync(dirPath, { recursive: true });
 }
 
-function shouldPreserveFreshInstallEntry(
+export function shouldPreserveFreshInstallEntry(
   configDir: string,
   entryName: string,
 ): boolean {
+  if (entryName === "skills") {
+    return true;
+  }
+
   const entryPath = join(configDir, entryName);
   if (!existsSync(entryPath)) {
     return false;
@@ -158,6 +165,93 @@ function shouldPreserveFreshInstallEntry(
   }
 
   return entryName.endsWith(".json") || entryName.endsWith(".jsonc");
+}
+
+function hashDirectoryContents(rootDir: string): string {
+  const hash = createHash("sha1");
+
+  function visit(dirPath: string, relativePath = ""): void {
+    for (const entry of readdirSync(dirPath).sort()) {
+      const entryPath = join(dirPath, entry);
+      const nextRelativePath = relativePath ? join(relativePath, entry) : entry;
+      const stat = statSync(entryPath);
+
+      if (stat.isDirectory()) {
+        hash.update(`dir:${nextRelativePath}`);
+        visit(entryPath, nextRelativePath);
+        continue;
+      }
+
+      hash.update(`file:${nextRelativePath}`);
+      hash.update(readFileSync(entryPath));
+    }
+  }
+
+  visit(rootDir);
+  return hash.digest("hex");
+}
+
+function hashFileContents(filePath: string): string {
+  return createHash("sha1").update(readFileSync(filePath)).digest("hex");
+}
+
+function collectManagedEntries(rootDir: string): Record<string, string> {
+  const entries: Record<string, string> = {};
+
+  function visit(dirPath: string, relativePath = ""): void {
+    for (const entry of readdirSync(dirPath).sort()) {
+      const entryPath = join(dirPath, entry);
+      const nextRelativePath = relativePath ? join(relativePath, entry) : entry;
+      const stat = statSync(entryPath);
+
+      if (stat.isDirectory()) {
+        entries[nextRelativePath] = "dir";
+        visit(entryPath, nextRelativePath);
+        continue;
+      }
+
+      entries[nextRelativePath] = hashFileContents(entryPath);
+    }
+  }
+
+  visit(rootDir);
+  return entries;
+}
+
+function readManagedEntriesManifest(filePath: string): ManagedEntriesManifest {
+  return readJsonLike(filePath) as ManagedEntriesManifest;
+}
+
+function writeManagedEntriesManifest(
+  filePath: string,
+  entries: Record<string, string>,
+): void {
+  writeJson(filePath, { entries });
+}
+
+function managedSkillsManifestPath(skillsDir: string): string {
+  return join(skillsDir, MANAGED_SKILLS_MANIFEST);
+}
+
+function managedMcpStampPath(mcpDir: string): string {
+  return join(mcpDir, MANAGED_MCP_STAMP);
+}
+
+function pruneManagedEntries(
+  targetRoot: string,
+  previousEntries: Record<string, string>,
+  nextEntries: Record<string, string>,
+  preservedEntries: Set<string>,
+): void {
+  const stalePaths = Object.keys(previousEntries)
+    .filter((entry) => entry !== MANAGED_SOURCE_HASH_KEY)
+    .filter((entry) => !(entry in nextEntries))
+    .filter((entry) => !preservedEntries.has(entry))
+    .sort((a, b) => b.length - a.length);
+
+  for (const relativePath of stalePaths) {
+    rmSync(join(targetRoot, relativePath), { recursive: true, force: true });
+  }
 }
 
 function freshInstallCleanup(configDir: string): void {
@@ -232,14 +326,9 @@ function resolveSelfPackageSpec(): string {
   return version || "latest";
 }
 
-function mergePluginList(existing: unknown, vendorDir: string): string[] {
+function mergePluginList(existing: unknown): string[] {
   const selfEntry = `file://${packageRoot()}`;
-  const backgroundEntry = `file://${vendorDir}`;
-  const desired = [
-    selfEntry,
-    ...MANAGED_PLUGIN_ENTRIES.map((pkg) => `${pkg}@latest`),
-    backgroundEntry,
-  ];
+  const desired = [selfEntry, ...MANAGED_PLUGIN_ENTRIES.map((pkg) => `${pkg}@latest`)];
   const managedBareNames = new Set<string>(MANAGED_PLUGIN_ENTRIES);
   const current = Array.isArray(existing)
     ? existing.filter((item): item is string => typeof item === "string")
@@ -368,34 +457,6 @@ async function fetchText(url: string): Promise<string> {
   return await response.text();
 }
 
-async function installBackgroundAgentsVendor(vendorDir: string): Promise<void> {
-  ensureDir(join(vendorDir, "kdco-primitives"));
-
-  for (const relativePath of BACKGROUND_AGENT_FILES) {
-    const url = `https://raw.githubusercontent.com/kdcokenny/opencode-background-agents/main/src/plugin/${relativePath}`;
-    const targetPath = join(vendorDir, relativePath);
-    ensureDir(dirname(targetPath));
-    const content = await fetchText(url);
-    writeFileSync(targetPath, content, "utf8");
-  }
-
-  const packageJson: JsonRecord = {
-    name: "opencode-background-agents-local",
-    version: "0.1.0",
-    private: true,
-    type: "module",
-    module: "background-agents.ts",
-    main: "background-agents.ts",
-    dependencies: {
-      "@opencode-ai/plugin": "latest",
-      "@opencode-ai/sdk": "latest",
-      "unique-names-generator": "latest",
-    },
-  };
-
-  writeJson(join(vendorDir, "package.json"), packageJson);
-}
-
 async function installShellStrategyInstruction(
   shellStrategyDir: string,
 ): Promise<void> {
@@ -437,61 +498,111 @@ function copyDirectoryContents(
   }
 }
 
+function copyPath(sourcePath: string, targetPath: string): void {
+  const stat = statSync(sourcePath);
+  if (stat.isDirectory()) {
+    copyDirectoryContents(sourcePath, targetPath);
+    return;
+  }
+
+  ensureDir(dirname(targetPath));
+  copyFileSync(sourcePath, targetPath);
+}
+
+function hashPathContents(path: string): string {
+  return statSync(path).isDirectory() ? hashDirectoryContents(path) : hashFileContents(path);
+}
+
 function shouldOverwriteBundledMcpFile(
   relativePath: string,
   targetPath: string,
-  fresh = false,
 ): boolean {
-  if (fresh) {
-    return true;
-  }
-
   return !(relativePath === "config.json" && existsSync(targetPath));
 }
 
-function installSelfContainedMcps(
-  vendorMcpDir: string,
-  options?: { fresh?: boolean },
+export function syncManagedMcp(
+  name: (typeof MCP_NAMES)[number],
+  sourceRoot: string,
+  targetRoot: string,
 ): void {
-  ensureDir(vendorMcpDir);
+  const sourceHash = hashDirectoryContents(sourceRoot);
+  const previousEntries = readManagedEntriesManifest(
+    managedMcpStampPath(targetRoot),
+  ).entries;
+  const nextEntries = collectManagedEntries(sourceRoot);
+  ensureDir(targetRoot);
+  pruneManagedEntries(
+    targetRoot,
+    previousEntries ?? {},
+    nextEntries,
+    new Set(["config.json"]),
+  );
+  copyDirectoryContents(sourceRoot, targetRoot, {
+    overwrite: (relativePath, targetPath) =>
+      shouldOverwriteBundledMcpFile(relativePath, targetPath),
+  });
 
+  if (
+    name === "web-agent-mcp" &&
+    previousEntries?.[MANAGED_SOURCE_HASH_KEY] !== sourceHash
+  ) {
+    rmSync(join(targetRoot, "node_modules"), { recursive: true, force: true });
+  }
+
+  writeManagedEntriesManifest(managedMcpStampPath(targetRoot), {
+    ...nextEntries,
+    [MANAGED_SOURCE_HASH_KEY]: sourceHash,
+  });
+}
+
+function installSelfContainedMcps(): void {
   for (const name of MCP_NAMES) {
     const sourceRoot = bundledMcpSourceRoot(name);
     if (!existsSync(sourceRoot)) {
       throw new Error(`Missing MCP source directory: ${sourceRoot}`);
     }
 
-    const targetRoot = join(vendorMcpDir, name);
-    ensureDir(targetRoot);
-    copyDirectoryContents(sourceRoot, targetRoot, {
-      overwrite: (relativePath, targetPath) =>
-        shouldOverwriteBundledMcpFile(relativePath, targetPath, options?.fresh),
-    });
+    const targetRoot = getManagedMcpRoot(name);
+    syncManagedMcp(name, sourceRoot, targetRoot);
   }
 }
 
-function isWebAgentMcpInstalled(mcpDir: string): boolean {
+function isManagedMcpInstalled(
+  name: (typeof MCP_NAMES)[number],
+  mcpDir: string,
+): boolean {
   const nodeModules = join(mcpDir, "node_modules");
   if (!existsSync(nodeModules)) {
     return false;
   }
-  // Verify key dependencies actually exist inside node_modules
-  const requiredPackages = ["@modelcontextprotocol/sdk", "zod"];
-  return requiredPackages.every((pkg) =>
+
+  return MCP_REQUIRED_PACKAGES[name].every((pkg) =>
     existsSync(join(nodeModules, ...pkg.split("/"))),
   );
 }
 
-async function installWebAgentMcpDeps(vendorMcpDir: string): Promise<void> {
-  const mcpDir = join(vendorMcpDir, "web-agent-mcp");
+function getManagedMcpInstallCommand(name: (typeof MCP_NAMES)[number]): string[] {
+  if (name === "web-agent-mcp") {
+    return ["bun", "install"];
+  }
+
+  return ["npm", "install", "--omit=dev"];
+}
+
+async function installManagedMcpDeps(
+  name: (typeof MCP_NAMES)[number],
+): Promise<void> {
+  const mcpDir = getManagedMcpRoot(name);
   if (!existsSync(mcpDir)) {
     return;
   }
-  if (isWebAgentMcpInstalled(mcpDir)) {
+  if (isManagedMcpInstalled(name, mcpDir)) {
     return;
   }
+
+  const [command, ...args] = getManagedMcpInstallCommand(name);
   await new Promise<void>((resolvePromise, rejectPromise) => {
-    const child = spawn("bun", ["install"], {
+    const child = spawn(command, args, {
       cwd: mcpDir,
       stdio: "inherit",
     });
@@ -503,25 +614,61 @@ async function installWebAgentMcpDeps(vendorMcpDir: string): Promise<void> {
       }
       rejectPromise(
         new Error(
-          `bun install for web-agent-mcp failed with exit code ${code ?? -1}`,
+          `${command} ${args.join(" ")} failed for ${name} with exit code ${code ?? -1}`,
         ),
       );
     });
   });
 }
 
+async function ensureManagedMcpDependencies(): Promise<void> {
+  for (const name of MCP_NAMES) {
+    try {
+      await installManagedMcpDeps(name);
+    } catch (error) {
+      console.warn(
+        `[opencode-pair] Failed to install ${name} dependencies: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+}
+
 function bundledSkillsSourceRoot(): string {
   return join(packageRoot(), "vendor", "skills");
 }
 
-function installBundledSkills(skillsDir: string): void {
-  const sourceRoot = bundledSkillsSourceRoot();
+export function installBundledSkills(
+  skillsDir: string,
+  sourceRoot = bundledSkillsSourceRoot(),
+): void {
   if (!existsSync(sourceRoot)) {
     return;
   }
 
   ensureDir(skillsDir);
-  copyDirectoryContents(sourceRoot, skillsDir);
+  const manifestPath = managedSkillsManifestPath(skillsDir);
+  const previousEntries = readManagedEntriesManifest(manifestPath).entries ?? {};
+  const nextEntries: Record<string, string> = {};
+  const sourceEntries = readdirSync(sourceRoot).sort();
+
+  pruneManagedEntries(skillsDir, previousEntries, {}, new Set(sourceEntries));
+
+  for (const entry of sourceEntries) {
+    const sourcePath = join(sourceRoot, entry);
+    const targetPath = join(skillsDir, entry);
+    const sourceHash = hashPathContents(sourcePath);
+    const wasManaged = previousEntries[entry] !== undefined;
+
+    if (existsSync(targetPath) && !wasManaged) {
+      continue;
+    }
+
+    rmSync(targetPath, { recursive: true, force: true });
+    copyPath(sourcePath, targetPath);
+    nextEntries[entry] = sourceHash;
+  }
+
+  writeManagedEntriesManifest(manifestPath, nextEntries);
 }
 
 function updateConfig(paths: ReturnType<typeof getConfigPaths>): string {
@@ -529,12 +676,12 @@ function updateConfig(paths: ReturnType<typeof getConfigPaths>): string {
   const config = readJsonLike(detected.path);
   backupFile(detected.path);
   config.$schema = config.$schema ?? "https://opencode.ai/config.json";
-  config.plugin = mergePluginList(config.plugin, paths.vendorDir);
+  config.plugin = mergePluginList(config.plugin);
   config.instructions = mergeInstructionsList(
     config.instructions,
     paths.shellStrategyDir,
   );
-  config.default_agent = "yang";
+  config.default_agent = "mrrobot";
   forceAllowPermissions(config);
   writeJson(detected.path, config);
   return detected.path;
@@ -804,13 +951,12 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{
 
   ensureDir(configDir);
   ensureDir(paths.binDir);
-  ensureDir(join(configDir, "vendor"));
   ensureTuiConfig(configDir);
   ensureSkillsDir(paths.skillsDir);
 
   await installShellStrategyInstruction(paths.shellStrategyDir);
-  await installBackgroundAgentsVendor(paths.vendorDir);
-  installSelfContainedMcps(paths.vendorMcpDir, { fresh: options?.fresh });
+  installSelfContainedMcps();
+  await ensureManagedMcpDependencies();
   installBundledSkills(paths.skillsDir);
   await ensureSearxngContainer();
   const configPath = updateConfig(paths);
@@ -819,14 +965,6 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{
   writeNotifierConfig(paths.notifierConfig);
   await runBunInstall(configDir);
   await ensureInstalledHarnessBuild(configDir);
-  try {
-    await installWebAgentMcpDeps(paths.vendorMcpDir);
-  } catch (error) {
-    console.warn(
-      `[opencode-pair] Failed to install web-agent-mcp dependencies: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-
   return {
     configPath,
     packageJsonPath,
@@ -900,6 +1038,10 @@ export async function uninstallHarness(): Promise<{
   return {
     configPath: detected.path,
     packageJsonPath: paths.packageJson,
-    preservedPaths: [paths.harnessConfig, paths.vendorMcpDir, paths.skillsDir],
+    preservedPaths: [
+      paths.harnessConfig,
+      paths.skillsDir,
+      ...MCP_NAMES.map((name) => getManagedMcpRoot(name)),
+    ],
   };
 }

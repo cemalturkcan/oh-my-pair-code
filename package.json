@@ -1,7 +1,7 @@
 {
   "name": "opencode-pair",
   "version": "0.1.0",
-  "description": "OpenCode harness with opinionated agent orchestration. One coordinator, seven specialized workers, automatic verify+review pipeline.",
+  "description": "OpenCode harness with a three-agent topology: mrrobot, eliot, validator.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

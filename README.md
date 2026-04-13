@@ -1,44 +1,41 @@
 # opencode-pair
 
-OpenCode harness with opinionated agent orchestration. One coordinator, eight specialized workers, automatic verification, and risk-based review.
+OpenCode harness with a three-agent setup: one primary, one general subagent, one validation-focused subagent.
 
 ## What it does
 
-- **Yang Wenli** as coordinator — plans, delegates, synthesizes, never asks for routine permission
-- Automatic workflow: scout/packetize → implement → verify → repair/re-verify as needed → risk-based review
-- Plan/Execute mode switching via `/go` and `/plan` commands
-- Session memory with cross-session continuity
-- Observation logging and pattern learning
-- Comment guard that catches AI-slop in generated code
-- Emotion-informed prompt design based on [Anthropic's research](https://www.anthropic.com/research/emotion-concepts-function)
+- **MrRobot** is the primary agent. He routes work and answers plainly.
+- **Eliot** is the general subagent. He handles implementation, refactors, repo exploration, and other scoped task work.
+- **Validator** is the validation-focused subagent. It reviews changes again after implementation and can also execute work when routed.
+- No plan/execute mode or harness slash-command flow.
+- No session memory, pattern learning, observation logs, or cross-session state injection.
+- Comment guard blocks suspicious AI-style comments before file writes and surfaces anything that still slips through.
 
 ## Agents
 
-| Agent        | Character            | Role                           | Model             |
-| ------------ | -------------------- | ------------------------------ | ----------------- |
-| **yang**     | Yang Wenli           | Coordinator — plans, delegates | openai/gpt-5.4-fast |
-| **thorfinn** | Thorfinn             | Backend and refactor implementation | openai/gpt-5.4-fast |
-| **ginko**    | Ginko                | Web and doc research           | openai/gpt-5.4-fast |
-| **rust**     | Rust Cohle           | Default senior review, faster lane (read-only) | openai/gpt-5.4-fast |
-| **rust_deep**| Rust Deep            | Escalation review, slower/deeper lane (read-only) | openai/gpt-5.4-fast |
-| **spock**    | Spock                | Build, test, lint verification | openai/gpt-5.4-fast |
-| **geralt**   | Geralt of Rivia      | Scoped failure repair          | openai/gpt-5.4-fast |
-| **edward**   | Edward Elric         | Frontend, browser testing      | openai/gpt-5.4-fast |
-| **killua**   | Killua Zoldyck       | Fast codebase exploration      | openai/gpt-5.4-fast |
+| Agent | Character | Role | Model |
+| ----- | --------- | ---- | ----- |
+| **mrrobot** | Mr. Robot | Primary agent — routes, synthesizes, answers | openai/gpt-5.4-fast |
+| **eliot** | Elliot | General-purpose subagent | openai/gpt-5.4-fast |
+| **validator** | Validator | Validation-focused review and verification | openai/gpt-5.4-fast |
+
+All three use the `high` variant.
 
 ## MCP Servers
 
-| MCP           | What                                                  | API Key |
-| ------------- | ----------------------------------------------------- | ------- |
-| `context7`    | Library and framework documentation                   | No      |
-| `grep_app`    | GitHub code search across public repos                | No      |
-| `searxng`     | Web search (Google/Bing/DDG via self-hosted SearXNG)  | No      |
-| `web-agent-mcp` | CloakBrowser — browser testing, screenshots        | No      |
-| `pg-mcp`      | PostgreSQL read-only client                           | No      |
-| `ssh-mcp`     | Remote command execution on configured SSH hosts      | No      |
-| `mariadb`     | MariaDB client                                        | No      |
+| MCP | What | API Key |
+| --- | ---- | ------- |
+| `context7` | Library and framework documentation | No |
+| `grep_app` | GitHub code search across public repos | No |
+| `searxng` | Web search via self-hosted SearXNG | No |
+| `web-agent-mcp` | Browser testing and automation | No |
+| `pg-mcp` | PostgreSQL read-only client | No |
+| `ssh-mcp` | Remote command execution on configured SSH hosts | No |
+| `mariadb` | MariaDB client | No |
 
-MCP access is controlled per-agent via `src/prompts/mcp-access.ts` — single source of truth.
+Shared managed MCP roots stay under `~/.config/{mcp_name}`.
+
+All three agents receive the same enabled MCP set and the same default full tool access. The harness does not add per-agent MCP or tool restrictions.
 
 ## Prerequisites
 
@@ -51,11 +48,12 @@ bunx opencode-pair install
 ```
 
 The installer will:
-1. Wire agents, MCPs, and commands into OpenCode config
+1. Wire agents and MCPs into OpenCode config
 2. Install shell strategy instructions
-3. Vendor `pg-mcp`, `ssh-mcp`, bundled skills
-4. Auto-provision SearXNG Docker container (`--restart unless-stopped`)
-5. Enable JSON format in SearXNG settings
+3. Vendor `pg-mcp`, `ssh-mcp`, `web-agent-mcp`, and bundled skills
+4. Install dependencies inside each shared managed MCP root
+5. Auto-provision SearXNG Docker container (`--restart unless-stopped`)
+6. Enable JSON format in SearXNG settings
 
 From source:
 
@@ -89,33 +87,29 @@ Create project config:
 opencode-pair init
 ```
 
-Workflow defaults are quality-balanced: complex tasks scout first, broad work is packetized into focused changes, verification starts targeted when possible, Rust is the default faster review lane, and Rust Deep is escalation-only for deeper high-risk review.
-
 `workflow.compact_subagent_context` defaults to `true`. It shortens the project-fact line injected into subagent sessions; set it to `false` to keep the longer human-readable format.
 
 ## Hooks
 
-| Hook                  | What it does                                                                       |
-| --------------------- | ---------------------------------------------------------------------------------- |
-| `session.created`     | Prepare session context injection                                                  |
-| `chat.message`        | Inject mode, project docs, session memory (coordinator) or project facts (workers) |
-| `tool.execute.before` | Plan mode gate, git push build gate, WSL auto-transform                            |
-| `tool.execute.after`  | Comment guard, file tracking, compact suggestions                                  |
-| `session.idle`        | Save session summary, promote learned patterns, cleanup old sessions               |
-| `session.compacting`  | Pre-compact observation snapshot                                                   |
+| Hook | What it does |
+| ---- | ------------ |
+| `chat.message` | Inject project docs and WSL notes for MrRobot; inject compact project facts for subagents |
+| `tool.execute.before` | Block suspicious AI-style comments before writes, enforce git-push build gate, auto-transform Node commands on WSL |
+| `tool.execute.after` | Surface suspicious comments that still remain after a write |
+| `session.deleted` | Clear ephemeral runtime state |
 
 ## Architecture
 
 ```
 src/
 ├── prompts/
-│   ├── mcp-access.ts    # Single source of truth for agent MCP access
-│   ├── shared.ts        # Coordinator core, worker cores, response discipline
-│   ├── workers.ts       # Per-worker character prompts + MCP guidance
-│   └── coordinator.ts   # Worker catalog, delegation, plan mode, workflows
-├── agents.ts            # Agent definitions (models, tools, permissions)
+│   ├── mcp-access.ts    # Enabled MCP list and prompt guidance
+│   ├── shared.ts        # Shared prompt rules and response style
+│   ├── workers.ts       # Eliot + validator prompt builders
+│   └── coordinator.ts   # MrRobot prompt and routing rules
+├── agents.ts            # Agent definitions (models and prompts)
 ├── mcp.ts               # MCP server registration
-├── hooks/               # Runtime hooks (plan gate, comment guard, etc.)
+├── hooks/               # Runtime hooks (comment guard, WSL, cleanup)
 ├── config.ts            # Config schema + loading
 ├── installer.ts         # CLI installer
 └── index.ts             # Plugin entry point

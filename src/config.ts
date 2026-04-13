@@ -19,29 +19,7 @@ const HarnessConfigSchema = z.object({
       comment_guard: z.boolean().optional(),
       session_start: z.boolean().optional(),
       pre_tool_use: z.boolean().optional(),
-      post_tool_use: z.boolean().optional(),
-      pre_compact: z.boolean().optional(),
-      stop: z.boolean().optional(),
       session_end: z.boolean().optional(),
-      file_edited: z.boolean().optional(),
-    })
-    .optional(),
-  memory: z
-    .object({
-      enabled: z.boolean().optional(),
-      directory: z.string().optional(),
-      lookback_days: z.number().int().positive().optional(),
-      max_injected_chars: z.number().int().positive().optional(),
-    })
-    .optional(),
-  learning: z
-    .object({
-      enabled: z.boolean().optional(),
-      directory: z.string().optional(),
-      min_observations: z.number().int().positive().optional(),
-      auto_promote: z.boolean().optional(),
-      max_patterns: z.number().int().positive().optional(),
-      max_injected_patterns: z.number().int().positive().optional(),
     })
     .optional(),
   workflow: z
@@ -83,23 +61,7 @@ const DEFAULTS: HarnessConfig = {
     comment_guard: true,
     session_start: true,
     pre_tool_use: true,
-    post_tool_use: true,
-    pre_compact: true,
-    stop: true,
     session_end: true,
-    file_edited: true,
-  },
-  memory: {
-    enabled: true,
-    lookback_days: 7,
-    max_injected_chars: 3500,
-  },
-  learning: {
-    enabled: true,
-    min_observations: 6,
-    auto_promote: true,
-    max_patterns: 24,
-    max_injected_patterns: 5,
   },
   workflow: {
     compact_subagent_context: true,
@@ -120,8 +82,6 @@ const ConfigSectionSchemas = {
   set_default_agent: HarnessConfigSchema.shape.set_default_agent,
   commands: HarnessConfigSchema.shape.commands,
   hooks: HarnessConfigSchema.shape.hooks,
-  memory: HarnessConfigSchema.shape.memory,
-  learning: HarnessConfigSchema.shape.learning,
   workflow: HarnessConfigSchema.shape.workflow,
   mcps: HarnessConfigSchema.shape.mcps,
   agents: HarnessConfigSchema.shape.agents,
@@ -227,23 +187,7 @@ export const SAMPLE_PROJECT_CONFIG = `{
     "comment_guard": true,
     "session_start": true,
     "pre_tool_use": true,
-    "post_tool_use": true,
-    "pre_compact": true,
-    "stop": true,
-    "session_end": true,
-    "file_edited": true
-  },
-  "memory": {
-    "enabled": true,
-    "lookback_days": 7,
-    "max_injected_chars": 3500
-  },
-  "learning": {
-    "enabled": true,
-    "min_observations": 6,
-    "auto_promote": true,
-    "max_patterns": 24,
-    "max_injected_patterns": 5
+    "session_end": true
   },
   "workflow": {
     "compact_subagent_context": true
