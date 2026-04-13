@@ -1,11 +1,12 @@
 # opencode-pair
 
-OpenCode harness with a three-agent setup: one primary, one general subagent, one validation-focused subagent.
+OpenCode harness with a four-agent setup: one primary, one general subagent, one ideation subagent, and one validation-focused subagent.
 
 ## What it does
 
 - **MrRobot** is the primary agent. He routes work and answers plainly.
 - **Eliot** is the general subagent. He handles implementation, refactors, repo exploration, and other scoped task work.
+- **Tyrell** is the ideation subagent. It handles brainstorming, naming, UX direction, product ideas, and open-ended exploratory packets.
 - **Validator** is the validation-focused subagent. It reviews changes again after implementation and can also execute work when routed.
 - No plan/execute mode or harness slash-command flow.
 - No session memory, pattern learning, observation logs, or cross-session state injection.
@@ -17,9 +18,10 @@ OpenCode harness with a three-agent setup: one primary, one general subagent, on
 | ----- | --------- | ---- | ----- |
 | **mrrobot** | Mr. Robot | Primary agent — routes, synthesizes, answers | openai/gpt-5.4-fast |
 | **eliot** | Elliot | General-purpose subagent | openai/gpt-5.4-fast |
+| **tyrell** | Tyrell | Ideation-focused subagent | openai/gpt-5.4-fast |
 | **validator** | Validator | Validation-focused review and verification | openai/gpt-5.4-fast |
 
-All three use the `high` variant.
+All four use the `high` variant.
 
 ## MCP Servers
 
@@ -35,7 +37,7 @@ All three use the `high` variant.
 
 Shared managed MCP roots stay under `~/.config/{mcp_name}`.
 
-All three agents receive the same enabled MCP set and the same default full tool access. The harness does not add per-agent MCP or tool restrictions.
+All four agents receive the same enabled MCP set and the same default full tool access. The harness does not add per-agent MCP or tool restrictions.
 
 ## Prerequisites
 
@@ -93,7 +95,7 @@ opencode-pair init
 
 | Hook | What it does |
 | ---- | ------------ |
-| `chat.message` | Inject project docs and WSL notes for MrRobot; inject compact project facts for subagents |
+| `chat.message` | Inject project docs and WSL notes for MrRobot; inject compact project facts for Eliot, Tyrell, and Validator |
 | `tool.execute.before` | Block suspicious AI-style comments before writes, enforce git-push build gate, auto-transform Node commands on WSL |
 | `tool.execute.after` | Surface suspicious comments that still remain after a write |
 | `session.deleted` | Clear ephemeral runtime state |
@@ -105,7 +107,7 @@ src/
 ├── prompts/
 │   ├── mcp-access.ts    # Enabled MCP list and prompt guidance
 │   ├── shared.ts        # Shared prompt rules and response style
-│   ├── workers.ts       # Eliot + validator prompt builders
+│   ├── workers.ts       # Eliot, Tyrell, and Validator prompt builders
 │   └── coordinator.ts   # MrRobot prompt and routing rules
 ├── agents.ts            # Agent definitions (models and prompts)
 ├── mcp.ts               # MCP server registration
