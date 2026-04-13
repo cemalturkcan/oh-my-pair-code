@@ -31,25 +31,7 @@ export type HarnessConfig = {
     comment_guard?: boolean;
     session_start?: boolean;
     pre_tool_use?: boolean;
-    post_tool_use?: boolean;
-    pre_compact?: boolean;
-    stop?: boolean;
     session_end?: boolean;
-    file_edited?: boolean;
-  };
-  memory?: {
-    enabled?: boolean;
-    directory?: string;
-    lookback_days?: number;
-    max_injected_chars?: number;
-  };
-  learning?: {
-    enabled?: boolean;
-    directory?: string;
-    min_observations?: number;
-    auto_promote?: boolean;
-    max_patterns?: number;
-    max_injected_patterns?: number;
   };
   workflow?: WorkflowConfig;
   mcps?: McpToggles;

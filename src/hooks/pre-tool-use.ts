@@ -1,13 +1,11 @@
-import type { HarnessConfig } from "../types";
+import type { HookProfile } from "../types";
 import type { HookRuntime } from "./runtime";
 import { BlockingHookError } from "./sdk";
 import {
   profileMatches,
-  resolveAgentName,
   resolveSessionID,
   resolveToolArgs,
   resolveToolName,
-  PRIMARY_AGENTS,
 } from "./runtime";
 
 const NODE_COMMAND_RE =
@@ -15,20 +13,27 @@ const NODE_COMMAND_RE =
 
 const NODE_MODULES_BIN_RE = /node_modules\/\.bin\//;
 
-const PLAN_MODE_ALWAYS_BLOCKED = new Set(["edit", "write", "patch"]);
+function hasToolArgs(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && Object.keys(value).length > 0;
+}
 
-function isBlockedInPlanMode(
-  tool: string,
-  _args: Record<string, unknown>,
-): boolean {
-  // edit/write/patch always blocked — real protection against file changes
-  if (PLAN_MODE_ALWAYS_BLOCKED.has(tool)) return true;
+function resolveEffectiveToolArgs(
+  input: unknown,
+  output: unknown,
+): Record<string, unknown> {
+  const inputArgs = resolveToolArgs(input);
+  const outputArgs = resolveToolArgs(output);
+  if (!hasToolArgs(outputArgs)) {
+    return inputArgs;
+  }
 
-  // task/delegate: allowed — prompt enforces which workers to use,
-  // hook can't determine target agent (args are empty in hook input).
-  // delegate internally triggers task, so both must be allowed.
-  // edit/write/patch hard gate still prevents file modifications.
-  return false;
+  for (const [key, value] of Object.entries(inputArgs)) {
+    if (!(key in outputArgs)) {
+      outputArgs[key] = value;
+    }
+  }
+
+  return outputArgs;
 }
 
 function isNodeCommand(command: string): boolean {
@@ -43,57 +48,29 @@ function transformToCmd(command: string, winPath: string): string {
 
 function hasRecentBuildCheck(recentTools: string[]): boolean {
   return recentTools.some(
-    (t) =>
-      t.includes("tsc") ||
-      t.includes("typecheck") ||
-      t.includes("build") ||
-      t.includes("test"),
+    (tool) =>
+      tool.includes("tsc") ||
+      tool.includes("typecheck") ||
+      tool.includes("build") ||
+      tool.includes("test"),
   );
 }
 
 export function createPreToolUseHook(
-  config: HarnessConfig,
   runtime: HookRuntime,
-  profile: import("../types").HookProfile,
+  profile: HookProfile,
 ) {
   const recentBashBySession = new Map<string, string[]>();
 
   return {
-    "tool.execute.before": async (input: unknown): Promise<void> => {
+    "tool.execute.before": async (
+      input: unknown,
+      output: unknown,
+    ): Promise<void> => {
       const sessionID = resolveSessionID(input);
       const tool = resolveToolName(input);
-      const args = resolveToolArgs(input);
-      const agent =
-        (sessionID ? runtime.getSessionAgent(sessionID) : undefined) ??
-        resolveAgentName(input);
+      const args = resolveEffectiveToolArgs(input, output);
 
-      if (sessionID) {
-        runtime.incrementToolCount(sessionID);
-      }
-
-      // ── Plan mode gate (coordinator only) ───────────────────────
-      if (
-        sessionID &&
-        agent &&
-        PRIMARY_AGENTS.has(agent) &&
-        tool &&
-        runtime.getPlanMode(sessionID) === "planning"
-      ) {
-        const blocked = isBlockedInPlanMode(tool, args);
-
-        if (blocked) {
-          const count = runtime.incrementPlanModeBlock(sessionID);
-          const isTaskBlocked = tool === "task" || tool.startsWith("task_");
-          const msg = isTaskBlocked
-            ? `[PlanMode] task tool is blocked in planning mode. For read-only workers (killua, ginko, rust, rust_deep), use delegate instead of task. The user will /go to start execution.`
-            : count >= 3
-              ? "[PlanMode] STILL in planning mode. You have attempted execution tools multiple times. STOP trying. Complete your plan with TodoWrite. The user will /go to start execution."
-              : "[PlanMode] You are in planning mode. Cannot use execution tools. Use Read/Glob/Grep/TodoWrite to continue planning. The user will /go to start execution.";
-          throw new BlockingHookError(msg);
-        }
-      }
-
-      // ── WSL node command auto-transform ─────────────────────────
       if (
         tool === "bash" &&
         runtime.isWsl() &&
@@ -101,20 +78,13 @@ export function createPreToolUseHook(
       ) {
         const command = args.command.trim();
         if (isNodeCommand(command)) {
-          const transformed = transformToCmd(command, runtime.getWslWinPath());
-          (args as Record<string, unknown>).command = transformed;
-          runtime.appendObservation({
-            timestamp: new Date().toISOString(),
-            phase: "pre",
-            sessionID,
-            agent,
-            tool,
-            note: `wsl_auto_transform: ${command} -> cmd.exe`,
-          });
+          (args as Record<string, unknown>).command = transformToCmd(
+            command,
+            runtime.getWslWinPath(),
+          );
         }
       }
 
-      // ── Git push build gate ─────────────────────────────────────
       if (
         tool === "bash" &&
         typeof args.command === "string" &&
@@ -131,43 +101,14 @@ export function createPreToolUseHook(
         }
       }
 
-      // ── Track recent bash commands for build gate (per-session) ─
       if (tool === "bash" && typeof args.command === "string" && sessionID) {
-        let cmds = recentBashBySession.get(sessionID);
-        if (!cmds) {
-          cmds = [];
-          recentBashBySession.set(sessionID, cmds);
+        const commands = recentBashBySession.get(sessionID) ?? [];
+        commands.push(args.command);
+        if (commands.length > 10) {
+          commands.shift();
         }
-        cmds.push(args.command);
-        if (cmds.length > 10) {
-          cmds.shift();
-        }
+        recentBashBySession.set(sessionID, commands);
       }
-
-      // ── Compact suggestion ──────────────────────────────────────
-      if (
-        sessionID &&
-        runtime.shouldSuggestCompact(sessionID) &&
-        profileMatches(profile, ["standard", "strict"])
-      ) {
-        runtime.appendObservation({
-          timestamp: new Date().toISOString(),
-          phase: "pre",
-          sessionID,
-          agent,
-          tool,
-          note: "compact_suggested",
-        });
-      }
-
-      // ── Observation logging ─────────────────────────────────────
-      runtime.appendObservation({
-        timestamp: new Date().toISOString(),
-        phase: "pre",
-        sessionID,
-        agent,
-        tool,
-      });
     },
   };
 }

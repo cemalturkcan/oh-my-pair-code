@@ -4,15 +4,7 @@ import type { PluginInput } from "@opencode-ai/plugin";
 import { joinProjectFactLabels } from "../project-facts";
 import type { HarnessConfig } from "../types";
 import type { HookRuntime } from "./runtime";
-import { PRIMARY_AGENTS, resolveSessionOrEntityID } from "./runtime";
-
-function extractTextParts(parts: Array<{ type?: string; text?: string }>): string {
-  return parts
-    .filter((part) => part.type === "text" && typeof part.text === "string")
-    .map((part) => part.text ?? "")
-    .join("\n")
-    .trim();
-}
+import { PRIMARY_AGENTS } from "./runtime";
 
 type ChatMessageInput = {
   sessionID: string;
@@ -21,7 +13,6 @@ type ChatMessageInput = {
 
 type ChatMessageOutput = {
   message: Record<string, unknown>;
-  parts?: Array<{ type?: string; text?: string }>;
 };
 
 function compactFactList(values: string[]): string {
@@ -56,20 +47,13 @@ function detectProjectDocs(directory: string): string[] {
   return candidates.filter((name) => existsSync(join(directory, name)));
 }
 
-function buildResourceInjection(
-  runtime: HookRuntime,
-  directory: string,
-): string {
-  const parts: string[] = [];
-
+function buildResourceInjection(directory: string): string {
   const docs = detectProjectDocs(directory);
-  if (docs.length > 0) {
-    parts.push(
-      `[ProjectDocs] Available: ${docs.join(", ")}. Read these before starting domain-specific work.`,
-    );
+  if (docs.length === 0) {
+    return "";
   }
 
-  return parts.join("\n");
+  return `[ProjectDocs] Available: ${docs.join(", ")}. Read these before starting domain-specific work.`;
 }
 
 export function createSessionStartHook(
@@ -78,22 +62,6 @@ export function createSessionStartHook(
   runtime: HookRuntime,
 ) {
   return {
-    "session.created": async (input?: unknown): Promise<void> => {
-      const sessionID = resolveSessionOrEntityID(input);
-      if (!sessionID) {
-        return;
-      }
-
-      // Initialize plan mode to planning
-      runtime.setPlanMode(sessionID, "planning");
-
-      if (
-        config.memory?.enabled !== false ||
-        config.learning?.enabled !== false
-      ) {
-        runtime.prepareSessionContext(sessionID);
-      }
-    },
     "chat.message": async (
       input: ChatMessageInput,
       output: ChatMessageOutput,
@@ -105,23 +73,8 @@ export function createSessionStartHook(
           : undefined);
       runtime.setSessionAgent(input.sessionID, agentName);
 
-      // Detect mode transitions via unique harness markers embedded in command templates.
-      // Markers are collision-resistant — normal conversation cannot trigger them.
-      const userText = extractTextParts(output.parts ?? []);
-      if (userText) {
-        const trimmed = userText.trim().toLowerCase();
-        if (trimmed.includes("[harness:mode:executing]")) {
-          runtime.setPlanMode(input.sessionID, "executing");
-          runtime.resetPlanModeBlockCount(input.sessionID);
-        } else if (trimmed.includes("[harness:mode:planning]")) {
-          runtime.setPlanMode(input.sessionID, "planning");
-        }
-      }
-
-      // Subagents get minimal project facts only (no session context, no mode)
       if (agentName && !PRIMARY_AGENTS.has(agentName)) {
         const factLine = buildSubagentProjectContext(config, runtime);
-
         const previousSystem =
           typeof output.message.system === "string"
             ? output.message.system.trim()
@@ -132,33 +85,10 @@ export function createSessionStartHook(
         return;
       }
 
-      // Build injection parts
-      const injectionParts: string[] = [];
-
-      // Mode injection (plan mode + WSL)
-      const modeInjection = runtime.buildModeInjection(input.sessionID);
-      if (modeInjection) {
-        injectionParts.push(modeInjection);
-      }
-
-      // Resource injection (project docs)
-      const resourceInjection = buildResourceInjection(runtime, ctx.directory);
-      if (resourceInjection) {
-        injectionParts.push(resourceInjection);
-      }
-
-      // Session context (memory + learning patterns)
-      if (
-        config.memory?.enabled !== false ||
-        config.learning?.enabled !== false
-      ) {
-        const sessionContext = runtime.consumePendingInjection(
-          input.sessionID,
-        );
-        if (sessionContext) {
-          injectionParts.push(sessionContext);
-        }
-      }
+      const injectionParts = [
+        runtime.buildPrimaryInjection(),
+        buildResourceInjection(ctx.directory),
+      ].filter(Boolean);
 
       if (injectionParts.length === 0) {
         return;

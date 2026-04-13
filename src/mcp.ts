@@ -5,59 +5,46 @@ import type { HarnessConfig } from "./types";
 
 type McpConfig = Record<string, unknown>;
 
+const LOCAL_MCP_DEPENDENCIES = {
+  "web-agent-mcp": [
+    "@modelcontextprotocol/sdk",
+    "zod",
+    "cloakbrowser",
+    "playwright-core",
+  ],
+  "pg-mcp": ["@modelcontextprotocol/sdk", "pg"],
+  "ssh-mcp": ["@modelcontextprotocol/sdk", "zod"],
+} as const;
+
 function hasDisplay(): boolean {
   if (process.platform !== "linux") return true;
   return Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
 }
 
-function configRoot(): string {
-  const envDir = process.env.OPENCODE_CONFIG_DIR?.trim();
-  if (envDir) {
-    return envDir;
-  }
-  return join(homedir(), ".config", "opencode");
+function sharedConfigRoot(): string {
+  const xdgRoot = process.env.XDG_CONFIG_HOME?.trim();
+  return xdgRoot || join(homedir(), ".config");
 }
 
-function vendorRoot(): string {
-  return join(configRoot(), "vendor");
-}
-
-function binRoot(): string {
-  return join(configRoot(), "bin");
-}
-
-function resolveVendorMcpPath(name: string): string {
-  return join(vendorRoot(), "mcp", name);
-}
-
-function resolveMcpServerRoot(name: string): string {
-  const vendorPath = resolveVendorMcpPath(name);
-  if (existsSync(vendorPath)) {
-    return vendorPath;
-  }
-  return join(configRoot(), "mcp", name);
+export function getManagedMcpRoot(name: string): string {
+  return join(sharedConfigRoot(), name);
 }
 
 function localCommand(scriptPath: string): string[] {
   return ["node", scriptPath];
 }
 
-function commandExistsInPath(command: string): boolean {
-  const pathValue = process.env.PATH;
-  if (!pathValue) {
-    return false;
-  }
+function hasInstalledPackage(serverRoot: string, packageName: string): boolean {
+  return existsSync(join(serverRoot, "node_modules", ...packageName.split("/")));
+}
 
-  const executableNames =
-    process.platform === "win32"
-      ? [command, `${command}.exe`, `${command}.cmd`, `${command}.bat`]
-      : [command];
-
-  return pathValue
-    .split(process.platform === "win32" ? ";" : ":")
-    .some((directory) =>
-      executableNames.some((name) => existsSync(join(directory, name))),
-    );
+function hasRequiredPackages(
+  name: keyof typeof LOCAL_MCP_DEPENDENCIES,
+  serverRoot: string,
+): boolean {
+  return LOCAL_MCP_DEPENDENCIES[name].every((pkg) =>
+    hasInstalledPackage(serverRoot, pkg),
+  );
 }
 
 export function createHarnessMcps(
@@ -65,7 +52,6 @@ export function createHarnessMcps(
 ): Record<string, McpConfig> {
   const toggles = config.mcps ?? {};
   const result: Record<string, McpConfig> = {};
-  const root = configRoot();
 
   if (toggles.context7 !== false) {
     result.context7 = {
@@ -91,9 +77,9 @@ export function createHarnessMcps(
   }
 
   if (toggles.web_agent_mcp !== false) {
-    const serverRoot = resolveMcpServerRoot("web-agent-mcp");
+    const serverRoot = getManagedMcpRoot("web-agent-mcp");
     const serverEntry = join(serverRoot, "src", "server.ts");
-    if (existsSync(serverEntry)) {
+    if (existsSync(serverEntry) && hasRequiredPackages("web-agent-mcp", serverRoot)) {
       result["web-agent-mcp"] = {
         type: "local",
         command: ["bun", "run", serverEntry],
@@ -115,12 +101,17 @@ export function createHarnessMcps(
   }
 
   if (toggles.pg_mcp !== false) {
-    const serverRoot = resolveMcpServerRoot("pg-mcp");
+    const serverRoot = getManagedMcpRoot("pg-mcp");
     const pgConfigPath = join(serverRoot, "config.json");
-    if (existsSync(pgConfigPath)) {
+    const serverEntry = join(serverRoot, "src", "index.js");
+    if (
+      existsSync(serverEntry) &&
+      existsSync(pgConfigPath) &&
+      hasRequiredPackages("pg-mcp", serverRoot)
+    ) {
       result["pg-mcp"] = {
         type: "local",
-        command: localCommand(join(serverRoot, "src", "index.js")),
+        command: localCommand(serverEntry),
         environment: {
           PG_MCP_CONFIG_PATH: pgConfigPath,
         },
@@ -131,12 +122,17 @@ export function createHarnessMcps(
   }
 
   if (toggles.ssh_mcp !== false) {
-    const serverRoot = resolveMcpServerRoot("ssh-mcp");
+    const serverRoot = getManagedMcpRoot("ssh-mcp");
     const sshConfigPath = join(serverRoot, "config.json");
-    if (existsSync(sshConfigPath)) {
+    const serverEntry = join(serverRoot, "src", "index.js");
+    if (
+      existsSync(serverEntry) &&
+      existsSync(sshConfigPath) &&
+      hasRequiredPackages("ssh-mcp", serverRoot)
+    ) {
       result["ssh-mcp"] = {
         type: "local",
-        command: localCommand(join(serverRoot, "src", "index.js")),
+        command: localCommand(serverEntry),
         environment: {
           SSH_MCP_CONFIG_PATH: sshConfigPath,
         },

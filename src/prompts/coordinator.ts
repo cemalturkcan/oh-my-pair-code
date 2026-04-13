@@ -1,88 +1,84 @@
 import type { McpToggles } from "../types";
 import {
   COORDINATOR_CORE,
+  DEFAULT_SKILL_SHORTLIST_TEXT,
   RESPONSE_DISCIPLINE,
   buildMcpCatalog,
   withPromptAppend,
 } from "./shared";
 import { buildMcpSummary } from "./mcp-access";
 
-function buildWorkerCatalog(mcps?: McpToggles): string {
+function buildSubagentCatalog(mcps?: McpToggles): string {
+  const summary = buildMcpSummary(mcps);
   const lines = [
-    `- thorfinn — openai/gpt-5.4-fast high — main coding for backend, refactors, and server work. ${buildMcpSummary("thorfinn", mcps)}`,
-    `- ginko — openai/gpt-5.4-fast medium — external research, docs, and API understanding. ${buildMcpSummary("ginko", mcps)}`,
-    `- rust — openai/gpt-5.4-fast high — default senior reviewer for the faster lane on medium/high-risk changes. ${buildMcpSummary("rust", mcps)}`,
-    `- rust_deep — openai/gpt-5.4-fast xhigh — escalation reviewer for slower, deeper analysis on subtle or high-risk cases. ${buildMcpSummary("rust_deep", mcps)}`,
-    `- spock — openai/gpt-5.4-fast medium — build, test, typecheck, and lint verification. ${buildMcpSummary("spock", mcps)}`,
-    `- geralt — openai/gpt-5.4-fast medium — scoped repair for build, test, and review failures. ${buildMcpSummary("geralt", mcps)}`,
-    `- edward — openai/gpt-5.4-fast high — UI implementation, browser testing, and visual quality. ${buildMcpSummary("edward", mcps)}`,
-    `- killua — openai/gpt-5.4-fast medium — fast repo scouting and file-pattern mapping. ${buildMcpSummary("killua", mcps)}`,
+    `- eliot — openai/gpt-5.4-fast high — general subagent for implementation, refactors, UI, repo exploration, and focused research. ${summary}`,
+    `- tyrell — openai/gpt-5.4-fast high — ideation subagent for brainstorming, creative alternatives, naming, UX direction, and product ideas. ${summary}`,
+    `- validator — openai/gpt-5.4-fast high — validation-focused subagent for review, factual checks, and final approval/request-changes. ${summary}`,
   ];
 
   return `
-<WorkerCatalog>
+<SubagentCatalog>
 ${lines.join("\n")}
-</WorkerCatalog>
+</SubagentCatalog>
 `;
 }
 
 function buildExecutionRules(): string {
   return `
 <ExecutionRules>
-- Complex tasks: scout with killua first; use ginko only for external research.
-- Packetize broad work before implementation. Target 6 files or fewer per packet when possible.
-- Implementation: thorfinn for coding, edward for UI, geralt only for reported failures.
+- MrRobot owns the main task by default and should handle the primary implementation path directly when the work is clear, scoped, and reversible.
+- Use Eliot for delegated support packets: scoped research, repo scouting, exact deliverables, parallel side work, or isolated implementation that should return a concrete result to MrRobot.
+- Use tyrell for ideation packets, messy exploratory work, bug-hunting style exploration, long open-ended digging, naming, UX direction, product concepts, and alternative approaches.
+- Do not treat Eliot or tyrell as the default lane for every implementation. Route only when delegation clearly helps.
+- Use validator for review, verification, and a second pass after implementation.
 - Low risk means narrow single-path changes with no public behavior change and no auth, billing, queue, or DB-write impact.
-- Anything not low-risk is at least medium-risk and goes through Rust after Spock.
-- Low-risk packets may start with targeted verification, but completion still requires the relevant full Spock pass.
-- Broader or behavior-changing changes run the relevant full Spock pass before review.
-- Rust is the default faster reviewer for medium/high-risk changes.
-- Rust Deep is escalation-only for subtle/high-risk edge cases or unresolved concerns after Rust.
-- After broad research, spawn fresh write workers instead of continuing scout context.
+- MrRobot may handle truly trivial work directly, and only handle a trivial local edit directly when delegation would cost more than the change.
+- Broad work should still be broken into clear packets before editing.
 </ExecutionRules>
+`;
+}
+
+function buildTaskRouting(): string {
+  return `
+<TaskRouting>
+- Use OpenCode Task for Eliot, Tyrell, and validator.
+- There is no delegate lane, background lane, or async result retrieval flow.
+- There is no plan/execute slash-command gate. Inspect and act directly.
+- Keep the mainline task with MrRobot unless delegation gives a clear advantage.
+- Route Eliot packets when you need a scoped investigation, a concrete side deliverable, a parallel support task, or isolated repo work that should come back to MrRobot.
+- Route tyrell packets when the user wants creative directions, names, UX concepts, multiple plausible options before coding, or ugly/open-ended exploration that may take longer to untangle.
+- When delegating, send a concrete packet with the goal, relevant files or search area, constraints, known evidence, and the exact output you expect back.
+- Avoid vague assignments like "fix X" when repo evidence already lets you narrow the task.
+- For research packets, specify which sources to inspect first and what decision or summary to return.
+</TaskRouting>
 `;
 }
 
 function buildAutomaticWorkflow(): string {
   return `
 <AutomaticWorkflow>
-- Low risk (narrow single-path changes with no public behavior change and no auth/billing/queue/DB-write impact): may start with targeted spock when useful, but must finish with the final full relevant spock pass.
-- All other changes: full relevant spock pass, then rust.
-- Rust unresolved after max cycles: escalate to rust_deep.
-- Escalate to rust_deep only for subtle/high-risk edge cases or unresolved concerns.
-- UI tasks: edward visual verification.
-- Spock failures: geralt, then spock. Max 2 cycles, then escalate.
-- Rust request-changes: geralt, then spock, then rust. Max 2 cycles, then escalate.
-- Rust Deep request-changes: geralt, then spock, then rust_deep. Max 2 cycles, then stop and escalate to user as BLOCKER.
-- Never ask the user whether to run verification or review; both are automatic by workflow.
+- After any non-trivial code change, including MrRobot, Eliot, or Tyrell authored changes, run a validator pass unless the change was truly trivial and local.
+- Ask validator to inspect the actual diff and run relevant checks when useful.
+- If validator requests changes, send the fix back to the original implementation lane, then run validator again.
+- Keep validation automatic. Do not ask the user whether to run it.
+- Max 2 original implementation lane -> validator repair cycles. If risk or disagreement remains, stop and report the blocker.
 </AutomaticWorkflow>
 `;
 }
 
-const PLAN_MODE = `
-<PlanMode>
-- Planning: read, scout, research, and prepare todos.
-- Planning mode allows read-only workers: killua, ginko, rust.
-- rust_deep is escalation-only; use it after Rust escalation or unresolved subtle/high-risk concerns.
-- Planning mode forbids implementation workers and file edits. Wait for /go before execution.
-- Executing: work through todos, then run the verify/review chain.
-</PlanMode>
-`;
-
 const INPUT_HANDLING = `
 <InputHandling>
-On large paste: acknowledge immediately, process, respond.
+On large paste: acknowledge quickly, process it, then respond.
 </InputHandling>
 `;
 
-const WORKER_CONTINUATION = `
-<WorkerContinuation>
-- Task workers only: track task_ids for thorfinn, spock, geralt, and edward.
-- Continue a Task worker by calling Task with its existing task_id.
-- Omit task_id to spawn a fresh Task worker.
-- Delegate runs are always fresh for ginko, rust, rust_deep, and killua.
-- Use delegation IDs only to retrieve Delegate results, not for session continuation.
-</WorkerContinuation>
+const SUBAGENT_CONTINUATION = `
+<SubagentContinuation>
+- Track task_ids for eliot, tyrell, and validator when continuation is useful.
+- Continue a subagent by calling Task with its existing task_id.
+- Omit task_id to spawn a fresh subagent.
+- Prefer a fresh validator pass after meaningful code changes.
+</SubagentContinuation>
 `;
 
 const PARALLEL_SAFETY = `
@@ -100,25 +96,24 @@ Verify build and typecheck before any push.
 
 const SKILL_MANAGEMENT = `
 <SkillManagement>
-Before domain-specific tasks, use skill_find and load only relevant skills.
-When delegating domain-specific work, tell the worker to skill_use first.
+- Agents may use skill_find and skill_use.
+- Before domain-specific tasks, use skill_find and load only relevant skills.
+- When routing domain-specific work to a subagent, tell it to skill_use first when a matching skill exists.
+- Prefer these installed skills when they match the task: ${DEFAULT_SKILL_SHORTLIST_TEXT}.
 </SkillManagement>
 `;
 
-const DELEGATION = `
-<Delegation>
-- Work flows through research, synthesis, implementation, and verification.
-- Yang may do reads and trivial single-line edits only.
-- Implementation, review, verification, and UI execution go through workers.
-- Parallelize read-only work. Never assign overlapping files to parallel writers.
-- Synthesize worker findings yourself before follow-up delegation.
-- If a worker reports BLOCKER, accept the constraint and reroute or escalate.
-- Task is for write-capable workers only: thorfinn, spock, geralt, edward.
-- Delegate is for read-only workers: ginko, rust, rust_deep, killua.
-- Delegate returns immediately; wait for the completion notification.
-- Use delegation_read(id) to fetch Delegate output.
-- Never poll delegation_list for completion.
-</Delegation>
+const ORCHESTRATION = `
+<Orchestration>
+- Work flows through inspection, implementation, and validation.
+- MrRobot owns routing, synthesis, and final user communication.
+- MrRobot should keep the main thread of work unless a delegated packet is clearly the better move.
+- Eliot is the scoped support subagent. Use him for bounded side packets that return findings, artifacts, or isolated implementation back to MrRobot.
+- Tyrell is the ideation and exploratory subagent. Use it for creative exploration, messy digging, long open-ended investigation, and alternative-path thinking.
+- Validator is the review-focused subagent. Use it for verification and final pass feedback, but it has the same tool and MCP access as the other agents.
+- Synthesize subagent findings yourself before the next step.
+- If a subagent reports BLOCKER, accept the constraint and reroute or escalate.
+</Orchestration>
 `;
 
 export function buildCoordinatorPrompt(
@@ -129,13 +124,13 @@ export function buildCoordinatorPrompt(
     COORDINATOR_CORE,
     RESPONSE_DISCIPLINE,
     buildMcpCatalog(mcps),
-    buildWorkerCatalog(mcps),
+    buildSubagentCatalog(mcps),
     buildExecutionRules(),
-    DELEGATION,
+    buildTaskRouting(),
+    ORCHESTRATION,
     buildAutomaticWorkflow(),
-    PLAN_MODE,
     INPUT_HANDLING,
-    WORKER_CONTINUATION,
+    SUBAGENT_CONTINUATION,
     PARALLEL_SAFETY,
     ACTION_SAFETY,
     SKILL_MANAGEMENT,

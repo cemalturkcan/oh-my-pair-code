@@ -69,22 +69,22 @@ describe("deepMerge", () => {
   it("handles three-level deep merge (defaults → user → project)", () => {
     const defaults = {
       hooks: { profile: "standard", comment_guard: true, session_start: true },
-      memory: { enabled: true, lookback_days: 7 },
+      workflow: { compact_subagent_context: true },
     };
     const userConfig = {
       hooks: { comment_guard: false },
-      memory: { lookback_days: 14 },
+      workflow: { compact_subagent_context: false },
     };
     const projectConfig = {
-      memory: { enabled: false },
+      hooks: { session_start: false },
     };
 
     const withUser = deepMerge(defaults, userConfig);
     const final = deepMerge(withUser, projectConfig);
 
     expect(final).toEqual({
-      hooks: { profile: "standard", comment_guard: false, session_start: true },
-      memory: { enabled: false, lookback_days: 14 },
+      hooks: { profile: "standard", comment_guard: false, session_start: false },
+      workflow: { compact_subagent_context: false },
     });
   });
 

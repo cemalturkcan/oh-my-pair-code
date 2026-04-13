@@ -41,7 +41,7 @@ const PairAutonomyPlugin: Plugin = async (ctx) => {
       };
 
       if (harnessConfig.set_default_agent !== false) {
-        mutableConfig.default_agent = "yang";
+        mutableConfig.default_agent = "mrrobot";
       }
 
       await hooks.config?.(config);
@@ -54,19 +54,8 @@ const PairAutonomyPlugin: Plugin = async (ctx) => {
     ...(hooks["tool.execute.after"]
       ? { "tool.execute.after": hooks["tool.execute.after"] }
       : {}),
-    ...(hooks["file.edited"] ? { "file.edited": hooks["file.edited"] } : {}),
-    ...(hooks["session.created"]
-      ? { "session.created": hooks["session.created"] }
-      : {}),
-    ...(hooks["session.idle"] ? { "session.idle": hooks["session.idle"] } : {}),
     ...(hooks["session.deleted"]
       ? { "session.deleted": hooks["session.deleted"] }
-      : {}),
-    ...(hooks["experimental.session.compacting"]
-      ? {
-          "experimental.session.compacting":
-            hooks["experimental.session.compacting"],
-        }
       : {}),
   };
 };

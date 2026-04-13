@@ -41,12 +41,12 @@ function printConfig(): void {
     "@zenobius/opencode-skillful@latest",
     "@franlol/opencode-md-table-formatter@latest",
     "opencode-pty@latest",
-    "file://~/.config/opencode/vendor/opencode-background-agents-local"
+    "@mohak34/opencode-notifier@latest"
   ],
   "instructions": [
     "~/.config/opencode/plugin/shell-strategy/shell_strategy.md"
   ],
-  "default_agent": "yang"
+  "default_agent": "mrrobot"
 }
 
 Use \`opencode-pair install\` for the real path-aware install.`);
