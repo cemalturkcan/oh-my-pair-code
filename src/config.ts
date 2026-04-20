@@ -19,6 +19,7 @@ const HarnessConfigSchema = z.object({
       comment_guard: z.boolean().optional(),
       session_start: z.boolean().optional(),
       pre_tool_use: z.boolean().optional(),
+      task_tracking: z.boolean().optional(),
       session_end: z.boolean().optional(),
     })
     .optional(),
@@ -61,6 +62,7 @@ const DEFAULTS: HarnessConfig = {
     comment_guard: true,
     session_start: true,
     pre_tool_use: true,
+    task_tracking: true,
     session_end: true,
   },
   workflow: {
@@ -187,6 +189,7 @@ export const SAMPLE_PROJECT_CONFIG = `{
     "comment_guard": true,
     "session_start": true,
     "pre_tool_use": true,
+    "task_tracking": true,
     "session_end": true
   },
   "workflow": {

@@ -1,0 +1,68 @@
+{
+  "body": {
+    "width": 375,
+    "left": -0.0625,
+    "right": 374.9375,
+    "marginLeft": "0px",
+    "marginRight": "0px",
+    "paddingLeft": "0px",
+    "paddingRight": "0px",
+    "boxSizing": "border-box",
+    "display": "block"
+  },
+  "#app": {
+    "width": 375,
+    "left": -0.0625,
+    "right": 374.9375,
+    "marginLeft": "0px",
+    "marginRight": "0px",
+    "paddingLeft": "0px",
+    "paddingRight": "0px",
+    "boxSizing": "border-box",
+    "display": "block"
+  },
+  ".page-shell": {
+    "width": 355,
+    "left": 9.9375,
+    "right": 364.9375,
+    "marginLeft": "10px",
+    "marginRight": "10px",
+    "paddingLeft": "0px",
+    "paddingRight": "0px",
+    "boxSizing": "border-box",
+    "display": "block"
+  },
+  ".hero-grid": {
+    "width": 355,
+    "left": 9.9375,
+    "right": 364.9375,
+    "marginLeft": "0px",
+    "marginRight": "0px",
+    "paddingLeft": "0px",
+    "paddingRight": "0px",
+    "boxSizing": "border-box",
+    "display": "grid"
+  },
+  ".hero-copy": {
+    "width": 401.828125,
+    "left": 9.9375,
+    "right": 411.765625,
+    "marginLeft": "0px",
+    "marginRight": "0px",
+    "paddingLeft": "32px",
+    "paddingRight": "32px",
+    "boxSizing": "border-box",
+    "display": "flex"
+  },
+  ".hero-visual": {
+    "width": 401.828125,
+    "left": 9.9375,
+    "right": 411.765625,
+    "marginLeft": "0px",
+    "marginRight": "0px",
+    "paddingLeft": "24px",
+    "paddingRight": "24px",
+    "boxSizing": "border-box",
+    "display": "block"
+  }
+}

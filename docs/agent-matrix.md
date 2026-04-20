@@ -4,9 +4,12 @@
 
 | Agent | Mode | Character | Model | Variant | Role |
 | ----- | ---- | --------- | ----- | ------- | ---- |
-| `mrrobot` | `primary` | Mr. Robot | `openai/gpt-5.4-fast` | `high` | Primary agent. Routes work, synthesizes, and gives the final answer. |
-| `eliot` | `subagent` | Elliot | `openai/gpt-5.4-fast` | `high` | General subagent for implementation, refactors, repo exploration, and scoped execution. |
-| `validator` | `subagent` | Validator | `openai/gpt-5.4-fast` | `high` | Validation-focused pass. Reviews diffs, runs checks, and returns approve/request-changes. |
+| `mrrobot` | `primary` | MrRobot | `openai/gpt-5.4` | `xhigh` | Primary agent. Routes work, synthesizes, and gives the final answer. |
+| `wick` | `primary` | Wick | `openai/gpt-5.4-mini` | `low` | Fast primary executor. Finishes narrow, concrete tasks directly with minimal overhead. |
+| `eliot` | `subagent` | Eliot | `openai/gpt-5.4-fast` | `high` | General subagent for implementation, refactors, repo exploration, and scoped execution. |
+| `tyrell` | `subagent` | Tyrell | `openai/gpt-5.4-fast` | `high` | Ideation-focused subagent for brainstorming, naming, UX direction, and exploratory packets. |
+| `michelangelo` | `subagent` | Michelangelo | `google-custom/google-custom-gemini-3.1-pro` | `high` | Frontend design subagent. Owns layout, styling, visual hierarchy, responsive UX, and UI polish. |
+| `turing` | `subagent` | Turing | `openai/gpt-5.4-fast` | `high` | Validation-focused pass. Reviews diffs, runs checks, and returns approve/request-changes. |
 
 ## MCP Model
 
@@ -21,18 +24,25 @@ Defined in `src/prompts/mcp-access.ts`.
 | Agent | Can spawn subagents? | Can edit files? | Can use bash? | Notes |
 | ----- | -------------------- | --------------- | -------------- | ----- |
 | **mrrobot** | yes | yes | yes | Primary agent. Uses real OpenCode `primary` mode. |
+| **wick** | yes | yes | yes | Primary fast executor. Uses real OpenCode `primary` mode. |
 | **eliot** | yes | yes | yes | General-purpose subagent. Uses real OpenCode `subagent` mode. |
-| **validator** | yes | yes | yes | Validation-focused subagent. Review behavior comes from prompt/persona, not harness restrictions. |
+| **tyrell** | yes | yes | yes | Ideation-focused subagent. Uses real OpenCode `subagent` mode. |
+| **michelangelo** | yes | yes | yes | Frontend design subagent. Frontend-only behavior comes from prompt/persona, not harness restrictions. |
+| **turing** | yes | yes | yes | Validation-focused subagent with the Turing persona. Review behavior comes from prompt/persona, not harness restrictions. |
 
 The harness does not add per-agent MCP or tool restrictions. There is no delegate lane and no background-agent flow. All subagent work goes through OpenCode Task semantics.
 
 ## Workflow
 
 1. Inspect the repo and shape the packet.
-2. Route implementation to `eliot` when delegation is useful.
-3. Run a `validator` pass after implementation for any non-trivial change.
-4. If `validator` requests changes, send the fix back to `eliot`, then run `validator` again.
-5. Stop after two repair cycles if risk remains unresolved.
+2. Use `wick` when the user manually selects the fast execution lane for narrow, concrete work.
+3. Mark delegated packets as implementation, research, review, or ideation.
+4. Route implementation to `eliot` when delegation is useful, and have Eliot edit the repo directly unless the packet is explicitly review-only or no-file-edit.
+5. Route frontend design, layout, styling, and UI polish work to `michelangelo` by default unless the user explicitly asks for review-only output or no file edits.
+6. Reuse the same subagent `task_id` by default when the lane and workstream are continuing.
+7. Run a `turing` pass after implementation for any non-trivial change.
+8. If `turing` requests changes, send the fix back to the implementation lane, then run `turing` again.
+9. Stop after two repair cycles if risk remains unresolved.
 
 There is no plan mode, `/go`, `/plan`, or `/execute` harness flow.
 

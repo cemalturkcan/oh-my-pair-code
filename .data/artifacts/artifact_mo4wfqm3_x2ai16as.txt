@@ -1,0 +1,5 @@
+{
+  "innerWidth": 1440,
+  "scrollWidth": 1425,
+  "hasHorizontalOverflow": false
+}

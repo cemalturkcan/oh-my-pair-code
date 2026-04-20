@@ -1,0 +1,8 @@
+{
+  "innerWidth": 390,
+  "scrollWidth": 379,
+  "hasHorizontalOverflow": false,
+  "heroCopyWidth": 355,
+  "heroVisualWidth": 355,
+  "pageShellWidth": 355
+}

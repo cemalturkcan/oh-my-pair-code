@@ -4,8 +4,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   installBundledSkills,
+  mergePluginList,
   shouldPreserveFreshInstallEntry,
   syncManagedMcp,
+  uninstallHarness,
 } from "../installer";
 
 describe("shouldPreserveFreshInstallEntry", () => {
@@ -88,6 +90,90 @@ describe("installBundledSkills", () => {
     expect(existsSync(join(skillsDir, "caveman"))).toBe(false);
 
     rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe("mergePluginList", () => {
+  it("adds the managed plugin entries and keeps unrelated custom plugins", () => {
+    const merged = mergePluginList([
+      "opencode-google-login",
+      "custom-plugin",
+    ]);
+
+    expect(merged).toContain("opencode-google-login@latest");
+    expect(merged).toContain("custom-plugin");
+  });
+
+  it("replaces versioned managed plugin entries with the normalized latest entry", () => {
+    const merged = mergePluginList([
+      "opencode-google-login@1.2.3",
+      "@zenobius/opencode-skillful@2.0.0",
+      "custom-plugin",
+    ]);
+
+    expect(merged.filter((item) => item.startsWith("opencode-google-login")).sort()).toEqual([
+      "opencode-google-login@latest",
+    ]);
+    expect(
+      merged.filter((item) => item.startsWith("@zenobius/opencode-skillful")).sort(),
+    ).toEqual(["@zenobius/opencode-skillful@latest"]);
+    expect(merged).toContain("custom-plugin");
+  });
+
+  it("keeps unrelated local file plugins during install merging", () => {
+    const merged = mergePluginList([
+      "file:///tmp/custom-local-plugin",
+      "opencode-google-login@1.2.3",
+    ]);
+
+    expect(merged).toContain("file:///tmp/custom-local-plugin");
+    expect(merged).toContain("opencode-google-login@latest");
+  });
+});
+
+describe("uninstallHarness", () => {
+  it("prunes stale local harness plugin targets during uninstall", async () => {
+    const root = join(
+      tmpdir(),
+      `opencode-pair-uninstall-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    const previousConfigDir = process.env.OPENCODE_CONFIG_DIR;
+
+    mkdirSync(join(root, "vendor", "opencode-background-agents-local"), { recursive: true });
+    writeFileSync(
+      join(root, "opencode.json"),
+      JSON.stringify(
+        {
+          plugin: [
+            "file:///tmp/opencode-background-agents-local",
+            "opencode-google-login@latest",
+            "custom-plugin",
+          ],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    process.env.OPENCODE_CONFIG_DIR = root;
+
+    try {
+      await uninstallHarness();
+      const config = JSON.parse(readFileSync(join(root, "opencode.json"), "utf8")) as {
+        plugin?: string[];
+      };
+
+      expect(config.plugin).toEqual(["custom-plugin"]);
+      expect(existsSync(join(root, "vendor", "opencode-background-agents-local"))).toBe(false);
+    } finally {
+      if (previousConfigDir === undefined) {
+        delete process.env.OPENCODE_CONFIG_DIR;
+      } else {
+        process.env.OPENCODE_CONFIG_DIR = previousConfigDir;
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

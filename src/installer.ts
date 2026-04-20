@@ -27,6 +27,7 @@ type ManagedEntriesManifest = {
  * Each entry is written as `"<package>@latest"` in the config.
  */
 const MANAGED_PLUGIN_ENTRIES = [
+  "opencode-google-login",
   "@zenobius/opencode-skillful",
   "@franlol/opencode-md-table-formatter",
   "opencode-pty",
@@ -35,6 +36,7 @@ const MANAGED_PLUGIN_ENTRIES = [
 
 const MANAGED_PACKAGE_NAMES = [
   "opencode-pair",
+  "opencode-google-login",
   "opencode-pty",
   "@mohak34/opencode-notifier",
   "@zenobius/opencode-skillful",
@@ -42,6 +44,7 @@ const MANAGED_PACKAGE_NAMES = [
 ] as const;
 
 const PACKAGE_SPECS: Record<string, string> = {
+  "opencode-google-login": "latest",
   "opencode-pty": "latest",
   "@mohak34/opencode-notifier": "latest",
   "@zenobius/opencode-skillful": "latest",
@@ -53,6 +56,7 @@ const PACKAGE_SPECS: Record<string, string> = {
 };
 
 const MCP_NAMES = ["pg-mcp", "ssh-mcp", "web-agent-mcp"] as const;
+const STALE_HARNESS_PLUGIN_FRAGMENTS = ["opencode-background-agents-local"] as const;
 const MANAGED_SKILLS_MANIFEST = ".opencode-pair-managed-skills.json";
 const MANAGED_MCP_STAMP = ".opencode-pair-managed-mcp.json";
 const MANAGED_SOURCE_HASH_KEY = "__sourceHash";
@@ -84,7 +88,6 @@ function getConfigPaths(configDir: string) {
     configJsonc: join(configDir, "opencode.jsonc"),
     packageJson: join(configDir, "package.json"),
     harnessConfig: join(configDir, "opencode-pair.jsonc"),
-    vendorDir: join(configDir, "vendor", "opencode-background-agents-local"),
     shellStrategyDir: join(configDir, "plugin", "shell-strategy"),
     notifierConfig: join(configDir, "opencode-notifier.json"),
   };
@@ -326,20 +329,16 @@ function resolveSelfPackageSpec(): string {
   return version || "latest";
 }
 
-function mergePluginList(existing: unknown): string[] {
+export function mergePluginList(existing: unknown): string[] {
   const selfEntry = `file://${packageRoot()}`;
   const desired = [selfEntry, ...MANAGED_PLUGIN_ENTRIES.map((pkg) => `${pkg}@latest`)];
-  const managedBareNames = new Set<string>(MANAGED_PLUGIN_ENTRIES);
   const current = Array.isArray(existing)
     ? existing.filter((item): item is string => typeof item === "string")
     : [];
   const retained = current.filter(
     (item) =>
       !desired.includes(item) &&
-      !managedBareNames.has(item) &&
-      !managedBareNames.has(item.replace(/@latest$/, "")) &&
-      !item.includes("opencode-background-agents-local") &&
-      !item.startsWith("file://"),
+      !MANAGED_PLUGIN_ENTRIES.some((pkg) => item === pkg || item.startsWith(`${pkg}@`)),
   );
   return [...desired, ...retained];
 }
@@ -360,12 +359,9 @@ function mergeInstructionsList(
 
 function removeHarnessPluginList(
   existing: unknown,
-  vendorDir: string,
 ): string[] | undefined {
-  const managedBareNames = new Set<string>(MANAGED_PLUGIN_ENTRIES);
   const managedEntries = new Set([
     ...MANAGED_PLUGIN_ENTRIES.map((pkg) => `${pkg}@latest`),
-    `file://${vendorDir}`,
   ]);
   const current = Array.isArray(existing)
     ? existing.filter((item): item is string => typeof item === "string")
@@ -373,9 +369,9 @@ function removeHarnessPluginList(
   const retained = current.filter(
     (item) =>
       !managedEntries.has(item) &&
-      !managedBareNames.has(item) &&
-      !managedBareNames.has(item.replace(/@latest$/, "")) &&
-      !item.includes("opencode-pair"),
+      !MANAGED_PLUGIN_ENTRIES.some((pkg) => item === pkg || item.startsWith(`${pkg}@`)) &&
+      !item.includes("opencode-pair") &&
+      !STALE_HARNESS_PLUGIN_FRAGMENTS.some((fragment) => item.includes(fragment)),
   );
   return retained.length > 0 ? retained : undefined;
 }
@@ -979,13 +975,14 @@ export async function uninstallHarness(): Promise<{
 }> {
   const configDir = getConfigDir();
   const paths = getConfigPaths(configDir);
+  const staleVendorDir = join(configDir, "vendor", "opencode-background-agents-local");
   const detected = detectMainConfigPath(paths);
 
   if (existsSync(detected.path)) {
     const config = readJsonLike(detected.path);
     backupFile(detected.path);
 
-    const nextPlugin = removeHarnessPluginList(config.plugin, paths.vendorDir);
+    const nextPlugin = removeHarnessPluginList(config.plugin);
     if (nextPlugin) {
       config.plugin = nextPlugin;
     } else {
@@ -1028,7 +1025,7 @@ export async function uninstallHarness(): Promise<{
     }
   }
 
-  rmSync(paths.vendorDir, { recursive: true, force: true });
+  rmSync(staleVendorDir, { recursive: true, force: true });
   rmSync(join(paths.shellStrategyDir, "shell_strategy.md"), { force: true });
 
   removeDirectoryIfEmpty(paths.binDir);

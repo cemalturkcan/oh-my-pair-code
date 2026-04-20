@@ -1,0 +1,7 @@
+{
+  "innerWidth": 1440,
+  "scrollWidth": 1425,
+  "hasHorizontalOverflow": false,
+  "heroHeight": 1049.4375,
+  "topbarHeight": 85.265625
+}

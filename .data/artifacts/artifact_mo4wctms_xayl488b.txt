@@ -1,0 +1,32 @@
+{
+  "url": "http://127.0.0.1:4173/",
+  "title": "Luma Furniture",
+  "summary": {
+    "headings": [
+      "Mekânı doldurmayan, mekânı tanımlayan parçalar.",
+      "Soft Geometry Living",
+      "Traverten · Ceviz · Keten",
+      "Sessiz ama karakterli bir koleksiyon",
+      "Aria Modül Koltuk",
+      "Monolith Yemek Masası",
+      "Halo Açık Raf",
+      "Still Yatak Sistemi",
+      "Dokular ışıkla birlikte çalışır",
+      "Doğal ceviz",
+      "Keten karışım döşeme",
+      "Fırçalanmış metal",
+      "Geniş odalarda ağır değil, akışkan bir ağırlık gerekir.",
+      "Yaşam alanını sergileme yerine dinlenme alanına çevir.",
+      "Her proje bir ritim çalışmasıdır",
+      "Alanı okuyoruz",
+      "Formu kuruyoruz",
+      "Yüzeyi sessizleştiriyoruz",
+      "Yaşam biçimi notları",
+      "Az eşya, güçlü hacim"
+    ],
+    "links": 9,
+    "buttons": 0,
+    "forms": 0,
+    "inputs": 0
+  }
+}

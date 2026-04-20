@@ -74,20 +74,24 @@ export function createSessionStartHook(
       runtime.setSessionAgent(input.sessionID, agentName);
 
       if (agentName && !PRIMARY_AGENTS.has(agentName)) {
-        const factLine = buildSubagentProjectContext(config, runtime);
+        const injectionParts = [
+          buildSubagentProjectContext(config, runtime),
+          runtime.buildSubagentTaskInjection(input.sessionID),
+        ].filter(Boolean);
         const previousSystem =
           typeof output.message.system === "string"
             ? output.message.system.trim()
             : "";
         output.message.system = previousSystem
-          ? `${previousSystem}\n\n${factLine}`
-          : factLine;
+          ? `${previousSystem}\n\n${injectionParts.join("\n\n")}`
+          : injectionParts.join("\n\n");
         return;
       }
 
       const injectionParts = [
         runtime.buildPrimaryInjection(),
         buildResourceInjection(ctx.directory),
+        runtime.buildSubagentTaskInjection(input.sessionID),
       ].filter(Boolean);
 
       if (injectionParts.length === 0) {

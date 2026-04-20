@@ -37,7 +37,8 @@ function initProject(directory?: string): void {
 function printConfig(): void {
   console.log(`{
   "plugin": [
-    "file://<project-root>",
+    "opencode-pair",
+    "opencode-google-login@latest",
     "@zenobius/opencode-skillful@latest",
     "@franlol/opencode-md-table-formatter@latest",
     "opencode-pty@latest",
