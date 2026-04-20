@@ -5,6 +5,7 @@
     "comment_guard": true,
     "session_start": true,
     "pre_tool_use": true,
+    "task_tracking": true,
     "post_tool_use": true,
     "pre_compact": true,
     "stop": true,

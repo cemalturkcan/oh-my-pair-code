@@ -2,11 +2,11 @@
   // Reference example for the plugin stack after installation.
   "plugin": [
     "opencode-pair",
+    "opencode-google-login@latest",
     "opencode-pty",
     "@mohak34/opencode-notifier",
     "@zenobius/opencode-skillful",
-    "@franlol/opencode-md-table-formatter",
-    "file:///ABSOLUTE/PATH/TO/opencode-background-agents-local"
+    "@franlol/opencode-md-table-formatter"
   ],
   "instructions": [
     "~/.config/opencode/plugin/shell-strategy/shell_strategy.md"

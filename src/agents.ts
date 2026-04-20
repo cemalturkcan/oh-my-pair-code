@@ -1,10 +1,11 @@
 import type { AgentLike, HarnessConfig } from "./types";
 import { deepMerge } from "./utils";
-import { buildCoordinatorPrompt } from "./prompts/coordinator";
+import { buildCoordinatorPrompt, buildWickPrompt } from "./prompts/coordinator";
 import {
   buildEliotPrompt,
+  buildMichelangeloPrompt,
+  buildTuringPrompt,
   buildTyrellPrompt,
-  buildValidatorPrompt,
 } from "./prompts/workers";
 
 function withOverride(
@@ -26,12 +27,26 @@ export function createHarnessAgents(
         mode: "primary",
         description:
           "MrRobot — Primary agent. Routes work, keeps scope tight, and answers plainly.",
-        model: "openai/gpt-5.4-fast",
-        variant: "high",
+        model: "openai/gpt-5.4",
+        variant: "xhigh",
         prompt: buildCoordinatorPrompt(overrides.mrrobot?.prompt_append, config.mcps),
         color: "#4A90D9",
       },
       overrides.mrrobot,
+    ),
+
+    wick: withOverride(
+      {
+        mode: "primary",
+        description:
+          "Wick — Primary fast executor. Handles narrow, concrete tasks with minimal overhead.",
+        model: "openai/gpt-5.4-mini",
+        variant: "low",
+        prompt: buildWickPrompt(overrides.wick?.prompt_append, config.mcps),
+        temperature: 0.0,
+        color: "#C0392B",
+      },
+      overrides.wick,
     ),
 
     eliot: withOverride(
@@ -63,18 +78,36 @@ export function createHarnessAgents(
       overrides.tyrell,
     ),
 
-    validator: withOverride(
+    michelangelo: withOverride(
       {
         mode: "subagent",
         hidden: true,
-        description: "Validator — Validation-focused review and verification subagent.",
+        description:
+          "Michelangelo — Frontend design subagent for UI layout, styling, and visual polish.",
+        model: "google-custom/google-custom-gemini-3.1-pro",
+        variant: "high",
+        prompt: buildMichelangeloPrompt(
+          overrides.michelangelo?.prompt_append,
+          config.mcps,
+        ),
+        temperature: 0.4,
+        color: "#D35400",
+      },
+      overrides.michelangelo,
+    ),
+
+    turing: withOverride(
+      {
+        mode: "subagent",
+        hidden: true,
+        description: "Turing — Validation-focused review and verification subagent.",
         model: "openai/gpt-5.4-fast",
         variant: "high",
-        prompt: buildValidatorPrompt(overrides.validator?.prompt_append, config.mcps),
+        prompt: buildTuringPrompt(overrides.turing?.prompt_append, config.mcps),
         temperature: 0.0,
         color: "#E67E22",
       },
-      overrides.validator,
+      overrides.turing,
     ),
 
     build: { disable: true },

@@ -1,0 +1,20 @@
+[
+  {
+    "tag": "div",
+    "cls": "hero-copy",
+    "text": "Çağdaş iç mekânlar için heykelsi mobilya",
+    "left": 10,
+    "right": 412,
+    "width": 402,
+    "overflow": 22
+  },
+  {
+    "tag": "div",
+    "cls": "hero-visual",
+    "text": "Signature SceneSoft Geometry LivingKum t",
+    "left": 10,
+    "right": 412,
+    "width": 402,
+    "overflow": 22
+  }
+]

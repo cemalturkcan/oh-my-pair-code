@@ -1,0 +1,138 @@
+[
+  {
+    "tag": "p",
+    "cls": "kicker",
+    "text": "Çağdaş iç mekânlar için heykelsi mobilyalar",
+    "width": 336,
+    "right": 379,
+    "overflow": 14
+  },
+  {
+    "tag": "h1",
+    "cls": "",
+    "text": "Mekânı doldurmayan, mekânı tanımlayan parçalar.",
+    "width": 336,
+    "right": 379,
+    "overflow": 14
+  },
+  {
+    "tag": "p",
+    "cls": "hero-text",
+    "text": "Luma, yavaş yaşayan evler için modüler koltuklar, raf sistem",
+    "width": 336,
+    "right": 379,
+    "overflow": 14
+  },
+  {
+    "tag": "div",
+    "cls": "hero-actions",
+    "text": "Yeni Koleksiyonu GörMalzeme Paleti",
+    "width": 336,
+    "right": 379,
+    "overflow": 14
+  },
+  {
+    "tag": "div",
+    "cls": "hero-metrics",
+    "text": "12özel seri tasarım7 haftaortalama üretim süresi%100dokulu d",
+    "width": 336,
+    "right": 379,
+    "overflow": 14
+  },
+  {
+    "tag": "div",
+    "cls": "",
+    "text": "12özel seri tasarım",
+    "width": 336,
+    "right": 379,
+    "overflow": 14
+  },
+  {
+    "tag": "strong",
+    "cls": "",
+    "text": "12",
+    "width": 336,
+    "right": 379,
+    "overflow": 14
+  },
+  {
+    "tag": "div",
+    "cls": "",
+    "text": "7 haftaortalama üretim süresi",
+    "width": 336,
+    "right": 379,
+    "overflow": 14
+  },
+  {
+    "tag": "strong",
+    "cls": "",
+    "text": "7 hafta",
+    "width": 336,
+    "right": 379,
+    "overflow": 14
+  },
+  {
+    "tag": "div",
+    "cls": "",
+    "text": "%100dokulu doğal yüzey",
+    "width": 336,
+    "right": 379,
+    "overflow": 14
+  },
+  {
+    "tag": "strong",
+    "cls": "",
+    "text": "%100",
+    "width": 336,
+    "right": 379,
+    "overflow": 14
+  },
+  {
+    "tag": "span",
+    "cls": "",
+    "text": "mekânı tanımlayan",
+    "width": 268,
+    "right": 311,
+    "overflow": -54
+  },
+  {
+    "tag": "a",
+    "cls": "primary-button",
+    "text": "Yeni Koleksiyonu Gör",
+    "width": 259,
+    "right": 302,
+    "overflow": -63
+  },
+  {
+    "tag": "span",
+    "cls": "",
+    "text": "ortalama üretim süresi",
+    "width": 152,
+    "right": 195,
+    "overflow": -170
+  },
+  {
+    "tag": "span",
+    "cls": "",
+    "text": "dokulu doğal yüzey",
+    "width": 133,
+    "right": 176,
+    "overflow": -189
+  },
+  {
+    "tag": "span",
+    "cls": "",
+    "text": "özel seri tasarım",
+    "width": 112,
+    "right": 155,
+    "overflow": -210
+  },
+  {
+    "tag": "a",
+    "cls": "text-link",
+    "text": "Malzeme Paleti",
+    "width": 111,
+    "right": 154,
+    "overflow": -211
+  }
+]

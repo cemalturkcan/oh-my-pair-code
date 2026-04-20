@@ -18,6 +18,7 @@ import { createHookRuntime, resolveHookProfile } from "./runtime";
 import { safeCreateHook, safeHook } from "./sdk";
 import { createSessionEndHook } from "./session-end";
 import { createSessionStartHook } from "./session-start";
+import { createTaskTrackingHook } from "./task-tracking";
 
 type HookRecord = {
   config?: (config: any) => Promise<void>;
@@ -172,6 +173,9 @@ export async function createHarnessHooks(
   );
   registerHook("pre_tool_use", config.hooks?.pre_tool_use !== false, () =>
     createPreToolUseHook(runtime, profile),
+  );
+  registerHook("task_tracking", config.hooks?.task_tracking !== false, () =>
+    createTaskTrackingHook(runtime),
   );
   registerHook("session_end", config.hooks?.session_end !== false, () =>
     createSessionEndHook(runtime),

@@ -1,25 +1,33 @@
 # opencode-pair
 
-OpenCode harness with a three-agent setup: one primary, one general subagent, one validation-focused subagent.
+OpenCode harness with a six-agent setup: two primaries, one general subagent, one ideation subagent, one frontend design subagent, and one validation-focused subagent.
 
 ## What it does
 
 - **MrRobot** is the primary agent. He routes work and answers plainly.
+- **Wick** is the fast primary executor. He handles narrow, concrete tasks with minimal overhead.
 - **Eliot** is the general subagent. He handles implementation, refactors, repo exploration, and other scoped task work.
-- **Validator** is the validation-focused subagent. It reviews changes again after implementation and can also execute work when routed.
+- **Tyrell** is the ideation subagent. It handles brainstorming, naming, UX direction, product ideas, and open-ended exploratory packets.
+- **Michelangelo** is the frontend design subagent. He is the default implementation lane for pages, components, styling, layout, and visual polish unless the user explicitly asks for review-only output or no file edits.
+- Implementation packets should be edited directly in the repo by the assigned subagent; research, review, and ideation packets should return findings without edits unless edits are explicitly requested.
+- Ongoing subagent work should continue with the same `task_id` by default when the lane and workstream still match.
+- **Turing** is the validation-focused subagent.
 - No plan/execute mode or harness slash-command flow.
-- No session memory, pattern learning, observation logs, or cross-session state injection.
+- No cross-session memory, pattern learning, or observation logs. Workflow-local task tracking only keeps recent `task_id` hints for continuation inside related sessions.
 - Comment guard blocks suspicious AI-style comments before file writes and surfaces anything that still slips through.
 
 ## Agents
 
 | Agent | Character | Role | Model |
 | ----- | --------- | ---- | ----- |
-| **mrrobot** | Mr. Robot | Primary agent — routes, synthesizes, answers | openai/gpt-5.4-fast |
-| **eliot** | Elliot | General-purpose subagent | openai/gpt-5.4-fast |
-| **validator** | Validator | Validation-focused review and verification | openai/gpt-5.4-fast |
+| **mrrobot** | MrRobot | Primary agent — routes, synthesizes, answers | openai/gpt-5.4 |
+| **wick** | Wick | Primary fast executor — finishes narrow tasks directly | openai/gpt-5.4-mini |
+| **eliot** | Eliot | General-purpose subagent | openai/gpt-5.4-fast |
+| **tyrell** | Tyrell | Ideation-focused subagent | openai/gpt-5.4-fast |
+| **michelangelo** | Michelangelo | Frontend design subagent | google-custom/google-custom-gemini-3.1-pro |
+| **turing** | Turing | Validation-focused review and verification | openai/gpt-5.4-fast |
 
-All three use the `high` variant.
+MrRobot uses the `xhigh` variant. Eliot, Tyrell, Turing, and Michelangelo use the `high` variant. Wick uses the `low` variant for lower-latency execution.
 
 ## MCP Servers
 
@@ -35,7 +43,7 @@ All three use the `high` variant.
 
 Shared managed MCP roots stay under `~/.config/{mcp_name}`.
 
-All three agents receive the same enabled MCP set and the same default full tool access. The harness does not add per-agent MCP or tool restrictions.
+All six agents receive the same enabled MCP set and the same default full tool access. The harness does not add per-agent MCP or tool restrictions.
 
 ## Prerequisites
 
@@ -48,7 +56,7 @@ bunx opencode-pair install
 ```
 
 The installer will:
-1. Wire agents and MCPs into OpenCode config
+1. Wire agents, the Google (custom) plugin, and MCPs into OpenCode config
 2. Install shell strategy instructions
 3. Vendor `pg-mcp`, `ssh-mcp`, `web-agent-mcp`, and bundled skills
 4. Install dependencies inside each shared managed MCP root
@@ -74,6 +82,8 @@ opencode-pair init           # create project-local config
 opencode-pair print-config   # inspect generated config
 ```
 
+`install` also adds `opencode-google-login@latest`, so you do not need a separate local plugin path for the Google (custom) provider.
+
 ## Config
 
 Merges from two layers (project wins):
@@ -93,10 +103,12 @@ opencode-pair init
 
 | Hook | What it does |
 | ---- | ------------ |
-| `chat.message` | Inject project docs and WSL notes for MrRobot; inject compact project facts for subagents |
+| `chat.message` | Inject project docs, WSL notes, and active subagent task IDs for MrRobot and Wick; inject compact project facts for Eliot, Tyrell, Michelangelo, and Turing |
 | `tool.execute.before` | Block suspicious AI-style comments before writes, enforce git-push build gate, auto-transform Node commands on WSL |
-| `tool.execute.after` | Surface suspicious comments that still remain after a write |
+| `tool.execute.after` | Surface suspicious comments that still remain after a write; capture subagent task IDs for continuation hints |
 | `session.deleted` | Clear ephemeral runtime state |
+
+`hooks.task_tracking` defaults to `true` and controls task-id capture plus primary-session continuation hints.
 
 ## Architecture
 
@@ -105,8 +117,8 @@ src/
 ├── prompts/
 │   ├── mcp-access.ts    # Enabled MCP list and prompt guidance
 │   ├── shared.ts        # Shared prompt rules and response style
-│   ├── workers.ts       # Eliot + validator prompt builders
-│   └── coordinator.ts   # MrRobot prompt and routing rules
+│   ├── workers.ts       # Eliot, Tyrell, Michelangelo, and Turing prompt builders
+│   └── coordinator.ts   # MrRobot and Wick prompt builders plus routing rules
 ├── agents.ts            # Agent definitions (models and prompts)
 ├── mcp.ts               # MCP server registration
 ├── hooks/               # Runtime hooks (comment guard, WSL, cleanup)

@@ -31,6 +31,7 @@ export type HarnessConfig = {
     comment_guard?: boolean;
     session_start?: boolean;
     pre_tool_use?: boolean;
+    task_tracking?: boolean;
     session_end?: boolean;
   };
   workflow?: WorkflowConfig;
