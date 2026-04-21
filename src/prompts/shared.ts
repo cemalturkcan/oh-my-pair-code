@@ -156,6 +156,8 @@ export const RESPONSE_DISCIPLINE = `
 export const DEFAULT_SKILL_SHORTLIST = [
   "opencode-plugin-dev",
   "frontend-design",
+  "taste-skill",
+  "redesign-skill",
   "webapp-testing",
   "web-agent-browser",
   "find-skills",

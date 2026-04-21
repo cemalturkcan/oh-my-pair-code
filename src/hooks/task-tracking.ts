@@ -2,11 +2,35 @@ import type { HookRuntime } from "./runtime";
 import {
   extractSessionId,
   extractTaskId,
+  extractTaskVerdict,
   resolveSessionID,
   resolveSubagentTaskLane,
   resolveToolArgs,
   resolveToolName,
 } from "./runtime";
+
+function hasToolArgs(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && Object.keys(value).length > 0;
+}
+
+function resolveEffectiveToolArgs(
+  input: unknown,
+  output: unknown,
+): Record<string, unknown> {
+  const inputArgs = resolveToolArgs(input);
+  const outputArgs = resolveToolArgs(output);
+  if (!hasToolArgs(outputArgs)) {
+    return inputArgs;
+  }
+
+  for (const [key, value] of Object.entries(inputArgs)) {
+    if (!(key in outputArgs)) {
+      outputArgs[key] = value;
+    }
+  }
+
+  return outputArgs;
+}
 
 function resolveTaskDescription(args: Record<string, unknown>): string | undefined {
   return typeof args.description === "string" && args.description.trim().length > 0
@@ -29,9 +53,19 @@ export function createTaskTrackingHook(runtime: HookRuntime) {
         return;
       }
 
-      const args = { ...resolveToolArgs(input), ...resolveToolArgs(output) };
+      const args = resolveEffectiveToolArgs(input, output);
       const lane = resolveSubagentTaskLane(args.subagent_type);
-      const taskId = typeof args.task_id === "string" ? args.task_id : undefined;
+      const description = resolveTaskDescription(args);
+      const taskId =
+        typeof args.task_id === "string"
+          ? args.task_id
+          : lane
+            ? runtime.findReusableSubagentTaskId(sessionID, lane, description)
+            : undefined;
+
+      if (!args.task_id && taskId) {
+        args.task_id = taskId;
+      }
 
       if (!lane || !taskId) {
         return;
@@ -41,7 +75,7 @@ export function createTaskTrackingHook(runtime: HookRuntime) {
         sessionID,
         lane,
         taskId,
-        resolveTaskDescription(args),
+        description,
       );
     },
     "tool.execute.after": async (input: unknown, output: unknown): Promise<void> => {
@@ -65,16 +99,27 @@ export function createTaskTrackingHook(runtime: HookRuntime) {
         return;
       }
 
+      const description = resolveTaskDescription(args);
+      const reviewVerdict = lane === "turing" ? extractTaskVerdict(output) : undefined;
       const childSessionID = extractSessionId(output);
       if (childSessionID && childSessionID !== sessionID) {
-        runtime.linkSubagentTaskScope(childSessionID, sessionID);
+        runtime.markSubagentTaskSession(
+          childSessionID,
+          sessionID,
+          lane,
+          taskId,
+          description,
+          reviewVerdict,
+        );
+        return;
       }
 
       runtime.rememberSubagentTask(
         sessionID,
         lane,
         taskId,
-        resolveTaskDescription(args),
+        description,
+        reviewVerdict,
       );
     },
   };

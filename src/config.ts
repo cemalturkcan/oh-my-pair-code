@@ -35,6 +35,7 @@ const HarnessConfigSchema = z.object({
       web_agent_mcp: z.boolean().optional(),
       pg_mcp: z.boolean().optional(),
       ssh_mcp: z.boolean().optional(),
+      openai_image_gen_mcp: z.boolean().optional(),
       searxng: z.boolean().optional(),
       mariadb: z.boolean().optional(),
     })
@@ -74,6 +75,7 @@ const DEFAULTS: HarnessConfig = {
     web_agent_mcp: true,
     pg_mcp: true,
     ssh_mcp: true,
+    openai_image_gen_mcp: true,
     searxng: true,
     mariadb: true,
   },
@@ -201,6 +203,7 @@ export const SAMPLE_PROJECT_CONFIG = `{
     "web_agent_mcp": true,
     "pg_mcp": true,
     "ssh_mcp": true,
+    "openai_image_gen_mcp": true,
     "searxng": true,
     "mariadb": true
   },
