@@ -5,17 +5,18 @@ import {
   type ProjectFacts,
 } from "../project-facts";
 
-type SubagentTaskLane = "eliot" | "tyrell" | "michelangelo" | "turing";
+type SubagentTaskLane = "eliot" | "tyrell" | "claude" | "turing";
 
 type SubagentTaskRecord = {
   taskId: string;
   description?: string;
+  reviewVerdict?: "approve" | "request-changes";
 };
 
 const SUBAGENT_TASK_LANES = new Set<SubagentTaskLane>([
   "eliot",
   "tyrell",
-  "michelangelo",
+  "claude",
   "turing",
 ]);
 
@@ -101,6 +102,10 @@ export function resolveSubagentTaskLane(value: unknown): SubagentTaskLane | unde
     return undefined;
   }
 
+  if (value === "michelangelo") {
+    return "claude";
+  }
+
   return SUBAGENT_TASK_LANES.has(value as SubagentTaskLane)
     ? (value as SubagentTaskLane)
     : undefined;
@@ -143,6 +148,46 @@ export function extractTaskId(value: unknown): string | undefined {
     const taskId = extractTaskId(nestedValue);
     if (taskId) {
       return taskId;
+    }
+  }
+
+  return undefined;
+}
+
+export function extractTaskVerdict(
+  value: unknown,
+): "approve" | "request-changes" | undefined {
+  if (typeof value === "string") {
+    const verdictMatch = value.match(/\bverdict\s*:\s*(approve|request-changes)\b/i);
+    if (verdictMatch?.[1] === "approve" || verdictMatch?.[1] === "request-changes") {
+      return verdictMatch[1];
+    }
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const verdict = extractTaskVerdict(item);
+      if (verdict) {
+        return verdict;
+      }
+    }
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (record.verdict === "approve" || record.verdict === "request-changes") {
+    return record.verdict;
+  }
+
+  for (const nestedValue of Object.values(record)) {
+    const verdict = extractTaskVerdict(nestedValue);
+    if (verdict) {
+      return verdict;
     }
   }
 
@@ -219,6 +264,14 @@ export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
     string,
     Map<SubagentTaskLane, Map<string, SubagentTaskRecord>>
   >();
+  const activeTaskScopeChildren = new Map<
+    string,
+    Map<SubagentTaskLane, Map<string, Set<string>>>
+  >();
+  const childSessionTasks = new Map<
+    string,
+    { scopeID: string; lane: SubagentTaskLane; taskId: string }
+  >();
   const wslMode = ctx.directory.startsWith("/mnt/");
   const wslWinPath = wslMode ? toWindowsPath(ctx.directory) : "";
 
@@ -235,10 +288,34 @@ export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
 
   function clearSession(sessionID: string): void {
     sessionAgents.delete(sessionID);
+    const activeTask = childSessionTasks.get(sessionID);
+    if (activeTask) {
+      const scopeChildren = activeTaskScopeChildren.get(activeTask.scopeID);
+      const laneChildren = scopeChildren?.get(activeTask.lane);
+      const taskChildren = laneChildren?.get(activeTask.taskId);
+      if (taskChildren) {
+        taskChildren.delete(sessionID);
+        if (taskChildren.size === 0) {
+          laneChildren?.delete(activeTask.taskId);
+          const rememberedTasks = taskScopeSubagentTasks
+            .get(activeTask.scopeID)
+            ?.get(activeTask.lane);
+          rememberedTasks?.delete(activeTask.taskId);
+        }
+        if (laneChildren && laneChildren.size === 0) {
+          scopeChildren?.delete(activeTask.lane);
+        }
+        if (scopeChildren && scopeChildren.size === 0) {
+          activeTaskScopeChildren.delete(activeTask.scopeID);
+        }
+      }
+      childSessionTasks.delete(sessionID);
+    }
     const scopeID = sessionTaskScopes.get(sessionID) ?? sessionID;
     sessionTaskScopes.delete(sessionID);
     if (scopeID === sessionID) {
       taskScopeSubagentTasks.delete(scopeID);
+      activeTaskScopeChildren.delete(scopeID);
     }
   }
 
@@ -255,6 +332,7 @@ export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
     lane: SubagentTaskLane,
     taskId: string,
     description?: string,
+    reviewVerdict?: "approve" | "request-changes",
   ): void {
     const scopeID = resolveTaskScope(sessionID);
     const sessionTasks = taskScopeSubagentTasks.get(scopeID) ?? new Map();
@@ -265,9 +343,75 @@ export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
       ...((description || previous?.description)
         ? { description: description || previous?.description }
         : {}),
+      ...((reviewVerdict || previous?.reviewVerdict)
+        ? { reviewVerdict: reviewVerdict || previous?.reviewVerdict }
+        : {}),
     });
     sessionTasks.set(lane, laneTasks);
     taskScopeSubagentTasks.set(scopeID, sessionTasks);
+  }
+
+  function markSubagentTaskSession(
+    childSessionID: string,
+    parentSessionID: string,
+    lane: SubagentTaskLane,
+    taskId: string,
+    description?: string,
+    reviewVerdict?: "approve" | "request-changes",
+  ): void {
+    const scopeID = resolveTaskScope(parentSessionID);
+    sessionTaskScopes.set(childSessionID, scopeID);
+    rememberSubagentTask(parentSessionID, lane, taskId, description, reviewVerdict);
+
+    const scopeChildren = activeTaskScopeChildren.get(scopeID) ?? new Map();
+    const laneChildren = scopeChildren.get(lane) ?? new Map();
+    const taskChildren = laneChildren.get(taskId) ?? new Set<string>();
+
+    taskChildren.add(childSessionID);
+    laneChildren.set(taskId, taskChildren);
+    scopeChildren.set(lane, laneChildren);
+    activeTaskScopeChildren.set(scopeID, scopeChildren);
+    childSessionTasks.set(childSessionID, { scopeID, lane, taskId });
+  }
+
+  function findReusableSubagentTaskId(
+    sessionID: string,
+    lane: SubagentTaskLane,
+    description?: string,
+  ): string | undefined {
+    const scopeID = resolveTaskScope(sessionID);
+    const activeLaneTasks = activeTaskScopeChildren.get(scopeID)?.get(lane);
+    if (!activeLaneTasks || activeLaneTasks.size === 0) {
+      return undefined;
+    }
+
+    const rememberedTasks = taskScopeSubagentTasks.get(scopeID)?.get(lane);
+    if (!rememberedTasks) {
+      return undefined;
+    }
+
+    const normalizedDescription = description?.trim();
+    if (!normalizedDescription) {
+      return undefined;
+    }
+
+    const exactMatches = Array.from(activeLaneTasks.keys())
+      .map((taskId) => rememberedTasks.get(taskId))
+      .filter(
+        (task): task is SubagentTaskRecord =>
+          !!task && task.description?.trim() === normalizedDescription,
+      );
+
+    const reusableMatches =
+      lane === "turing"
+        ? exactMatches.filter((task) => task.reviewVerdict === "request-changes")
+        : exactMatches;
+
+    if (reusableMatches.length === 1) {
+      return reusableMatches[0]?.taskId;
+    }
+
+    return undefined;
   }
 
   function buildSubagentTaskInjection(sessionID: string): string {
@@ -278,13 +422,23 @@ export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
 
     const parts = Array.from(tasks.entries()).flatMap(([lane, laneTasks]) =>
       Array.from(laneTasks.values()).map((task) =>
-        task.description
-          ? `${lane}=${task.taskId} (${task.description})`
-          : `${lane}=${task.taskId}`,
+        lane === "turing" && task.reviewVerdict === "approve"
+          ? null
+          : task.description
+            ? lane === "turing" && task.reviewVerdict === "request-changes"
+              ? `${lane}=${task.taskId} (${task.description}) [open-review]`
+              : `${lane}=${task.taskId} (${task.description})`
+            : lane === "turing" && task.reviewVerdict === "request-changes"
+              ? `${lane}=${task.taskId} [open-review]`
+              : `${lane}=${task.taskId}`,
       ),
-    );
+    ).filter((value): value is string => Boolean(value));
 
-    return `[SubagentTasks] Reuse existing task_ids for the same lane and workstream before spawning a fresh subagent. Seen in this workflow: ${parts.join("; ")}`;
+    if (parts.length === 0) {
+      return "";
+    }
+
+    return `[SubagentTasks] Reuse existing exact-match task_ids when safe; Turing threads are reusable only for open repair verification. Seen in this workflow: ${parts.join("; ")}`;
   }
 
   function buildPrimaryInjection(): string {
@@ -306,6 +460,8 @@ export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
     clearSession,
     linkSubagentTaskScope,
     rememberSubagentTask,
+    markSubagentTaskSession,
+    findReusableSubagentTaskId,
     buildSubagentTaskInjection,
     isWsl: (): boolean => wslMode,
     getWslWinPath: (): string => wslWinPath,

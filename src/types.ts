@@ -6,6 +6,7 @@ export type McpToggles = {
   web_agent_mcp?: boolean;
   pg_mcp?: boolean;
   ssh_mcp?: boolean;
+  openai_image_gen_mcp?: boolean;
   searxng?: boolean;
   mariadb?: boolean;
 };

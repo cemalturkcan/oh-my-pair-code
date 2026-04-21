@@ -7,6 +7,7 @@ export type McpName =
   | "web-agent-mcp"
   | "pg-mcp"
   | "ssh-mcp"
+  | "openai-image-gen-mcp"
   | "mariadb";
 
 export const MCP_DESCRIPTIONS: Record<McpName, string> = {
@@ -16,6 +17,7 @@ export const MCP_DESCRIPTIONS: Record<McpName, string> = {
   "web-agent-mcp": "Browser automation.",
   "pg-mcp": "PostgreSQL read-only queries.",
   "ssh-mcp": "Remote commands.",
+  "openai-image-gen-mcp": "Image generation via Codex auth.",
   mariadb: "MariaDB queries.",
 };
 

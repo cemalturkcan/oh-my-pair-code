@@ -8,8 +8,10 @@
 | `wick` | `primary` | Wick | `openai/gpt-5.4-mini` | `low` | Fast primary executor. Finishes narrow, concrete tasks directly with minimal overhead. |
 | `eliot` | `subagent` | Eliot | `openai/gpt-5.4-fast` | `high` | General subagent for implementation, refactors, repo exploration, and scoped execution. |
 | `tyrell` | `subagent` | Tyrell | `openai/gpt-5.4-fast` | `high` | Ideation-focused subagent for brainstorming, naming, UX direction, and exploratory packets. |
-| `michelangelo` | `subagent` | Michelangelo | `google-custom/google-custom-gemini-3.1-pro` | `high` | Frontend design subagent. Owns layout, styling, visual hierarchy, responsive UX, and UI polish. |
+| `claude` | `subagent` | Claude | `openai/gpt-5.4` | `xhigh` | Frontend design subagent. Owns layout, styling, visual hierarchy, responsive UX, and UI polish, and defaults to bundled Impeccable plus stack-aware taste/redesign skills. |
 | `turing` | `subagent` | Turing | `openai/gpt-5.4-fast` | `high` | Validation-focused pass. Reviews diffs, runs checks, and returns approve/request-changes. |
+
+Legacy `michelangelo` config/task references still map to `claude` for compatibility.
 
 ## MCP Model
 
@@ -27,7 +29,7 @@ Defined in `src/prompts/mcp-access.ts`.
 | **wick** | yes | yes | yes | Primary fast executor. Uses real OpenCode `primary` mode. |
 | **eliot** | yes | yes | yes | General-purpose subagent. Uses real OpenCode `subagent` mode. |
 | **tyrell** | yes | yes | yes | Ideation-focused subagent. Uses real OpenCode `subagent` mode. |
-| **michelangelo** | yes | yes | yes | Frontend design subagent. Frontend-only behavior comes from prompt/persona, not harness restrictions. |
+| **claude** | yes | yes | yes | Frontend design subagent. Frontend-only behavior comes from prompt/persona, not harness restrictions. |
 | **turing** | yes | yes | yes | Validation-focused subagent with the Turing persona. Review behavior comes from prompt/persona, not harness restrictions. |
 
 The harness does not add per-agent MCP or tool restrictions. There is no delegate lane and no background-agent flow. All subagent work goes through OpenCode Task semantics.
@@ -38,7 +40,7 @@ The harness does not add per-agent MCP or tool restrictions. There is no delegat
 2. Use `wick` when the user manually selects the fast execution lane for narrow, concrete work.
 3. Mark delegated packets as implementation, research, review, or ideation.
 4. Route implementation to `eliot` when delegation is useful, and have Eliot edit the repo directly unless the packet is explicitly review-only or no-file-edit.
-5. Route frontend design, layout, styling, and UI polish work to `michelangelo` by default unless the user explicitly asks for review-only output or no file edits.
+5. Route frontend design, layout, styling, and UI polish work to `claude` by default unless the user explicitly asks for review-only output or no file edits.
 6. Reuse the same subagent `task_id` by default when the lane and workstream are continuing.
 7. Run a `turing` pass after implementation for any non-trivial change.
 8. If `turing` requests changes, send the fix back to the implementation lane, then run `turing` again.

@@ -1,0 +1,6 @@
+{
+  "default_model": "gpt-5.4",
+  "default_reasoning_effort": "xhigh",
+  "default_instructions": "Generate or edit an image that matches the user's request.",
+  "default_output_dir": "~/.codex/generated_images"
+}

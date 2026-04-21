@@ -9,17 +9,18 @@ import { buildCoordinatorPrompt, buildWickPrompt } from "../prompts/coordinator"
 import { DEFAULT_SKILL_SHORTLIST_TEXT } from "../prompts/shared";
 import {
   buildEliotPrompt,
-  buildMichelangeloPrompt,
+  buildClaudePrompt,
   buildTyrellPrompt,
 } from "../prompts/workers";
 import { getEnabledMcps } from "../prompts/mcp-access";
 
 describe("createHarnessAgents", () => {
-  it("registers mrrobot, wick, eliot, tyrell, michelangelo, and turing plus disabled built-ins", () => {
+  it("registers mrrobot, wick, eliot, tyrell, claude, the michelangelo alias, and turing plus disabled built-ins", () => {
     const agents = createHarnessAgents({ agents: {}, mcps: {} });
 
     expect(Object.keys(agents).sort()).toEqual([
       "build",
+      "claude",
       "eliot",
       "michelangelo",
       "mrrobot",
@@ -52,7 +53,7 @@ describe("createHarnessAgents", () => {
       permission?: unknown;
       tools?: unknown;
     };
-    const michelangelo = agents.michelangelo as {
+    const claude = agents.claude as {
       mode: string;
       model: string;
       variant?: unknown;
@@ -77,6 +78,16 @@ describe("createHarnessAgents", () => {
       permission?: unknown;
       tools?: unknown;
     };
+    const michelangelo = agents.michelangelo as {
+      mode: string;
+      model: string;
+      variant?: unknown;
+      temperature?: unknown;
+      hidden?: unknown;
+      permission?: unknown;
+      tools?: unknown;
+      prompt?: unknown;
+    };
 
     expect(mrrobot.mode).toBe("primary");
     expect(mrrobot.model).toBe("openai/gpt-5.4");
@@ -92,13 +103,23 @@ describe("createHarnessAgents", () => {
     expect(eliot.model).toBe("openai/gpt-5.4-fast");
     expect(eliot.permission).toBeUndefined();
     expect(eliot.tools).toBeUndefined();
+    expect(claude.mode).toBe("subagent");
+    expect(claude.model).toBe("openai/gpt-5.4");
+    expect(claude.variant).toBe("xhigh");
+    expect(claude.temperature).toBe(0.4);
+    expect(claude.hidden).toBe(true);
+    expect(claude.permission).toBeUndefined();
+    expect(claude.tools).toBeUndefined();
     expect(michelangelo.mode).toBe("subagent");
-    expect(michelangelo.model).toBe("google-custom/google-custom-gemini-3.1-pro");
-    expect(michelangelo.variant).toBe("high");
+    expect(michelangelo.model).toBe("openai/gpt-5.4");
+    expect(michelangelo.variant).toBe("xhigh");
     expect(michelangelo.temperature).toBe(0.4);
     expect(michelangelo.hidden).toBe(true);
     expect(michelangelo.permission).toBeUndefined();
     expect(michelangelo.tools).toBeUndefined();
+    expect(String(michelangelo.prompt ?? "")).toContain(
+      'Your user-facing identity is Claude.',
+    );
     expect(tyrell.mode).toBe("subagent");
     expect(tyrell.model).toBe("openai/gpt-5.4-fast");
     expect(tyrell.variant).toBe("high");
@@ -111,6 +132,33 @@ describe("createHarnessAgents", () => {
     expect(turing.variant).toBe("high");
     expect(turing.permission).toBeUndefined();
     expect(turing.tools).toBeUndefined();
+  });
+
+  it("keeps legacy michelangelo overrides as a compatibility alias for claude", () => {
+    const agents = createHarnessAgents({
+      agents: {
+        michelangelo: {
+          prompt_append: "legacy prompt",
+          description: "Legacy description",
+        },
+        claude: {
+          description: "Claude description",
+        },
+      },
+      mcps: {},
+    });
+
+    const claude = agents.claude as {
+      description: string;
+      prompt: string;
+    };
+    const michelangelo = agents.michelangelo as {
+      prompt: string;
+    };
+
+    expect(claude.description).toBe("Claude description");
+    expect(claude.prompt).toContain("legacy prompt");
+    expect(michelangelo.prompt).toContain("legacy prompt");
   });
 
   it("treats mrrobot and wick as primary agents for session injection", () => {
@@ -129,6 +177,7 @@ describe("MCP access", () => {
       "web-agent-mcp",
       "pg-mcp",
       "ssh-mcp",
+      "openai-image-gen-mcp",
       "mariadb",
     ]);
   });
@@ -140,7 +189,14 @@ describe("MCP access", () => {
         web_agent_mcp: false,
         pg_mcp: true,
       }),
-    ).toEqual(["grep_app", "searxng", "pg-mcp", "ssh-mcp", "mariadb"]);
+    ).toEqual([
+      "grep_app",
+      "searxng",
+      "pg-mcp",
+      "ssh-mcp",
+      "openai-image-gen-mcp",
+      "mariadb",
+    ]);
   });
 });
 
@@ -238,14 +294,228 @@ describe("session start hook", () => {
 
     expect(String(wickOutput.message.system ?? "")).toContain("[SubagentTasks]");
     expect(String(wickOutput.message.system ?? "")).toContain(
-      "michelangelo=task_123abc (Refine landing page)",
+      "claude=task_123abc (Refine landing page)",
     );
     expect(String(wickOutput.message.system ?? "")).toContain(
-      "michelangelo=task_456def (Polish checkout hero)",
+      "claude=task_456def (Polish checkout hero)",
     );
     expect(String(wickOutput.message.system ?? "")).toContain(
-      "michelangelo=task_789ghi",
+      "claude=task_789ghi",
     );
+  });
+
+  it("auto-reuses a unique non-Turing task id when omitted", async () => {
+    const ctx = { directory: process.cwd() } as any;
+    const runtime = createHookRuntime(ctx, { workflow: { compact_subagent_context: true } });
+    const taskTrackingHook = createTaskTrackingHook(runtime);
+
+    await taskTrackingHook["tool.execute.after"]?.(
+      {
+        sessionID: "s-auto-claude",
+        tool: "task",
+        args: {
+          subagent_type: "claude",
+          description: "Refine landing page",
+        },
+      },
+      {
+        output: '{"task_id":"task_reuse_claude","sessionID":"child-claude-reuse"}',
+      },
+    );
+
+    const input: {
+      sessionID: string;
+      tool: string;
+      args: {
+        subagent_type: string;
+        description: string;
+        task_id?: string;
+      };
+    } = {
+      sessionID: "s-auto-claude",
+      tool: "task",
+      args: {
+        subagent_type: "claude",
+        description: "Refine landing page",
+      },
+    };
+
+    await taskTrackingHook["tool.execute.before"]?.(input, {});
+
+    expect(input.args.task_id).toBe("task_reuse_claude");
+
+    runtime.clearSession("child-claude-reuse");
+
+    const staleInput: {
+      sessionID: string;
+      tool: string;
+      args: {
+        subagent_type: string;
+        description: string;
+        task_id?: string;
+      };
+    } = {
+      sessionID: "s-auto-claude",
+      tool: "task",
+      args: {
+        subagent_type: "claude",
+        description: "Refine landing page",
+      },
+    };
+
+    await taskTrackingHook["tool.execute.before"]?.(staleInput, {});
+
+    expect(staleInput.args.task_id).toBeUndefined();
+  });
+
+  it("does not auto-reuse ambiguous threads, mismatches, or clean Turing threads", async () => {
+    const ctx = { directory: process.cwd() } as any;
+    const runtime = createHookRuntime(ctx, { workflow: { compact_subagent_context: true } });
+    const taskTrackingHook = createTaskTrackingHook(runtime);
+
+    await taskTrackingHook["tool.execute.after"]?.(
+      {
+        sessionID: "s-ambiguous",
+        tool: "task",
+        args: {
+          subagent_type: "claude",
+          description: "Refine landing page",
+        },
+      },
+      {
+        output: '{"task_id":"task_first","sessionID":"child-first"}',
+      },
+    );
+    await taskTrackingHook["tool.execute.after"]?.(
+      {
+        sessionID: "s-ambiguous",
+        tool: "task",
+        args: {
+          subagent_type: "claude",
+          description: "Polish checkout hero",
+        },
+      },
+      {
+        output: '{"task_id":"task_second","sessionID":"child-second"}',
+      },
+    );
+
+    const ambiguousInput: {
+      sessionID: string;
+      tool: string;
+      args: {
+        subagent_type: string;
+        task_id?: string;
+      };
+    } = {
+      sessionID: "s-ambiguous",
+      tool: "task",
+      args: {
+        subagent_type: "claude",
+      },
+    };
+
+    await taskTrackingHook["tool.execute.before"]?.(ambiguousInput, {});
+
+    expect(ambiguousInput.args.task_id).toBeUndefined();
+
+    const mismatchInput: {
+      sessionID: string;
+      tool: string;
+      args: {
+        subagent_type: string;
+        description: string;
+        task_id?: string;
+      };
+    } = {
+      sessionID: "s-ambiguous",
+      tool: "task",
+      args: {
+        subagent_type: "claude",
+        description: "Brand new workstream",
+      },
+    };
+
+    await taskTrackingHook["tool.execute.before"]?.(mismatchInput, {});
+
+    expect(mismatchInput.args.task_id).toBeUndefined();
+
+    await taskTrackingHook["tool.execute.after"]?.(
+      {
+        sessionID: "s-turing-auto",
+        tool: "task",
+        args: {
+          subagent_type: "turing",
+          description: "Review latest diff",
+        },
+      },
+      {
+        output: '{"task_id":"task_turing_auto","sessionID":"child-turing-auto"}\nverdict: approve',
+      },
+    );
+
+    const turingInput: {
+      sessionID: string;
+      tool: string;
+      args: {
+        subagent_type: string;
+        description: string;
+        task_id?: string;
+      };
+    } = {
+      sessionID: "s-turing-auto",
+      tool: "task",
+      args: {
+        subagent_type: "turing",
+        description: "Review latest diff",
+      },
+    };
+
+    await taskTrackingHook["tool.execute.before"]?.(turingInput, {});
+
+    expect(turingInput.args.task_id).toBeUndefined();
+  });
+
+  it("auto-reuses an active Turing thread only for open repair verification", async () => {
+    const ctx = { directory: process.cwd() } as any;
+    const runtime = createHookRuntime(ctx, { workflow: { compact_subagent_context: true } });
+    const taskTrackingHook = createTaskTrackingHook(runtime);
+
+    await taskTrackingHook["tool.execute.after"]?.(
+      {
+        sessionID: "s-turing-repair",
+        tool: "task",
+        args: {
+          subagent_type: "turing",
+          description: "Review latest diff",
+        },
+      },
+      {
+        output:
+          '{"task_id":"task_turing_repair","sessionID":"child-turing-repair"}\nverdict: request-changes',
+      },
+    );
+
+    const repairInput: {
+      sessionID: string;
+      tool: string;
+      args: {
+        subagent_type: string;
+        description: string;
+        task_id?: string;
+      };
+    } = {
+      sessionID: "s-turing-repair",
+      tool: "task",
+      args: {
+        subagent_type: "turing",
+        description: "Review latest diff",
+      },
+    };
+
+    await taskTrackingHook["tool.execute.before"]?.(repairInput, {});
+
+    expect(repairInput.args.task_id).toBe("task_turing_repair");
   });
 
   it("injects active subagent task ids into subagent sessions alongside compact context", async () => {
@@ -284,6 +554,61 @@ describe("session start hook", () => {
     expect(String(eliotOutput.message.system ?? "")).toContain("[SubagentTasks]");
     expect(String(eliotOutput.message.system ?? "")).toContain(
       "turing=task_turing001 (Review latest diff)",
+    );
+  });
+
+  it("omits clean Turing threads and labels open Turing review threads in injection", async () => {
+    const ctx = { directory: process.cwd() } as any;
+    const runtime = createHookRuntime(ctx, { workflow: { compact_subagent_context: true } });
+    const sessionStartHook = createSessionStartHook(
+      ctx,
+      { workflow: { compact_subagent_context: true } },
+      runtime,
+    );
+    const taskTrackingHook = createTaskTrackingHook(runtime);
+
+    await taskTrackingHook["tool.execute.after"]?.(
+      {
+        sessionID: "s-review-hints",
+        tool: "task",
+        args: {
+          subagent_type: "turing",
+          description: "Review latest diff",
+        },
+      },
+      {
+        output:
+          '{"task_id":"task_turing_open","sessionID":"child-turing-open"}\nverdict: request-changes',
+      },
+    );
+    await taskTrackingHook["tool.execute.after"]?.(
+      {
+        sessionID: "s-review-hints",
+        tool: "task",
+        args: {
+          subagent_type: "turing",
+          description: "Clean follow-up review",
+        },
+      },
+      {
+        output:
+          '{"task_id":"task_turing_clean","sessionID":"child-turing-clean"}\nverdict: approve',
+      },
+    );
+
+    const wickOutput: { message: Record<string, unknown> } = {
+      message: { agent: "wick" },
+    };
+    await sessionStartHook["chat.message"]?.(
+      { sessionID: "s-review-hints", agent: "wick" },
+      wickOutput,
+    );
+
+    expect(String(wickOutput.message.system ?? "")).toContain(
+      "turing=task_turing_open (Review latest diff) [open-review]",
+    );
+    expect(String(wickOutput.message.system ?? "")).not.toContain(
+      "task_turing_clean",
     );
   });
 
@@ -341,14 +666,14 @@ describe("prompt policy", () => {
     const coordinatorPrompt = buildCoordinatorPrompt();
     const wickPrompt = buildWickPrompt();
     const workerPrompt = buildEliotPrompt();
-    const michelangeloPrompt = buildMichelangeloPrompt();
+    const claudePrompt = buildClaudePrompt();
     const tyrellPrompt = buildTyrellPrompt();
 
     for (const prompt of [
       coordinatorPrompt,
       wickPrompt,
       workerPrompt,
-      michelangeloPrompt,
+      claudePrompt,
       tyrellPrompt,
     ]) {
       expect(prompt).toContain(
@@ -367,7 +692,7 @@ describe("prompt policy", () => {
     const coordinatorPrompt = buildCoordinatorPrompt();
     const wickPrompt = buildWickPrompt();
     const eliotPrompt = buildEliotPrompt();
-    const michelangeloPrompt = buildMichelangeloPrompt();
+    const claudePrompt = buildClaudePrompt();
     const tyrellPrompt = buildTyrellPrompt();
     const turingPrompt = createHarnessAgents({ agents: {}, mcps: {} }).turing as {
       prompt: string;
@@ -377,7 +702,7 @@ describe("prompt policy", () => {
       coordinatorPrompt,
       wickPrompt,
       eliotPrompt,
-      michelangeloPrompt,
+      claudePrompt,
       tyrellPrompt,
       turingPrompt.prompt,
     ]) {
@@ -407,7 +732,7 @@ describe("prompt policy", () => {
     expect(eliotPrompt).toContain(
       "Verify the fix against the same failing path before you report the packet complete.",
     );
-    expect(michelangeloPrompt).toContain(
+    expect(claudePrompt).toContain(
       "For stateful flows such as auth, cache, restart, logout/login, or persisted settings, verify the state transition, not only the code change.",
     );
     expect(turingPrompt.prompt).toContain(
@@ -419,13 +744,13 @@ describe("prompt policy", () => {
     const prompt = buildCoordinatorPrompt();
 
     expect(prompt).toContain(
-      "Use OpenCode Task for Eliot, Tyrell, michelangelo, and turing.",
+      "Use OpenCode Task for Eliot, Tyrell, claude, and turing.",
     );
     expect(prompt).toContain(
       "Keep the mainline task with MrRobot unless delegation gives a clear advantage.",
     );
     expect(prompt).toContain(
-      "Route michelangelo packets by default when the work is frontend-design-heavy: pages, components, styling, layout, visual polish, or responsive UX.",
+      "Route claude packets by default when the work is frontend-design-heavy: pages, components, styling, layout, visual polish, or responsive UX.",
     );
     expect(prompt).toContain(
       "This includes greenfield frontend builds where stack selection and scaffolding only exist to support the requested UI work.",
@@ -455,7 +780,7 @@ describe("prompt policy", () => {
     const coordinatorPrompt = buildCoordinatorPrompt();
     const wickPrompt = buildWickPrompt();
     const eliotPrompt = buildEliotPrompt();
-    const michelangeloPrompt = buildMichelangeloPrompt();
+    const claudePrompt = buildClaudePrompt();
     const tyrellPrompt = buildTyrellPrompt();
 
     expect(coordinatorPrompt).toContain(
@@ -465,7 +790,7 @@ describe("prompt policy", () => {
       "Use Eliot for delegated support packets: scoped research, repo scouting, parallel side work, or isolated implementation that should be completed cleanly inside the repo and handed back with a concise result.",
     );
     expect(coordinatorPrompt).toContain(
-      "Use Michelangelo as the default implementation lane for frontend-design-heavy packets: pages, components, styling, layout, responsive UX, and visual polish.",
+      "Use Claude as the default implementation lane for frontend-design-heavy packets: pages, components, styling, layout, responsive UX, and visual polish.",
     );
     expect(coordinatorPrompt).toContain(
       "Frontend-design-heavy also includes greenfield websites, landing pages, dashboards, and new frontend project scaffolds when the main work is still UI implementation.",
@@ -480,7 +805,7 @@ describe("prompt policy", () => {
       "Turing is the review-focused subagent behind the turing lane. Use it for verification and final pass feedback, but it has the same tool and MCP access as the other agents.",
     );
     expect(coordinatorPrompt).toContain(
-      "Do not treat Eliot, Michelangelo, or tyrell as the default lane for every task. Route only when delegation clearly helps.",
+      "Do not treat Eliot, Claude, or tyrell as the default lane for every task. Route only when delegation clearly helps.",
     );
     expect(eliotPrompt).toContain(
       "You are a scoped support lane, not the default owner of the user's whole task.",
@@ -494,27 +819,54 @@ describe("prompt policy", () => {
     expect(eliotPrompt).toContain(
       "Do not answer implementation packets with full-file drafts, paste-ready artifacts, or speculative code blocks when you can safely edit the files yourself.",
     );
-    expect(michelangeloPrompt).toContain("Michelangelo — frontend design subagent.");
-    expect(michelangeloPrompt).toContain(
+    expect(claudePrompt).toContain("Claude — frontend design subagent.");
+    expect(claudePrompt).toContain(
       "Default to implementing assigned frontend design packets directly in code.",
     );
-    expect(michelangeloPrompt).toContain(
+    expect(claudePrompt).toContain(
       "Greenfield frontend builds are in scope when the packet is mainly about creating the UI itself.",
     );
-    expect(michelangeloPrompt).toContain(
+    expect(claudePrompt).toContain(
       "Create the minimal frontend scaffold needed for the assigned UI packet when no existing UI layer is present, using repo cues first and the safest standard stack second.",
     );
-    expect(michelangeloPrompt).toContain(
+    expect(claudePrompt).toContain(
       "Do not drift into backend, API, auth, database, or state-architecture work.",
     );
-    expect(michelangeloPrompt).toContain(
+    expect(claudePrompt).toContain(
       "Honor review-only or no-file-edit instructions from the assigning primary agent.",
     );
-    expect(michelangeloPrompt).toContain(
+    expect(claudePrompt).toContain(
       "If MrRobot marks the packet as implementation and does not forbid file edits, make the change directly in the repo.",
     );
-    expect(michelangeloPrompt).toContain(
-      "For page, component, styling, layout, or visual-system work, load frontend-design first.",
+    expect(claudePrompt).toContain(
+      "For greenfield, branding-heavy, or visual-system frontend packets, load impeccable or taste-skill first depending on fit.",
+    );
+    expect(claudePrompt).toContain(
+      "Use taste-skill for stack-aware premium UI work inside the repo's existing conventions.",
+    );
+    expect(claudePrompt).toContain(
+      "Use redesign-skill when improving an existing interface in place instead of restyling from zero.",
+    );
+    expect(claudePrompt).toContain(
+      "For routine repo-consistent frontend fixes, do not let impeccable's teach flow block small edits; use repo evidence first and pull in only the focused skill that helps.",
+    );
+    expect(claudePrompt).toContain(
+      "For narrower frontend passes, reach for the matching impeccable skill such as layout, typeset, colorize, polish, critique, adapt, animate, harden, optimize, or shape.",
+    );
+    expect(claudePrompt).toContain(
+      "If the repo is Vue/Vite and vue-vite-ui is available, pair it with taste-skill or redesign-skill for implementation details.",
+    );
+    expect(claudePrompt).toContain(
+      "If the repo is Expo or Expo Router and building-native-ui is available, use it for platform patterns and keep taste-skill focused on hierarchy, polish, and states.",
+    );
+    expect(claudePrompt).toContain(
+      "If the repo is plain React Native without Expo-specific scaffolding, stay inside the current mobile stack and use taste-skill or redesign-skill without forcing Expo-oriented patterns.",
+    );
+    expect(claudePrompt).toContain(
+      "If the repo is Android-native, stay with taste-skill or redesign-skill plus the repo's existing Android UI patterns instead of reaching for web or Expo-specific skills.",
+    );
+    expect(claudePrompt).toContain(
+      "Use frontend-design as the fallback when impeccable is unavailable or the repo explicitly depends on that exact skill.",
     );
     expect(tyrellPrompt).toContain("Tyrell — ideation-focused subagent.");
     expect(tyrellPrompt).toContain(
@@ -539,13 +891,13 @@ describe("prompt policy", () => {
       "That default still applies when the frontend work starts from an empty directory and needs initial project scaffolding.",
     );
     expect(wickPrompt).toContain(
-      "Reuse an existing subagent task_id by default for the same lane and ongoing packet; only spawn fresh when scope changes materially or you want a clean reset.",
+      "Reuse an existing subagent task_id by default for the same lane and ongoing packet; lanes may auto-reuse an active exact workstream match when safe, and Turing should only reuse while verifying an open review thread. Spawn fresh when scope changes materially, when the old thread is clean, or when you want a clean reset.",
     );
     expect(coordinatorPrompt).toContain(
-      "After any non-trivial code change, including MrRobot, Eliot, Michelangelo, or Tyrell authored changes, run a Turing pass unless the change was truly trivial and local.",
+      "After any non-trivial code change, including MrRobot, Eliot, Claude, or Tyrell authored changes, run a Turing pass unless the change was truly trivial and local.",
     );
     expect(coordinatorPrompt).toContain(
-      "If Turing requests changes, send the fix back to the original implementation lane, then run Turing again.",
+      "If Turing requests changes, send the fix back to the original implementation lane, then reuse that same Turing thread to verify the repair. If the prior Turing review is already clean, use a fresh Turing pass for new review work.",
     );
   });
 
@@ -553,7 +905,7 @@ describe("prompt policy", () => {
     const coordinatorPrompt = buildCoordinatorPrompt();
     const wickPrompt = buildWickPrompt();
     const eliotPrompt = buildEliotPrompt();
-    const michelangeloPrompt = buildMichelangeloPrompt();
+    const claudePrompt = buildClaudePrompt();
     const tyrellPrompt = buildTyrellPrompt();
 
     const turingPrompt = createHarnessAgents({ agents: {}, mcps: {} }).turing as {
@@ -564,7 +916,7 @@ describe("prompt policy", () => {
       coordinatorPrompt,
       wickPrompt,
       eliotPrompt,
-      michelangeloPrompt,
+      claudePrompt,
       tyrellPrompt,
       turingPrompt.prompt,
     ]) {
@@ -578,28 +930,28 @@ describe("prompt policy", () => {
     const coordinatorPrompt = buildCoordinatorPrompt();
     const wickPrompt = buildWickPrompt();
     const eliotPrompt = buildEliotPrompt();
-    const michelangeloPrompt = buildMichelangeloPrompt();
+    const claudePrompt = buildClaudePrompt();
     const turingPrompt = createHarnessAgents({ agents: {}, mcps: {} }).turing as {
       prompt: string;
     };
 
     expect(coordinatorPrompt).toContain(
-      "Reuse an existing task_id by default when the same lane is continuing the same packet, refinement pass, or follow-up.",
+      "Reuse an existing task_id by default when the same lane is continuing the same packet, refinement pass, or follow-up; lanes may auto-reuse an active exact workstream match when safe, and Turing should only do that for open repair verification threads.",
     );
     expect(coordinatorPrompt).toContain(
       "Spawn a fresh subagent only when the scope changes materially, the prior thread is complete, or you intentionally want a clean context reset.",
     );
     expect(wickPrompt).toContain(
-      "Reuse an existing subagent task_id by default for the same lane and ongoing packet; only spawn fresh when scope changes materially or you want a clean reset.",
+      "Reuse an existing subagent task_id by default for the same lane and ongoing packet; lanes may auto-reuse an active exact workstream match when safe, and Turing should only reuse while verifying an open review thread. Spawn fresh when scope changes materially, when the old thread is clean, or when you want a clean reset.",
     );
     expect(eliotPrompt).toContain(
-      "When you call Task for a continuing lane and workstream, reuse the existing task_id by default.",
+      "When you call Task for a continuing lane and workstream, reuse the existing task_id by default; lanes may auto-reuse an active exact workstream match when safe, and Turing should only do that for open repair verification threads.",
     );
-    expect(michelangeloPrompt).toContain(
-      "When you call Task for a continuing lane and workstream, reuse the existing task_id by default.",
+    expect(claudePrompt).toContain(
+      "When you call Task for a continuing lane and workstream, reuse the existing task_id by default; lanes may auto-reuse an active exact workstream match when safe, and Turing should only do that for open repair verification threads.",
     );
     expect(turingPrompt.prompt).toContain(
-      "When you call Task for a continuing lane and workstream, reuse the existing task_id by default.",
+      "When you call Task for a continuing lane and workstream, reuse the existing task_id by default; lanes may auto-reuse an active exact workstream match when safe, and Turing should only do that for open repair verification threads.",
     );
   });
 
@@ -607,7 +959,7 @@ describe("prompt policy", () => {
     const coordinatorPrompt = buildCoordinatorPrompt();
     const wickPrompt = buildWickPrompt();
     const eliotPrompt = buildEliotPrompt();
-    const michelangeloPrompt = buildMichelangeloPrompt();
+    const claudePrompt = buildClaudePrompt();
     const tyrellPrompt = buildTyrellPrompt();
     const turingPrompt = createHarnessAgents({ agents: {}, mcps: {} }).turing as {
       prompt: string;
@@ -616,7 +968,7 @@ describe("prompt policy", () => {
     expect(coordinatorPrompt).toContain('Your user-facing identity is MrRobot.');
     expect(wickPrompt).toContain('Your user-facing identity is Wick.');
     expect(eliotPrompt).toContain('Your user-facing identity is Eliot.');
-    expect(michelangeloPrompt).toContain('Your user-facing identity is Michelangelo.');
+    expect(claudePrompt).toContain('Your user-facing identity is Claude.');
     expect(tyrellPrompt).toContain('Your user-facing identity is Tyrell.');
     expect(turingPrompt.prompt).toContain(
       'Your user-facing identity is Turing.',

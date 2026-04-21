@@ -1,7 +1,7 @@
 {
   "name": "opencode-pair",
   "version": "0.1.0",
-  "description": "OpenCode harness with a six-agent topology: mrrobot, wick, eliot, tyrell, michelangelo, turing.",
+  "description": "OpenCode harness with a six-agent topology: mrrobot, wick, eliot, tyrell, claude, turing.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -3,7 +3,7 @@ import { deepMerge } from "./utils";
 import { buildCoordinatorPrompt, buildWickPrompt } from "./prompts/coordinator";
 import {
   buildEliotPrompt,
-  buildMichelangeloPrompt,
+  buildClaudePrompt,
   buildTuringPrompt,
   buildTyrellPrompt,
 } from "./prompts/workers";
@@ -20,6 +20,10 @@ export function createHarnessAgents(
   config: HarnessConfig,
 ): Record<string, AgentLike> {
   const overrides = config.agents ?? {};
+  const claudeOverride = deepMerge(
+    overrides.michelangelo ?? {},
+    overrides.claude ?? {},
+  );
 
   return {
     mrrobot: withOverride(
@@ -78,22 +82,34 @@ export function createHarnessAgents(
       overrides.tyrell,
     ),
 
+    claude: withOverride(
+      {
+        mode: "subagent",
+        hidden: true,
+        description:
+          "Claude — Frontend design subagent for UI layout, styling, and visual polish.",
+        model: "openai/gpt-5.4",
+        variant: "xhigh",
+        prompt: buildClaudePrompt(claudeOverride?.prompt_append, config.mcps),
+        temperature: 0.4,
+        color: "#D35400",
+      },
+      claudeOverride,
+    ),
+
     michelangelo: withOverride(
       {
         mode: "subagent",
         hidden: true,
         description:
-          "Michelangelo — Frontend design subagent for UI layout, styling, and visual polish.",
-        model: "google-custom/google-custom-gemini-3.1-pro",
-        variant: "high",
-        prompt: buildMichelangeloPrompt(
-          overrides.michelangelo?.prompt_append,
-          config.mcps,
-        ),
+          "Claude — Deprecated michelangelo alias for the frontend design subagent.",
+        model: "openai/gpt-5.4",
+        variant: "xhigh",
+        prompt: buildClaudePrompt(claudeOverride?.prompt_append, config.mcps),
         temperature: 0.4,
         color: "#D35400",
       },
-      overrides.michelangelo,
+      claudeOverride,
     ),
 
     turing: withOverride(

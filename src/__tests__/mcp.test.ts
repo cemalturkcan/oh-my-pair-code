@@ -44,15 +44,19 @@ describe("createHarnessMcps", () => {
     const pgRoot = join(configHome, "pg-mcp");
     const sshRoot = join(configHome, "ssh-mcp");
     const webRoot = join(configHome, "web-agent-mcp");
+    const imageRoot = join(configHome, "openai-image-gen-mcp");
 
     mkdirSync(join(pgRoot, "src"), { recursive: true });
     mkdirSync(join(sshRoot, "src"), { recursive: true });
     mkdirSync(join(webRoot, "src"), { recursive: true });
+    mkdirSync(join(imageRoot, "src"), { recursive: true });
     writeFileSync(join(pgRoot, "src", "index.js"), "", "utf8");
     writeFileSync(join(sshRoot, "src", "index.js"), "", "utf8");
     writeFileSync(join(webRoot, "src", "server.ts"), "", "utf8");
+    writeFileSync(join(imageRoot, "src", "index.js"), "", "utf8");
     writeFileSync(join(pgRoot, "config.json"), "{}", "utf8");
     writeFileSync(join(sshRoot, "config.json"), "{}", "utf8");
+    writeFileSync(join(imageRoot, "config.json"), "{}", "utf8");
     installPackageStub(pgRoot, "@modelcontextprotocol/sdk");
     installPackageStub(pgRoot, "pg");
     installPackageStub(sshRoot, "@modelcontextprotocol/sdk");
@@ -61,6 +65,7 @@ describe("createHarnessMcps", () => {
     installPackageStub(webRoot, "zod");
     installPackageStub(webRoot, "cloakbrowser");
     installPackageStub(webRoot, "playwright-core");
+    installPackageStub(imageRoot, "@modelcontextprotocol/sdk");
 
     const mcps = createHarnessMcps({ agents: {}, mcps: {} });
 
@@ -78,6 +83,28 @@ describe("createHarnessMcps", () => {
     });
     expect(mcps["web-agent-mcp"]).toMatchObject({
       command: ["bun", "run", join(webRoot, "src", "server.ts")],
+    });
+    expect(mcps["openai-image-gen-mcp"]).toMatchObject({
+      command: ["node", join(imageRoot, "src", "index.js")],
+      environment: {
+        OPENAI_IMAGE_GEN_CONFIG_PATH: join(imageRoot, "config.json"),
+      },
+    });
+  });
+
+  it("registers openai-image-gen-mcp even when managed config.json is absent", () => {
+    const imageRoot = join(configHome, "openai-image-gen-mcp");
+    mkdirSync(join(imageRoot, "src"), { recursive: true });
+    writeFileSync(join(imageRoot, "src", "index.js"), "", "utf8");
+    installPackageStub(imageRoot, "@modelcontextprotocol/sdk");
+
+    const mcps = createHarnessMcps({ agents: {}, mcps: {} });
+
+    expect(mcps["openai-image-gen-mcp"]).toMatchObject({
+      command: ["node", join(imageRoot, "src", "index.js")],
+      environment: {
+        OPENAI_IMAGE_GEN_CONFIG_PATH: join(imageRoot, "config.json"),
+      },
     });
   });
 

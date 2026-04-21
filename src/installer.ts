@@ -55,7 +55,12 @@ const PACKAGE_SPECS: Record<string, string> = {
   zod: "latest",
 };
 
-const MCP_NAMES = ["pg-mcp", "ssh-mcp", "web-agent-mcp"] as const;
+const MCP_NAMES = [
+  "pg-mcp",
+  "ssh-mcp",
+  "web-agent-mcp",
+  "openai-image-gen-mcp",
+] as const;
 const STALE_HARNESS_PLUGIN_FRAGMENTS = ["opencode-background-agents-local"] as const;
 const MANAGED_SKILLS_MANIFEST = ".opencode-pair-managed-skills.json";
 const MANAGED_MCP_STAMP = ".opencode-pair-managed-mcp.json";
@@ -69,6 +74,7 @@ const MCP_REQUIRED_PACKAGES: Record<(typeof MCP_NAMES)[number], string[]> = {
     "cloakbrowser",
     "playwright-core",
   ],
+  "openai-image-gen-mcp": ["@modelcontextprotocol/sdk"],
 };
 
 function getConfigDir(): string {

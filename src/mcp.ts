@@ -14,6 +14,7 @@ const LOCAL_MCP_DEPENDENCIES = {
   ],
   "pg-mcp": ["@modelcontextprotocol/sdk", "pg"],
   "ssh-mcp": ["@modelcontextprotocol/sdk", "zod"],
+  "openai-image-gen-mcp": ["@modelcontextprotocol/sdk"],
 } as const;
 
 function hasDisplay(): boolean {
@@ -135,6 +136,23 @@ export function createHarnessMcps(
         command: localCommand(serverEntry),
         environment: {
           SSH_MCP_CONFIG_PATH: sshConfigPath,
+        },
+        enabled: true,
+        timeout: 60000,
+      };
+    }
+  }
+
+  if (toggles.openai_image_gen_mcp !== false) {
+    const serverRoot = getManagedMcpRoot("openai-image-gen-mcp");
+    const configPath = join(serverRoot, "config.json");
+    const serverEntry = join(serverRoot, "src", "index.js");
+    if (existsSync(serverEntry) && hasRequiredPackages("openai-image-gen-mcp", serverRoot)) {
+      result["openai-image-gen-mcp"] = {
+        type: "local",
+        command: localCommand(serverEntry),
+        environment: {
+          OPENAI_IMAGE_GEN_CONFIG_PATH: configPath,
         },
         enabled: true,
         timeout: 60000,
