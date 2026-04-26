@@ -13,7 +13,34 @@ type ChatMessageInput = {
 
 type ChatMessageOutput = {
   message: Record<string, unknown>;
+  parts?: Array<Record<string, unknown>>;
 };
+
+const WICK_SHORTCUT = /^\s*wick!\s*/i;
+const WICK_SHORTCUT_MODEL = {
+  providerID: "openai",
+  modelID: "gpt-5.5-fast",
+  variant: "xhigh",
+};
+
+function applyWickShortcut(output: ChatMessageOutput): boolean {
+  if (!Array.isArray(output.parts)) return false;
+
+  for (const part of output.parts) {
+    if (part.type !== "text" || typeof part.text !== "string") continue;
+    if (!WICK_SHORTCUT.test(part.text)) return false;
+
+    const nextText = part.text.replace(WICK_SHORTCUT, "");
+    if (nextText.trim().length > 0) {
+      part.text = nextText;
+    }
+    output.message.agent = "wick";
+    output.message.model = WICK_SHORTCUT_MODEL;
+    return true;
+  }
+
+  return false;
+}
 
 function compactFactList(values: string[]): string {
   return values.length > 0 ? values.join("/") : "-";
@@ -66,11 +93,12 @@ export function createSessionStartHook(
       input: ChatMessageInput,
       output: ChatMessageOutput,
     ): Promise<void> => {
+      applyWickShortcut(output);
+
       const agentName =
-        input.agent ??
         (typeof output.message.agent === "string"
           ? output.message.agent
-          : undefined);
+          : undefined) ?? input.agent;
       runtime.setSessionAgent(input.sessionID, agentName);
 
       if (agentName && !PRIMARY_AGENTS.has(agentName)) {

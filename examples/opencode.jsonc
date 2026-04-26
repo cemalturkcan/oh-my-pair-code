@@ -2,7 +2,7 @@
   // Reference example for the plugin stack after installation.
   "plugin": [
     "opencode-pair",
-    "opencode-google-login@latest",
+    "@tarquinen/opencode-dcp",
     "opencode-pty",
     "@mohak34/opencode-notifier",
     "@zenobius/opencode-skillful",

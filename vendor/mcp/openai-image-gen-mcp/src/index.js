@@ -51,67 +51,49 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "generate_image",
       description:
-        "Generate an image with the OpenAI Responses image_generation tool using Codex auth.",
+        "Generate an image with the OpenAI Responses image_generation tool using Codex auth. Call the Skill tool directly with name 'image-prompting' first, pass its final JSON object in 'prompt_json', and the bridge will serialize it and forward it verbatim to the hosted image_generation tool. PNG output, high quality, auto size, and auto background are fixed by the server. 'output_path' is a file path; if you only know the folder, pass 'output_name' plus 'base_dir'.",
       inputSchema: {
         type: "object",
         properties: {
-          prompt: { type: "string" },
-          model: { type: "string" },
-          reasoning_effort: {
-            type: "string",
-            enum: ["none", "low", "medium", "high", "xhigh"],
+          prompt_json: {
+            type: "object",
+            additionalProperties: true,
+            description:
+              "Final JSON object returned by the image-prompting skill; serialized and forwarded verbatim as source_prompt.",
           },
-          instructions: { type: "string" },
           output_path: { type: "string" },
           output_name: { type: "string" },
           base_dir: { type: "string" },
-          size: { type: "string" },
-          quality: { type: "string" },
-          output_format: { type: "string", enum: ["png", "jpeg", "webp"] },
-          output_compression: { type: "integer", minimum: 0, maximum: 100 },
-          background: { type: "string" },
-          action: { type: "string", enum: ["auto", "generate", "edit"] },
-          partial_images: { type: "integer", minimum: 0, maximum: 3 },
-          previous_response_id: { type: "string" },
-          previous_image_call_id: { type: "string" },
         },
-        required: ["prompt"],
+        required: ["prompt_json"],
       },
     },
     {
       name: "edit_image",
       description:
-        "Edit one or more local images with the OpenAI Responses image_generation tool using Codex auth.",
+        "Edit one or more local images with the OpenAI Responses image_generation tool using Codex auth. Requires at least one of 'input_images', 'previous_response_id', or 'previous_image_call_id'. Call the Skill tool directly with name 'image-prompting' first, pass its final JSON object in 'prompt_json', and the bridge will serialize it and forward it verbatim to the hosted image_generation tool. PNG output, high quality, auto size, and auto background are fixed by the server. 'output_path' is a file path; if you only know the folder, pass 'output_name' plus 'base_dir'.",
       inputSchema: {
         type: "object",
         properties: {
-          prompt: { type: "string" },
+          prompt_json: {
+            type: "object",
+            additionalProperties: true,
+            description:
+              "Final JSON object returned by the image-prompting skill; serialized and forwarded verbatim as source_prompt.",
+          },
           input_images: {
             type: "array",
             items: { type: "string" },
             minItems: 1,
             maxItems: 16,
           },
-          model: { type: "string" },
-          reasoning_effort: {
-            type: "string",
-            enum: ["none", "low", "medium", "high", "xhigh"],
-          },
-          instructions: { type: "string" },
           output_path: { type: "string" },
           output_name: { type: "string" },
           base_dir: { type: "string" },
-          size: { type: "string" },
-          quality: { type: "string" },
-          output_format: { type: "string", enum: ["png", "jpeg", "webp"] },
-          output_compression: { type: "integer", minimum: 0, maximum: 100 },
-          background: { type: "string" },
-          action: { type: "string", enum: ["auto", "generate", "edit"] },
-          partial_images: { type: "integer", minimum: 0, maximum: 3 },
           previous_response_id: { type: "string" },
           previous_image_call_id: { type: "string" },
         },
-        required: ["prompt"],
+        required: ["prompt_json"],
       },
     },
   ],

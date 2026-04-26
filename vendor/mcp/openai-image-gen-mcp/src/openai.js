@@ -40,53 +40,76 @@ function normalizeReasoningEffort(value, fallbackValue = null) {
   return normalized;
 }
 
+function normalizePromptJson(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("'prompt_json' must be a JSON object.");
+  }
+
+  return value;
+}
+
+function resolveSourcePrompt(args) {
+  if (args.prompt_json != null) {
+    return JSON.stringify(normalizePromptJson(args.prompt_json), null, 2);
+  }
+
+  throw new Error("'prompt_json' is required. Use the image-prompting skill output as a JSON object.");
+}
+
+function buildBridgeInstructions(taskInstructions) {
+  const sections = [
+    "# Bridge contract",
+    "- The user input is a JSON object.",
+    "- Call the image_generation tool exactly once.",
+    "- Read `source_prompt` from the JSON payload.",
+    "- Set the tool prompt to `source_prompt` exactly as provided.",
+    "- Do not paraphrase, expand, normalize, translate, reorder, summarize, optimize, or merge any other field into the tool prompt.",
+    "- Ignore caller-provided `instructions`, `model`, `reasoning_effort`, or any styling overrides when constructing the tool prompt.",
+    "- If `source_prompt` is empty, return a short text error instead of guessing.",
+  ];
+  const normalizedTaskInstructions = normalizeNonEmptyString(taskInstructions);
+
+  if (normalizedTaskInstructions) {
+    sections.push("", "# Server notes", normalizedTaskInstructions);
+  }
+
+  return sections.join("\n");
+}
+
+function buildPromptPayload({ prompt, action }) {
+  return JSON.stringify(
+    {
+      type: "openai-image-gen-mcp-passthrough",
+      action,
+      source_prompt: prompt,
+    },
+    null,
+    2,
+  );
+}
+
+function buildPromptPreview(prompt, limit = 320) {
+  if (typeof prompt !== "string") {
+    return null;
+  }
+
+  return prompt.length > limit ? `${prompt.slice(0, limit - 1)}…` : prompt;
+}
+
 function buildToolConfig(args, fallbackAction) {
-  const tool = {
+  return {
     type: "image_generation",
-    action: normalizeNonEmptyString(args.action) || fallbackAction,
+    action: fallbackAction,
+    size: "auto",
+    quality: "high",
+    output_format: "png",
+    background: "auto",
   };
-
-  for (const key of [
-    "size",
-    "quality",
-    "output_format",
-    "output_compression",
-    "background",
-  ]) {
-    if (args[key] != null) {
-      tool[key] = args[key];
-    }
-  }
-
-  const partialImages = normalizeOptionalInteger(
-    args.partial_images,
-    "partial_images",
-    0,
-    3,
-  );
-  if (partialImages != null) {
-    tool.partial_images = partialImages;
-  }
-
-  const outputCompression = normalizeOptionalInteger(
-    args.output_compression,
-    "output_compression",
-    0,
-    100,
-  );
-  if (outputCompression != null) {
-    tool.output_compression = outputCompression;
-  }
-
-  return tool;
 }
 
 export function prepareImageGenerationRequest(args, fallbackAction) {
   const config = loadConfig();
-  const prompt = normalizeNonEmptyString(args.prompt);
-  if (!prompt) {
-    throw new Error("'prompt' is required.");
-  }
+  const prompt = resolveSourcePrompt(args);
 
   const baseDir = resolveBaseDir(args.base_dir);
   const inputImages = Array.isArray(args.input_images)
@@ -94,11 +117,8 @@ export function prepareImageGenerationRequest(args, fallbackAction) {
     : [];
   const previousImageCallId = normalizeNonEmptyString(args.previous_image_call_id);
   const previousResponseId = normalizeNonEmptyString(args.previous_response_id);
-  const action = normalizeNonEmptyString(args.action) || fallbackAction;
-  const reasoningEffort = normalizeReasoningEffort(
-    args.reasoning_effort,
-    config.default_reasoning_effort,
-  );
+  const action = fallbackAction;
+  const reasoningEffort = normalizeReasoningEffort(config.default_reasoning_effort);
 
   if (
     action === "edit" &&
@@ -107,7 +127,7 @@ export function prepareImageGenerationRequest(args, fallbackAction) {
     !previousResponseId
   ) {
     throw new Error(
-      "'edit_image' requires at least one 'input_images' entry, 'previous_image_call_id', or 'previous_response_id'.",
+      "'edit_image' requires at least one 'input_images' entry, 'previous_image_call_id', or 'previous_response_id'. For a local edit, pass 'input_images' such as ['hero_collage_new.jpg']. For a follow-up edit, reuse 'previous_response_id' or 'previous_image_call_id'.",
     );
   }
 
@@ -115,7 +135,13 @@ export function prepareImageGenerationRequest(args, fallbackAction) {
     {
       role: "user",
       content: [
-        { type: "input_text", text: prompt },
+        {
+          type: "input_text",
+          text: buildPromptPayload({
+            prompt,
+            action,
+          }),
+        },
         ...inputImages.map((image) => ({
           type: "input_image",
           image_url: image.dataUrl,
@@ -130,9 +156,8 @@ export function prepareImageGenerationRequest(args, fallbackAction) {
 
   return {
     prompt,
-    model: normalizeNonEmptyString(args.model) || config.default_model,
-    instructions:
-      normalizeNonEmptyString(args.instructions) || config.default_instructions,
+    model: config.default_model,
+    instructions: buildBridgeInstructions(config.default_instructions),
     input,
     tools: [buildToolConfig(args, fallbackAction)],
     tool_choice: { type: "image_generation" },
@@ -393,6 +418,15 @@ export async function runImageGeneration(args, authState, fallbackAction) {
     auth_file_path: finalAuthState.authFilePath,
     response_id: response.id || null,
     model: request.model,
+    source_prompt: request.prompt,
+    source_prompt_preview: buildPromptPreview(request.prompt),
+    input_images_count: request.inputImages.length,
+    tool_defaults: {
+      output_format: request.tools[0]?.output_format || null,
+      quality: request.tools[0]?.quality || null,
+      size: request.tools[0]?.size || null,
+      background: request.tools[0]?.background || null,
+    },
     image_count: savedImages.length,
     images: savedImages,
   };

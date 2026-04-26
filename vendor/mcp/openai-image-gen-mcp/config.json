@@ -1,6 +1,6 @@
 {
-  "default_model": "gpt-5.4",
+  "default_model": "gpt-5.5-fast",
   "default_reasoning_effort": "xhigh",
-  "default_instructions": "Generate or edit an image that matches the user's request.",
+  "default_instructions": "Bridge the JSON input to a single image_generation tool call and use source_prompt verbatim.",
   "default_output_dir": "~/.codex/generated_images"
 }

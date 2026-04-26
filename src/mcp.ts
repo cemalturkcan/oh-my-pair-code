@@ -5,6 +5,9 @@ import type { HarnessConfig } from "./types";
 
 type McpConfig = Record<string, unknown>;
 
+const DEFAULT_MCP_TIMEOUT_MS = 60000;
+const IMAGE_GEN_MCP_TIMEOUT_MS = 300000;
+
 const LOCAL_MCP_DEPENDENCIES = {
   "web-agent-mcp": [
     "@modelcontextprotocol/sdk",
@@ -63,7 +66,7 @@ export function createHarnessMcps(
         ? { Authorization: `Bearer ${process.env.CONTEXT7_API_KEY}` }
         : undefined,
       oauth: false,
-      timeout: 60000,
+      timeout: DEFAULT_MCP_TIMEOUT_MS,
     };
   }
 
@@ -73,7 +76,7 @@ export function createHarnessMcps(
       url: "https://mcp.grep.app",
       enabled: true,
       oauth: false,
-      timeout: 60000,
+      timeout: DEFAULT_MCP_TIMEOUT_MS,
     };
   }
 
@@ -96,7 +99,7 @@ export function createHarnessMcps(
             : "--disable-gpu,--disable-dev-shm-usage",
         },
         enabled: true,
-        timeout: 60000,
+        timeout: DEFAULT_MCP_TIMEOUT_MS,
       };
     }
   }
@@ -117,7 +120,7 @@ export function createHarnessMcps(
           PG_MCP_CONFIG_PATH: pgConfigPath,
         },
         enabled: true,
-        timeout: 60000,
+        timeout: DEFAULT_MCP_TIMEOUT_MS,
       };
     }
   }
@@ -138,7 +141,7 @@ export function createHarnessMcps(
           SSH_MCP_CONFIG_PATH: sshConfigPath,
         },
         enabled: true,
-        timeout: 60000,
+        timeout: DEFAULT_MCP_TIMEOUT_MS,
       };
     }
   }
@@ -155,7 +158,7 @@ export function createHarnessMcps(
           OPENAI_IMAGE_GEN_CONFIG_PATH: configPath,
         },
         enabled: true,
-        timeout: 60000,
+        timeout: IMAGE_GEN_MCP_TIMEOUT_MS,
       };
     }
   }
@@ -169,7 +172,7 @@ export function createHarnessMcps(
         SEARXNG_URL: searxngUrl,
       },
       enabled: true,
-      timeout: 60000,
+      timeout: DEFAULT_MCP_TIMEOUT_MS,
     };
   }
 
@@ -178,7 +181,7 @@ export function createHarnessMcps(
       type: "local",
       command: ["npx", "-y", "@cemalturkcann/mariadb-mcp-server"],
       enabled: true,
-      timeout: 60000,
+      timeout: DEFAULT_MCP_TIMEOUT_MS,
     };
   }
 

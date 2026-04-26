@@ -89,6 +89,7 @@ describe("createHarnessMcps", () => {
       environment: {
         OPENAI_IMAGE_GEN_CONFIG_PATH: join(imageRoot, "config.json"),
       },
+      timeout: 300000,
     });
   });
 
@@ -105,6 +106,7 @@ describe("createHarnessMcps", () => {
       environment: {
         OPENAI_IMAGE_GEN_CONFIG_PATH: join(imageRoot, "config.json"),
       },
+      timeout: 300000,
     });
   });
 
