@@ -112,19 +112,120 @@ describe("openai-image-gen-mcp request preparation", () => {
   it("uses config defaults for model and reasoning effort", () => {
     const request = prepareImageGenerationRequest(
       {
-        prompt: "Draw a kite",
+        prompt_json: {
+          goal: "Generate a kite portrait",
+          subject: "A bright red kite",
+        },
       },
       "generate",
     );
 
-    expect(request.model).toBe("gpt-5.4");
+    expect(request.model).toBe("gpt-5.5-fast");
     expect(request.reasoning).toEqual({ effort: "xhigh" });
+    expect(request.instructions).toContain("The user input is a JSON object");
+    expect(request.instructions).toContain("Set the tool prompt to `source_prompt` exactly as provided");
+    expect(request.instructions).toContain("Bridge the JSON input");
+    expect(request.tools[0]).toEqual({
+      type: "image_generation",
+      action: "generate",
+      size: "auto",
+      quality: "high",
+      output_format: "png",
+      background: "auto",
+    });
+    const payload = JSON.parse(request.input[0].content[0].text);
+    expect(payload).toEqual({
+      type: "openai-image-gen-mcp-passthrough",
+      action: "generate",
+      source_prompt: JSON.stringify(
+        {
+          goal: "Generate a kite portrait",
+          subject: "A bright red kite",
+        },
+        null,
+        2,
+      ),
+    });
+  });
+
+  it("ignores caller tuning knobs and preserves the JSON prompt payload", () => {
+    const request = prepareImageGenerationRequest(
+      {
+        prompt_json: {
+          goal: "Generate billboard portrait",
+          text_in_image: '"Fresh and clean"',
+        },
+        prompt_mode: "normalize",
+        instructions: "Rewrite this prompt into something better",
+        model: "gpt-5.5-fast",
+        reasoning_effort: "none",
+        output_format: "jpeg",
+        output_compression: 100,
+        size: "1024x1536",
+      },
+      "generate",
+    );
+
+    expect(request.instructions).toContain("Ignore caller-provided `instructions`");
+    expect(request.instructions).not.toContain("Rewrite this prompt into something better");
+    expect(request.model).toBe("gpt-5.5-fast");
+    expect(request.reasoning).toEqual({ effort: "xhigh" });
+    expect(request.tools[0].output_format).toBe("png");
+    expect(request.tools[0].quality).toBe("high");
+    expect(request.tools[0].size).toBe("auto");
+    const payload = JSON.parse(request.input[0].content[0].text);
+    expect(payload.source_prompt).toBe(
+      JSON.stringify(
+        {
+          goal: "Generate billboard portrait",
+          text_in_image: '"Fresh and clean"',
+        },
+        null,
+        2,
+      ),
+    );
+  });
+
+  it("requires prompt_json", () => {
+    expect(() =>
+      prepareImageGenerationRequest(
+        {
+          prompt: "Draw a kite",
+        },
+        "generate",
+      ),
+    ).toThrow("'prompt_json' is required. Use the image-prompting skill output as a JSON object.");
+  });
+
+  it("rejects invalid prompt_json values", () => {
+    expect(() =>
+      prepareImageGenerationRequest(
+        {
+          prompt_json: ["bad"],
+        },
+        "generate",
+      ),
+    ).toThrow("'prompt_json' must be a JSON object.");
+  });
+
+  it("explains how to satisfy edit requirements when edit inputs are missing", () => {
+    expect(() =>
+      prepareImageGenerationRequest(
+        {
+          prompt_json: { goal: "Make it look realistic" },
+          action: "edit",
+        },
+        "edit",
+      ),
+    ).toThrow(
+      "'edit_image' requires at least one 'input_images' entry, 'previous_image_call_id', or 'previous_response_id'. For a local edit, pass 'input_images' such as ['hero_collage_new.jpg']. For a follow-up edit, reuse 'previous_response_id' or 'previous_image_call_id'.",
+    );
   });
 
   it("allows edit requests backed only by previous_response_id", () => {
     const request = prepareImageGenerationRequest(
       {
-        prompt: "Make it look realistic",
+        prompt_json: { goal: "Make it look realistic" },
         action: "edit",
         previous_response_id: "resp_123",
       },
@@ -232,83 +333,12 @@ describe("openai-image-gen-mcp config", () => {
   it("loads defaults from config.json", () => {
     const config = loadConfig();
 
-    expect(config.default_model).toBe("gpt-5.4");
+    expect(config.default_model).toBe("gpt-5.5-fast");
     expect(config.default_reasoning_effort).toBe("xhigh");
+    expect(config.default_instructions).toContain("source_prompt verbatim");
     expect(config.default_output_dir.endsWith(".codex/generated_images")).toBe(true);
   });
 
-  it("uses legacy output-dir env when config omits default_output_dir", () => {
-    const root = join(tmpdir(), `openai-image-gen-mcp-${Date.now()}-config-env`);
-    mkdirSync(root, { recursive: true });
-    const configPath = join(root, "config.json");
-    const previousConfigPath = process.env.OPENAI_IMAGE_GEN_CONFIG_PATH;
-    const previousOutputDir = process.env.OPENAI_IMAGE_GEN_DEFAULT_OUTPUT_DIR;
-
-    writeFileSync(
-      configPath,
-      JSON.stringify(
-        {
-          default_model: "gpt-5.4",
-          default_reasoning_effort: "xhigh",
-        },
-        null,
-        2,
-      ),
-      "utf8",
-    );
-
-    process.env.OPENAI_IMAGE_GEN_CONFIG_PATH = configPath;
-    process.env.OPENAI_IMAGE_GEN_DEFAULT_OUTPUT_DIR = join(root, "legacy-output");
-
-    try {
-      const config = loadConfig();
-      expect(config.default_output_dir).toBe(join(root, "legacy-output"));
-    } finally {
-      if (previousConfigPath === undefined) {
-        delete process.env.OPENAI_IMAGE_GEN_CONFIG_PATH;
-      } else {
-        process.env.OPENAI_IMAGE_GEN_CONFIG_PATH = previousConfigPath;
-      }
-
-      if (previousOutputDir === undefined) {
-        delete process.env.OPENAI_IMAGE_GEN_DEFAULT_OUTPUT_DIR;
-      } else {
-        process.env.OPENAI_IMAGE_GEN_DEFAULT_OUTPUT_DIR = previousOutputDir;
-      }
-    }
-  });
-
-  it("uses legacy output-dir env when config file is missing or empty", () => {
-    const root = join(tmpdir(), `openai-image-gen-mcp-${Date.now()}-config-empty`);
-    mkdirSync(root, { recursive: true });
-    const missingConfigPath = join(root, "missing.json");
-    const emptyConfigPath = join(root, "empty.json");
-    const previousConfigPath = process.env.OPENAI_IMAGE_GEN_CONFIG_PATH;
-    const previousOutputDir = process.env.OPENAI_IMAGE_GEN_DEFAULT_OUTPUT_DIR;
-
-    process.env.OPENAI_IMAGE_GEN_DEFAULT_OUTPUT_DIR = join(root, "legacy-output-2");
-
-    try {
-      process.env.OPENAI_IMAGE_GEN_CONFIG_PATH = missingConfigPath;
-      expect(loadConfig().default_output_dir).toBe(join(root, "legacy-output-2"));
-
-      writeFileSync(emptyConfigPath, "\n", "utf8");
-      process.env.OPENAI_IMAGE_GEN_CONFIG_PATH = emptyConfigPath;
-      expect(loadConfig().default_output_dir).toBe(join(root, "legacy-output-2"));
-    } finally {
-      if (previousConfigPath === undefined) {
-        delete process.env.OPENAI_IMAGE_GEN_CONFIG_PATH;
-      } else {
-        process.env.OPENAI_IMAGE_GEN_CONFIG_PATH = previousConfigPath;
-      }
-
-      if (previousOutputDir === undefined) {
-        delete process.env.OPENAI_IMAGE_GEN_DEFAULT_OUTPUT_DIR;
-      } else {
-        process.env.OPENAI_IMAGE_GEN_DEFAULT_OUTPUT_DIR = previousOutputDir;
-      }
-    }
-  });
 });
 
 describe("openai-image-gen-mcp prompts", () => {
@@ -316,10 +346,17 @@ describe("openai-image-gen-mcp prompts", () => {
     const result = getPromptResult(PROMPTS.usage_guide.name);
 
     expect(result.description).toBe(PROMPTS.usage_guide.description);
-    expect(result.messages[0].content.text).toContain("parallel");
+    expect(result.messages[0].content.text).toContain("Do not rely on `skill_find`");
+    expect(result.messages[0].content.text).toContain("JSON object as `prompt_json`");
+    expect(result.messages[0].content.text).toContain("source_prompt");
+    expect(result.messages[0].content.text).toContain("PNG output, high quality, auto size, and auto background are fixed by the server");
+    expect(result.messages[0].content.text).toContain("input_images");
+    expect(result.messages[0].content.text).toContain("file path, not a directory");
     expect(result.messages[0].content.text).toContain("output_path");
     expect(result.messages[0].content.text).toContain("output_name");
     expect(result.messages[0].content.text).toContain("base_dir");
+    expect(result.messages[0].content.text).toContain("source_prompt_preview");
+    expect(result.messages[0].content.text).toContain("exact prompt text");
   });
 });
 
@@ -352,7 +389,10 @@ describe("openai-image-gen-mcp execution", () => {
     try {
       const result = await runImageGeneration(
         {
-          prompt: "Draw a fox",
+          prompt_json: {
+            goal: "Generate a fox portrait",
+            subject: "A fox",
+          },
           output_path: join(root, "fox.jpg"),
         },
         state,
@@ -363,6 +403,32 @@ describe("openai-image-gen-mcp execution", () => {
       expect(calls[0].url).toBe("https://chatgpt.com/backend-api/codex/responses");
       expect(calls[0].init.headers["ChatGPT-Account-Id"]).toBe("acct_from_id_token");
       expect(calls[0].init.headers["X-OpenAI-Fedramp"]).toBe("true");
+      const requestBody = JSON.parse(String(calls[0].init.body));
+      expect(requestBody.model).toBe("gpt-5.5-fast");
+      expect(requestBody.reasoning).toEqual({ effort: "xhigh" });
+      expect(requestBody.instructions).toContain("The user input is a JSON object");
+      const payload = JSON.parse(requestBody.input[0].content[0].text);
+      expect(payload).toEqual({
+        type: "openai-image-gen-mcp-passthrough",
+        action: "generate",
+        source_prompt: JSON.stringify(
+          {
+            goal: "Generate a fox portrait",
+            subject: "A fox",
+          },
+          null,
+          2,
+        ),
+      });
+      expect(result.source_prompt).toBe(payload.source_prompt);
+      expect(result.source_prompt_preview).toContain("Generate a fox portrait");
+      expect(result.input_images_count).toBe(0);
+      expect(result.tool_defaults).toEqual({
+        output_format: "png",
+        quality: "high",
+        size: "auto",
+        background: "auto",
+      });
       expect(result.images[0].saved_path.endsWith(".png")).toBe(true);
       expect(existsSync(result.images[0].saved_path)).toBe(true);
     } finally {
@@ -386,7 +452,10 @@ describe("openai-image-gen-mcp execution", () => {
     try {
       const result = await runImageGeneration(
         {
-          prompt: "Draw a bright red kite",
+          prompt_json: {
+            goal: "Generate a kite asset",
+            subject: "A bright red kite",
+          },
           base_dir: root,
         },
         state,
@@ -394,7 +463,6 @@ describe("openai-image-gen-mcp execution", () => {
       );
 
       expect(result.images[0].saved_path.startsWith(root)).toBe(true);
-      expect(result.images[0].saved_path.includes("draw-a-bright-red-kite")).toBe(true);
       expect(result.images[0].saved_path.endsWith(".png")).toBe(true);
       expect(existsSync(result.images[0].saved_path)).toBe(true);
     } finally {
@@ -455,7 +523,7 @@ describe("openai-image-gen-mcp execution", () => {
     try {
       const result = await runImageGeneration(
         {
-          prompt: "Draw a river",
+          prompt_json: { goal: "Draw a river" },
           output_path: join(root, "river.png"),
         },
         state,
@@ -516,7 +584,7 @@ describe("openai-image-gen-mcp execution", () => {
     try {
       const result = await runImageGeneration(
         {
-          prompt: "Draw a comet",
+          prompt_json: { goal: "Draw a comet" },
           output_path: join(root, "comet.png"),
         },
         state,
@@ -557,7 +625,7 @@ describe("openai-image-gen-mcp execution", () => {
       await expect(
         runImageGeneration(
           {
-            prompt: "Draw a nebula",
+            prompt_json: { goal: "Draw a nebula" },
             output_path: join(root, "nebula.png"),
           },
           state,

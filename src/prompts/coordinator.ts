@@ -1,9 +1,9 @@
 import type { McpToggles } from "../types";
 import {
   COORDINATOR_CORE,
-  DEFAULT_SKILL_SHORTLIST_TEXT,
   PRIMARY_CORE,
   RESPONSE_DISCIPLINE,
+  buildInstalledSkillsGuidance,
   buildMcpCatalog,
   withPromptAppend,
 } from "./shared";
@@ -12,10 +12,10 @@ import { buildMcpSummary } from "./mcp-access";
 function buildSubagentCatalog(mcps?: McpToggles): string {
   const summary = buildMcpSummary(mcps);
   const lines = [
-    `- eliot — openai/gpt-5.4-fast high — general subagent for implementation, refactors, repo exploration, and focused research. ${summary}`,
-    `- tyrell — openai/gpt-5.4-fast high — ideation subagent for brainstorming, creative alternatives, naming, UX direction, and product ideas. ${summary}`,
-    `- claude — openai/gpt-5.4 xhigh — frontend design subagent for pages, components, styling, layout, and visual polish. ${summary}`,
-    `- turing — Turing — openai/gpt-5.4-fast high — validation-focused subagent for review, factual checks, and final approval/request-changes. ${summary}`,
+    `- eliot — openai/gpt-5.5-fast xhigh — general subagent for implementation, refactors, repo exploration, and focused research. ${summary}`,
+    `- tyrell — openai/gpt-5.5-fast xhigh — ideation subagent for brainstorming, creative alternatives, naming, UX direction, and product ideas. ${summary}`,
+    `- claude — openai/gpt-5.5-fast xhigh — frontend design subagent for pages, components, styling, layout, and visual polish. ${summary}`,
+    `- turing — Turing — openai/gpt-5.5-fast xhigh — validation-focused subagent for review, factual checks, and final approval/request-changes. ${summary}`,
   ];
 
   return `
@@ -28,10 +28,10 @@ ${lines.join("\n")}
 function buildWickSupportCatalog(mcps?: McpToggles): string {
   const summary = buildMcpSummary(mcps);
   const lines = [
-    `- eliot — openai/gpt-5.4-fast high — scoped support lane for bounded implementation and repo work. ${summary}`,
-    `- tyrell — openai/gpt-5.4-fast high — ideation and exploratory lane for names, options, UX direction, and open-ended digging. ${summary}`,
-    `- claude — openai/gpt-5.4 xhigh — frontend design lane for pages, components, styling, layout, and visual polish. ${summary}`,
-    `- turing — Turing — openai/gpt-5.4-fast high — validation lane for diff review, checks, and approval/request-changes. ${summary}`,
+    `- eliot — openai/gpt-5.5-fast xhigh — scoped support lane for bounded implementation and repo work. ${summary}`,
+    `- tyrell — openai/gpt-5.5-fast xhigh — ideation and exploratory lane for names, options, UX direction, and open-ended digging. ${summary}`,
+    `- claude — openai/gpt-5.5-fast xhigh — frontend design lane for pages, components, styling, layout, and visual polish. ${summary}`,
+    `- turing — Turing — openai/gpt-5.5-fast xhigh — validation lane for diff review, checks, and approval/request-changes. ${summary}`,
   ];
 
   return `
@@ -191,14 +191,16 @@ Verify build and typecheck before any push.
 </ActionSafety>
 `;
 
-const SKILL_MANAGEMENT = `
+function buildSkillManagement(skillNames?: readonly string[]): string {
+  return `
 <SkillManagement>
 - Agents may use skill_find and skill_use.
 - Before domain-specific tasks, use skill_find and load only relevant skills.
 - When routing domain-specific work to a subagent, tell it to skill_use first when a matching skill exists.
-- Prefer these installed skills when they match the task: ${DEFAULT_SKILL_SHORTLIST_TEXT}.
+${buildInstalledSkillsGuidance(skillNames)}
 </SkillManagement>
 `;
+}
 
 const ORCHESTRATION = `
 <Orchestration>
@@ -217,12 +219,13 @@ const ORCHESTRATION = `
 export function buildCoordinatorPrompt(
   promptAppend?: string,
   mcps?: McpToggles,
+  skillNames?: readonly string[],
 ): string {
   const sections = [
     COORDINATOR_CORE,
     RESPONSE_DISCIPLINE,
     buildMrRobotPersona(),
-    buildMcpCatalog(mcps),
+    buildMcpCatalog(mcps, skillNames),
     buildSubagentCatalog(mcps),
     buildExecutionRules(),
     buildTaskRouting(),
@@ -232,7 +235,7 @@ export function buildCoordinatorPrompt(
     SUBAGENT_CONTINUATION,
     PARALLEL_SAFETY,
     ACTION_SAFETY,
-    SKILL_MANAGEMENT,
+    buildSkillManagement(skillNames),
   ];
 
   return withPromptAppend(sections.join("\n"), promptAppend);
@@ -241,16 +244,17 @@ export function buildCoordinatorPrompt(
 export function buildWickPrompt(
   promptAppend?: string,
   mcps?: McpToggles,
+  skillNames?: readonly string[],
 ): string {
   const sections = [
     buildWickMode(),
     PRIMARY_CORE,
     RESPONSE_DISCIPLINE,
-    buildMcpCatalog(mcps),
+    buildMcpCatalog(mcps, skillNames),
     buildWickSupportCatalog(mcps),
     buildWickWorkflow(),
     ACTION_SAFETY,
-    SKILL_MANAGEMENT,
+    buildSkillManagement(skillNames),
   ];
 
   return withPromptAppend(sections.join("\n"), promptAppend);

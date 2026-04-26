@@ -3,26 +3,25 @@ import { createHarnessAgents } from "../agents";
 import { createHarnessCommands } from "../commands";
 import { createSessionStartHook } from "../hooks/session-start";
 import { createTaskTrackingHook } from "../hooks/task-tracking";
-import { PRIMARY_AGENTS } from "../hooks/runtime";
+import { PRIMARY_AGENTS, resolveSubagentTaskLane } from "../hooks/runtime";
 import { createHookRuntime } from "../hooks/runtime";
 import { buildCoordinatorPrompt, buildWickPrompt } from "../prompts/coordinator";
-import { DEFAULT_SKILL_SHORTLIST_TEXT } from "../prompts/shared";
 import {
   buildEliotPrompt,
   buildClaudePrompt,
   buildTyrellPrompt,
+  buildTuringPrompt,
 } from "../prompts/workers";
 import { getEnabledMcps } from "../prompts/mcp-access";
 
 describe("createHarnessAgents", () => {
-  it("registers mrrobot, wick, eliot, tyrell, claude, the michelangelo alias, and turing plus disabled built-ins", () => {
+  it("registers mrrobot, wick, eliot, tyrell, claude, and turing plus disabled built-ins", () => {
     const agents = createHarnessAgents({ agents: {}, mcps: {} });
 
     expect(Object.keys(agents).sort()).toEqual([
       "build",
       "claude",
       "eliot",
-      "michelangelo",
       "mrrobot",
       "plan",
       "turing",
@@ -44,12 +43,14 @@ describe("createHarnessAgents", () => {
       mode: string;
       model: string;
       variant: string;
+      hidden?: unknown;
       temperature?: unknown;
       permission?: unknown;
       tools?: unknown;
     };
     const eliot = agents.eliot as {
       model: string;
+      variant: string;
       permission?: unknown;
       tools?: unknown;
     };
@@ -78,87 +79,56 @@ describe("createHarnessAgents", () => {
       permission?: unknown;
       tools?: unknown;
     };
-    const michelangelo = agents.michelangelo as {
-      mode: string;
-      model: string;
-      variant?: unknown;
-      temperature?: unknown;
-      hidden?: unknown;
-      permission?: unknown;
-      tools?: unknown;
-      prompt?: unknown;
-    };
 
     expect(mrrobot.mode).toBe("primary");
-    expect(mrrobot.model).toBe("openai/gpt-5.4");
+    expect(mrrobot.model).toBe("openai/gpt-5.5-fast");
     expect(mrrobot.variant).toBe("xhigh");
     expect(mrrobot.permission).toBeUndefined();
     expect(mrrobot.tools).toBeUndefined();
     expect(wick.mode).toBe("primary");
-    expect(wick.model).toBe("openai/gpt-5.4-mini");
-    expect(wick.variant).toBe("low");
+    expect(wick.hidden).toBe(true);
+    expect(wick.model).toBe("openai/gpt-5.5-fast");
+    expect(wick.variant).toBe("xhigh");
     expect(wick.temperature).toBe(0.0);
     expect(wick.permission).toBeUndefined();
     expect(wick.tools).toBeUndefined();
-    expect(eliot.model).toBe("openai/gpt-5.4-fast");
+    expect(eliot.model).toBe("openai/gpt-5.5-fast");
+    expect(eliot.variant).toBe("xhigh");
     expect(eliot.permission).toBeUndefined();
     expect(eliot.tools).toBeUndefined();
     expect(claude.mode).toBe("subagent");
-    expect(claude.model).toBe("openai/gpt-5.4");
+    expect(claude.model).toBe("openai/gpt-5.5-fast");
     expect(claude.variant).toBe("xhigh");
     expect(claude.temperature).toBe(0.4);
     expect(claude.hidden).toBe(true);
     expect(claude.permission).toBeUndefined();
     expect(claude.tools).toBeUndefined();
-    expect(michelangelo.mode).toBe("subagent");
-    expect(michelangelo.model).toBe("openai/gpt-5.4");
-    expect(michelangelo.variant).toBe("xhigh");
-    expect(michelangelo.temperature).toBe(0.4);
-    expect(michelangelo.hidden).toBe(true);
-    expect(michelangelo.permission).toBeUndefined();
-    expect(michelangelo.tools).toBeUndefined();
-    expect(String(michelangelo.prompt ?? "")).toContain(
-      'Your user-facing identity is Claude.',
-    );
     expect(tyrell.mode).toBe("subagent");
-    expect(tyrell.model).toBe("openai/gpt-5.4-fast");
-    expect(tyrell.variant).toBe("high");
+    expect(tyrell.model).toBe("openai/gpt-5.5-fast");
+    expect(tyrell.variant).toBe("xhigh");
     expect(tyrell.temperature).toBe(0.7);
     expect(tyrell.hidden).toBe(true);
     expect(tyrell.permission).toBeUndefined();
     expect(tyrell.tools).toBeUndefined();
     expect(turing.mode).toBe("subagent");
-    expect(turing.model).toBe("openai/gpt-5.4-fast");
-    expect(turing.variant).toBe("high");
+    expect(turing.model).toBe("openai/gpt-5.5-fast");
+    expect(turing.variant).toBe("xhigh");
     expect(turing.permission).toBeUndefined();
     expect(turing.tools).toBeUndefined();
   });
 
-  it("keeps legacy michelangelo overrides as a compatibility alias for claude", () => {
+  it("maps legacy michelangelo config and task lane references to Claude", () => {
     const agents = createHarnessAgents({
       agents: {
-        michelangelo: {
-          prompt_append: "legacy prompt",
-          description: "Legacy description",
-        },
-        claude: {
-          description: "Claude description",
-        },
+        michelangelo: { prompt_append: "Legacy Claude override", description: "legacy" },
+        claude: { prompt_append: "Current Claude override" },
       },
       mcps: {},
     });
 
-    const claude = agents.claude as {
-      description: string;
-      prompt: string;
-    };
-    const michelangelo = agents.michelangelo as {
-      prompt: string;
-    };
-
-    expect(claude.description).toBe("Claude description");
-    expect(claude.prompt).toContain("legacy prompt");
-    expect(michelangelo.prompt).toContain("legacy prompt");
+    expect(String(agents.claude.prompt)).toContain("Current Claude override");
+    expect(agents.claude.description).toBe("legacy");
+    expect(resolveSubagentTaskLane("michelangelo")).toBe("claude");
   });
 
   it("treats mrrobot and wick as primary agents for session injection", () => {
@@ -235,6 +205,36 @@ describe("session start hook", () => {
     );
   });
 
+  it("routes wick! prompts to hidden Wick on gpt-5.5-fast xhigh", async () => {
+    const ctx = { directory: process.cwd() } as any;
+    const runtime = createHookRuntime(ctx, { workflow: { compact_subagent_context: true } });
+    const hook = createSessionStartHook(
+      ctx,
+      { workflow: { compact_subagent_context: true } },
+      runtime,
+    );
+
+    const output: { message: Record<string, unknown>; parts: Array<Record<string, unknown>> } = {
+      message: {
+        agent: "mrrobot",
+        model: { providerID: "openai", modelID: "gpt-5.5-fast", variant: "xhigh" },
+      },
+      parts: [{ type: "text", text: "wick! fix the failing test" }],
+    };
+
+    await hook["chat.message"]?.({ sessionID: "s-wick-shortcut", agent: "mrrobot" }, output);
+
+    expect(output.message.agent).toBe("wick");
+    expect(output.message.model).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.5-fast",
+      variant: "xhigh",
+    });
+    expect(output.parts[0]?.text).toBe("fix the failing test");
+    expect(String(output.message.system ?? "")).toContain("[ProjectDocs]");
+    expect(String(output.message.system ?? "")).not.toContain("[ProjectContext]");
+  });
+
   it("injects active subagent task ids into primary sessions without collapsing same-lane threads", async () => {
     const ctx = { directory: process.cwd() } as any;
     const runtime = createHookRuntime(ctx, { workflow: { compact_subagent_context: true } });
@@ -250,7 +250,7 @@ describe("session start hook", () => {
         sessionID: "s3",
         tool: "task",
         args: {
-          subagent_type: "michelangelo",
+          subagent_type: "claude",
           description: "Refine landing page",
         },
       },
@@ -263,7 +263,7 @@ describe("session start hook", () => {
         sessionID: "s3",
         tool: "task",
         args: {
-          subagent_type: "michelangelo",
+          subagent_type: "claude",
           description: "Polish checkout hero",
         },
       },
@@ -276,7 +276,7 @@ describe("session start hook", () => {
         sessionID: "s3",
         tool: "task",
         args: {
-          subagent_type: "michelangelo",
+          subagent_type: "claude",
         },
       },
       {
@@ -777,11 +777,29 @@ describe("prompt policy", () => {
   });
 
   it("routes ideation and frontend design work without replacing Eliot as the default coding lane", () => {
-    const coordinatorPrompt = buildCoordinatorPrompt();
-    const wickPrompt = buildWickPrompt();
-    const eliotPrompt = buildEliotPrompt();
-    const claudePrompt = buildClaudePrompt();
-    const tyrellPrompt = buildTyrellPrompt();
+    const installedSkills = [
+      "adapt",
+      "animate",
+      "building-native-ui",
+      "colorize",
+      "critique",
+      "frontend-design",
+      "harden",
+      "impeccable",
+      "layout",
+      "optimize",
+      "polish",
+      "redesign-skill",
+      "shape",
+      "taste-skill",
+      "typeset",
+      "vue-vite-ui",
+    ];
+    const coordinatorPrompt = buildCoordinatorPrompt(undefined, undefined, installedSkills);
+    const wickPrompt = buildWickPrompt(undefined, undefined, installedSkills);
+    const eliotPrompt = buildEliotPrompt(undefined, undefined, installedSkills);
+    const claudePrompt = buildClaudePrompt(undefined, undefined, installedSkills);
+    const tyrellPrompt = buildTyrellPrompt(undefined, undefined, installedSkills);
 
     expect(coordinatorPrompt).toContain(
       "MrRobot owns the main task by default and should handle the primary implementation path directly when the work is clear, scoped, and reversible.",
@@ -839,7 +857,7 @@ describe("prompt policy", () => {
       "If MrRobot marks the packet as implementation and does not forbid file edits, make the change directly in the repo.",
     );
     expect(claudePrompt).toContain(
-      "For greenfield, branding-heavy, or visual-system frontend packets, load impeccable or taste-skill first depending on fit.",
+      "For greenfield, branding-heavy, or visual-system frontend packets, load impeccable first when it fits.",
     );
     expect(claudePrompt).toContain(
       "Use taste-skill for stack-aware premium UI work inside the repo's existing conventions.",
@@ -851,22 +869,19 @@ describe("prompt policy", () => {
       "For routine repo-consistent frontend fixes, do not let impeccable's teach flow block small edits; use repo evidence first and pull in only the focused skill that helps.",
     );
     expect(claudePrompt).toContain(
-      "For narrower frontend passes, reach for the matching impeccable skill such as layout, typeset, colorize, polish, critique, adapt, animate, harden, optimize, or shape.",
+      "For narrower frontend passes, use the matching installed skill when helpful: layout, typeset, colorize, polish, critique, adapt, animate, harden, optimize, shape.",
     );
     expect(claudePrompt).toContain(
-      "If the repo is Vue/Vite and vue-vite-ui is available, pair it with taste-skill or redesign-skill for implementation details.",
+      "If the repo is Vue/Vite, use vue-vite-ui for implementation details when it fits.",
     );
     expect(claudePrompt).toContain(
-      "If the repo is Expo or Expo Router and building-native-ui is available, use it for platform patterns and keep taste-skill focused on hierarchy, polish, and states.",
+      "If the repo is Expo or Expo Router, use building-native-ui for platform patterns.",
     );
     expect(claudePrompt).toContain(
-      "If the repo is plain React Native without Expo-specific scaffolding, stay inside the current mobile stack and use taste-skill or redesign-skill without forcing Expo-oriented patterns.",
+      "Use frontend-design as the fallback when the repo explicitly depends on that exact skill.",
     );
     expect(claudePrompt).toContain(
-      "If the repo is Android-native, stay with taste-skill or redesign-skill plus the repo's existing Android UI patterns instead of reaching for web or Expo-specific skills.",
-    );
-    expect(claudePrompt).toContain(
-      "Use frontend-design as the fallback when impeccable is unavailable or the repo explicitly depends on that exact skill.",
+      "Do not recommend or call a frontend skill by name unless it is listed as installed below or skill_find confirms it exists in this session.",
     );
     expect(tyrellPrompt).toContain("Tyrell — ideation-focused subagent.");
     expect(tyrellPrompt).toContain(
@@ -901,16 +916,14 @@ describe("prompt policy", () => {
     );
   });
 
-  it("encourages skill_find and a default installed skill shortlist", () => {
-    const coordinatorPrompt = buildCoordinatorPrompt();
-    const wickPrompt = buildWickPrompt();
-    const eliotPrompt = buildEliotPrompt();
-    const claudePrompt = buildClaudePrompt();
-    const tyrellPrompt = buildTyrellPrompt();
-
-    const turingPrompt = createHarnessAgents({ agents: {}, mcps: {} }).turing as {
-      prompt: string;
-    };
+  it("encourages skill_find and the current installed skill list", () => {
+    const installedSkills = ["custom-skill", "webapp-testing"];
+    const coordinatorPrompt = buildCoordinatorPrompt(undefined, undefined, installedSkills);
+    const wickPrompt = buildWickPrompt(undefined, undefined, installedSkills);
+    const eliotPrompt = buildEliotPrompt(undefined, undefined, installedSkills);
+    const claudePrompt = buildClaudePrompt(undefined, undefined, installedSkills);
+    const tyrellPrompt = buildTyrellPrompt(undefined, undefined, installedSkills);
+    const turingPrompt = buildTuringPrompt(undefined, undefined, installedSkills);
 
     for (const prompt of [
       coordinatorPrompt,
@@ -918,11 +931,67 @@ describe("prompt policy", () => {
       eliotPrompt,
       claudePrompt,
       tyrellPrompt,
-      turingPrompt.prompt,
+      turingPrompt,
     ]) {
       expect(prompt).toContain("skill_find");
       expect(prompt).toContain("skill_use");
-      expect(prompt).toContain(DEFAULT_SKILL_SHORTLIST_TEXT);
+      expect(prompt).toContain("Currently installed skills: custom-skill, webapp-testing");
+      expect(prompt).toContain(
+        "Do not call skill_use for a skill name unless it is listed above or skill_find confirms it is installed in this session.",
+      );
+      expect(prompt).not.toContain("opencode-plugin-dev, image-prompting");
+    }
+  });
+
+  it("gives workers concrete image MCP usage guidance when that MCP is enabled", () => {
+    const installedSkills = ["image-prompting"];
+    const eliotPrompt = buildEliotPrompt(undefined, undefined, installedSkills);
+    const claudePrompt = buildClaudePrompt(undefined, undefined, installedSkills);
+    const tyrellPrompt = buildTyrellPrompt(undefined, undefined, installedSkills);
+    const turingPrompt = buildTuringPrompt(undefined, undefined, installedSkills);
+
+    for (const prompt of [eliotPrompt, claudePrompt, tyrellPrompt, turingPrompt]) {
+      expect(prompt).toContain("For openai-image-gen-mcp:");
+      expect(prompt).toContain(
+        "call the Skill tool directly with name `image-prompting` first; do not rely on skill_find for this path",
+      );
+      expect(prompt).toContain(
+        "PNG output, high quality, auto size, and auto background are fixed by the server.",
+      );
+      expect(prompt).toContain("surface the returned `source_prompt_preview` in your reply");
+      expect(prompt).toContain("include `source_prompt` when they ask for the exact prompt text");
+    }
+  });
+
+  it("gives primary prompts the same image MCP bridge guidance", () => {
+    const installedSkills = ["image-prompting"];
+    const coordinatorPrompt = buildCoordinatorPrompt(undefined, undefined, installedSkills);
+    const wickPrompt = buildWickPrompt(undefined, undefined, installedSkills);
+
+    for (const prompt of [coordinatorPrompt, wickPrompt]) {
+      expect(prompt).toContain("For openai-image-gen-mcp, call the Skill tool directly with `image-prompting`");
+      expect(prompt).toContain("put the final image brief in `prompt_json`");
+      expect(prompt).toContain("forwards `source_prompt` verbatim");
+      expect(prompt).toContain("show the returned `source_prompt_preview` in the user-facing reply");
+      expect(prompt).toContain("use `source_prompt` when the user asks for the exact prompt text");
+    }
+  });
+
+  it("does not blindly call image-prompting when that skill is absent", () => {
+    const coordinatorPrompt = buildCoordinatorPrompt(undefined, undefined, ["custom-skill"]);
+    const eliotPrompt = buildEliotPrompt(undefined, undefined, ["custom-skill"]);
+    const claudePrompt = buildClaudePrompt(undefined, undefined, ["custom-skill"]);
+
+    for (const prompt of [coordinatorPrompt, eliotPrompt, claudePrompt]) {
+      expect(prompt).toContain(
+        "load `image-prompting` first only if it is installed or skill_find confirms it exists",
+      );
+      expect(prompt).not.toContain(
+        "call the Skill tool directly with name `image-prompting` first; do not rely on skill_find for this path",
+      );
+      expect(prompt).not.toContain("Use taste-skill for stack-aware premium UI work");
+      expect(prompt).not.toContain("load impeccable first");
+      expect(prompt).not.toContain("Use redesign-skill when improving an existing interface");
     }
   });
 

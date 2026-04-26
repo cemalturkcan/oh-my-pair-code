@@ -1,4 +1,5 @@
 import type { McpToggles } from "../types";
+import { resolveInstalledSkills } from "../skills";
 import { getEnabledMcps, MCP_DESCRIPTIONS } from "./mcp-access";
 
 export const PRIMARY_CORE = `
@@ -153,25 +154,44 @@ export const RESPONSE_DISCIPLINE = `
 </DevelopmentDiscipline>
 `;
 
-export const DEFAULT_SKILL_SHORTLIST = [
-  "opencode-plugin-dev",
-  "frontend-design",
-  "taste-skill",
-  "redesign-skill",
-  "webapp-testing",
-  "web-agent-browser",
-  "find-skills",
-] as const;
+export function buildInstalledSkillsGuidance(
+  skillNames?: readonly string[],
+): string {
+  const installedSkills = resolveInstalledSkills(skillNames);
 
-export const DEFAULT_SKILL_SHORTLIST_TEXT = DEFAULT_SKILL_SHORTLIST.join(", ");
+  if (installedSkills.length === 0) {
+    return "- No installed skills were discovered at prompt generation time. Use skill_find before skill_use and do not assume a skill exists by name.";
+  }
 
-export function buildMcpCatalog(mcps?: McpToggles): string {
+  return [
+    `- Currently installed skills: ${installedSkills.join(", ")}.`,
+    "- Prefer those installed skills when they match the task.",
+    "- Do not call skill_use for a skill name unless it is listed above or skill_find confirms it is installed in this session.",
+  ].join("\n");
+}
+
+export function buildMcpCatalog(
+  mcps?: McpToggles,
+  skillNames?: readonly string[],
+): string {
   const enabled = getEnabledMcps(mcps);
   const labels = enabled.map((mcp) => `${mcp}(${MCP_DESCRIPTIONS[mcp]})`);
+  const installedSkills = resolveInstalledSkills(skillNames);
+  const extraLines =
+    enabled.includes("openai-image-gen-mcp")
+      ? installedSkills.includes("image-prompting")
+        ? [
+            "- For openai-image-gen-mcp, call the Skill tool directly with `image-prompting` instead of relying on skill_find, then put the final image brief in `prompt_json`; the MCP bridge serializes that JSON, forwards `source_prompt` verbatim, and fixes PNG/high-quality/auto-size defaults server-side. After a successful image call, show the returned `source_prompt_preview` in the user-facing reply; use `source_prompt` when the user asks for the exact prompt text.",
+          ]
+        : [
+            "- For openai-image-gen-mcp, load `image-prompting` first only if it is installed or skill_find confirms it exists; otherwise do not call skill_use blindly.",
+          ]
+      : [];
 
   return `
 <McpCatalog>
 - Enabled MCPs: ${labels.length > 0 ? labels.join(", ") : "none"}.
+${extraLines.join("\n")}
 </McpCatalog>
 `;
 }

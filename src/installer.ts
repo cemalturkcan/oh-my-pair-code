@@ -27,7 +27,7 @@ type ManagedEntriesManifest = {
  * Each entry is written as `"<package>@latest"` in the config.
  */
 const MANAGED_PLUGIN_ENTRIES = [
-  "opencode-google-login",
+  "@tarquinen/opencode-dcp",
   "@zenobius/opencode-skillful",
   "@franlol/opencode-md-table-formatter",
   "opencode-pty",
@@ -36,7 +36,7 @@ const MANAGED_PLUGIN_ENTRIES = [
 
 const MANAGED_PACKAGE_NAMES = [
   "opencode-pair",
-  "opencode-google-login",
+  "@tarquinen/opencode-dcp",
   "opencode-pty",
   "@mohak34/opencode-notifier",
   "@zenobius/opencode-skillful",
@@ -44,7 +44,7 @@ const MANAGED_PACKAGE_NAMES = [
 ] as const;
 
 const PACKAGE_SPECS: Record<string, string> = {
-  "opencode-google-login": "latest",
+  "@tarquinen/opencode-dcp": "latest",
   "opencode-pty": "latest",
   "@mohak34/opencode-notifier": "latest",
   "@zenobius/opencode-skillful": "latest",
@@ -62,6 +62,8 @@ const MCP_NAMES = [
   "openai-image-gen-mcp",
 ] as const;
 const STALE_HARNESS_PLUGIN_FRAGMENTS = ["opencode-background-agents-local"] as const;
+const STALE_MANAGED_PLUGIN_ENTRIES = ["opencode-google-login"] as const;
+const STALE_MANAGED_PACKAGE_NAMES = ["opencode-google-login"] as const;
 const MANAGED_SKILLS_MANIFEST = ".opencode-pair-managed-skills.json";
 const MANAGED_MCP_STAMP = ".opencode-pair-managed-mcp.json";
 const MANAGED_SOURCE_HASH_KEY = "__sourceHash";
@@ -76,6 +78,10 @@ const MCP_REQUIRED_PACKAGES: Record<(typeof MCP_NAMES)[number], string[]> = {
   ],
   "openai-image-gen-mcp": ["@modelcontextprotocol/sdk"],
 };
+const SEARXNG_CONTAINER_NAME = "searxng";
+const SEARXNG_HOST = "127.0.0.1";
+const SEARXNG_PORT = "8099";
+const SEARXNG_URL = `http://${SEARXNG_HOST}:${SEARXNG_PORT}`;
 
 function getConfigDir(): string {
   const envDir = process.env.OPENCODE_CONFIG_DIR?.trim();
@@ -94,6 +100,8 @@ function getConfigPaths(configDir: string) {
     configJsonc: join(configDir, "opencode.jsonc"),
     packageJson: join(configDir, "package.json"),
     harnessConfig: join(configDir, "opencode-pair.jsonc"),
+    dcpConfig: join(configDir, "dcp.jsonc"),
+    dcpPromptOverridesDir: join(configDir, "dcp-prompts", "overrides"),
     shellStrategyDir: join(configDir, "plugin", "shell-strategy"),
     notifierConfig: join(configDir, "opencode-notifier.json"),
   };
@@ -344,7 +352,8 @@ export function mergePluginList(existing: unknown): string[] {
   const retained = current.filter(
     (item) =>
       !desired.includes(item) &&
-      !MANAGED_PLUGIN_ENTRIES.some((pkg) => item === pkg || item.startsWith(`${pkg}@`)),
+      !MANAGED_PLUGIN_ENTRIES.some((pkg) => item === pkg || item.startsWith(`${pkg}@`)) &&
+      !STALE_MANAGED_PLUGIN_ENTRIES.some((pkg) => item === pkg || item.startsWith(`${pkg}@`)),
   );
   return [...desired, ...retained];
 }
@@ -376,6 +385,7 @@ function removeHarnessPluginList(
     (item) =>
       !managedEntries.has(item) &&
       !MANAGED_PLUGIN_ENTRIES.some((pkg) => item === pkg || item.startsWith(`${pkg}@`)) &&
+      !STALE_MANAGED_PLUGIN_ENTRIES.some((pkg) => item === pkg || item.startsWith(`${pkg}@`)) &&
       !item.includes("opencode-pair") &&
       !STALE_HARNESS_PLUGIN_FRAGMENTS.some((fragment) => item.includes(fragment)),
   );
@@ -444,11 +454,183 @@ const DEFAULT_NOTIFIER_CONFIG: JsonRecord = {
   },
 };
 
+const DEFAULT_DCP_CONFIG: JsonRecord = {
+  $schema:
+    "https://raw.githubusercontent.com/Opencode-DCP/opencode-dynamic-context-pruning/master/dcp.schema.json",
+  enabled: true,
+  debug: false,
+  pruneNotification: "detailed",
+  pruneNotificationType: "chat",
+  manualMode: {
+    enabled: false,
+    automaticStrategies: true,
+  },
+  turnProtection: {
+    enabled: true,
+    turns: 6,
+  },
+  experimental: {
+    allowSubAgents: false,
+    customPrompts: true,
+  },
+  compress: {
+    mode: "range",
+    permission: "allow",
+    showCompression: false,
+    summaryBuffer: true,
+    maxContextLimit: 258000,
+    minContextLimit: 170000,
+    modelMaxLimits: {
+      "openai/gpt-5.5-fast": 258000,
+    },
+    modelMinLimits: {
+      "openai/gpt-5.5-fast": 170000,
+    },
+    nudgeFrequency: 1,
+    iterationNudgeThreshold: 24,
+    nudgeForce: "soft",
+    protectedTools: ["task", "skill", "todowrite", "todoread"],
+    protectUserMessages: true,
+  },
+  strategies: {
+    deduplication: {
+      enabled: true,
+      protectedTools: [],
+    },
+    purgeErrors: {
+      enabled: true,
+      turns: 6,
+      protectedTools: [],
+    },
+  },
+};
+
+const DCP_SYSTEM_PROMPT_OVERRIDE = `You operate in a context-constrained environment. Manage context continuously to avoid buildup and preserve retrieval quality. Efficient context management is paramount for your agentic performance.
+
+The ONLY tool you have for context management is \`compress\`. It replaces older conversation content with technical summaries you produce.
+
+\`<dcp-message-id>\` and \`<dcp-system-reminder>\` tags are environment-injected metadata. Do not output them.
+
+THE PHILOSOPHY OF COMPRESS
+\`compress\` transforms conversation content into dense, high-fidelity summaries. This is not cleanup - it is crystallization. Your summary becomes the authoritative record of what transpired.
+
+CONTEXT PRESERVATION PRIORITY
+Preserve user intent, explicit decisions, constraints, accepted trade-offs, current task state, and final conclusions with extra care. Treat the user's requests and the assistant/user decisions between turns as high-signal memory.
+
+Tool outputs, repeated searches, logs, verbose command output, dead ends, and transient exploration are low-signal by default. Compress or omit their raw detail unless an exact path, command, error, API contract, file content, or result is needed to continue safely.
+
+COMPRESS WHEN
+A section is genuinely closed and the raw conversation has served its purpose:
+
+- Research concluded and findings are clear
+- Implementation finished and verified
+- Exploration exhausted and patterns understood
+- Tool-heavy output is stale, repeated, or no longer needed verbatim
+- Dead-end noise can be discarded without waiting for a whole chapter to close
+
+DO NOT COMPRESS IF
+
+- Raw context is still relevant and needed for edits or precise references
+- The target content is still actively in progress
+- You may need exact code, error messages, or file contents in the immediate next steps
+- The only record of a user decision or acceptance criterion would be lost or weakened
+
+Before compressing, ask: "Is this section closed enough to become summary-only right now, while preserving user decisions exactly?"
+
+Evaluate conversation signal-to-noise REGULARLY. Use \`compress\` deliberately with quality-first summaries. Prioritize stale tool noise first, preserve user intent and decisions, and maintain a high-signal context window that supports your agency.
+`;
+
+const DCP_COMPRESS_RANGE_PROMPT_OVERRIDE = `Collapse a range in the conversation into a detailed summary.
+
+THE SUMMARY
+Your summary must be faithful enough that the original conversation adds no needed value. Capture the durable state: user intent, decisions made, constraints, acceptance criteria, file paths, commands that matter, APIs, errors that still matter, and final verified outcomes.
+
+SIGNAL PRIORITY
+Preserve user messages, user/assistant decisions, scope choices, rejected options, and current task state with extra care. Quote short user decisions when exact wording matters.
+
+Treat tool outputs as disposable unless their exact content is required later. Summarize or drop repeated searches, long logs, command noise, transient failed attempts, and verbose file reads after extracting the needed facts. Keep raw-like detail only for exact errors, code snippets, schemas, paths, commands, or outputs that are needed to continue safely.
+
+USER INTENT FIDELITY
+When the compressed range includes user messages, preserve the user's intent exactly. Do not change scope, constraints, priorities, acceptance criteria, or requested outcomes.
+
+COMPRESSED BLOCK PLACEHOLDERS
+When the selected range includes previously compressed blocks, use this exact placeholder format when referencing one:
+
+- \`(bN)\`
+
+Compressed block sections in context are clearly marked with a header:
+
+- \`[Compressed conversation section]\`
+
+Compressed block IDs always use the \`bN\` form (never \`mNNNN\`) and are represented in the same XML metadata tag format.
+
+Rules:
+
+- Include every required block placeholder exactly once.
+- Do not invent placeholders for blocks outside the selected range.
+- Treat \`(bN)\` placeholders as RESERVED TOKENS. Do not emit \`(bN)\` text anywhere except intentional placeholders.
+- If you need to mention a block in prose, use plain text like \`compressed bN\` (not as a placeholder).
+- Preflight check before finalizing: the set of \`(bN)\` placeholders in your summary must exactly match the required set, with no duplicates.
+
+These placeholders are semantic references. They will be replaced with the full stored compressed block content when the tool processes your output.
+
+FLOW PRESERVATION WITH PLACEHOLDERS
+When you use compressed block placeholders, write the surrounding summary text so it still reads correctly AFTER placeholder expansion.
+
+- Treat each placeholder as a stand-in for a full conversation segment, not as a short label.
+- Ensure transitions before and after each placeholder preserve chronology and causality.
+- Do not write text that depends on the placeholder staying literal.
+- Your final meaning must be coherent once each placeholder is replaced with its full compressed block content.
+
+BOUNDARY IDS
+You specify boundaries by ID using the injected IDs visible in the conversation:
+
+- \`mNNNN\` IDs identify raw messages
+- \`bN\` IDs identify previously compressed blocks
+
+Each message has an ID inside XML metadata tags like \`<dcp-message-id>...</dcp-message-id>\`.
+The same ID tag appears in every tool output of the message it belongs to — each unique ID identifies one complete message.
+Treat these tags as boundary metadata only, not as tool result content.
+
+Rules:
+
+- Pick \`startId\` and \`endId\` directly from injected IDs in context.
+- IDs must exist in the current visible context.
+- \`startId\` must appear before \`endId\`.
+- Do not invent IDs. Use only IDs that are present in context.
+
+BATCHING
+When multiple independent ranges are ready and their boundaries do not overlap, include all of them as separate entries in the \`content\` array of a single tool call. Each entry should have its own \`startId\`, \`endId\`, and \`summary\`.
+`;
+
 function writeNotifierConfig(filePath: string): void {
   if (existsSync(filePath)) {
     return;
   }
   writeJson(filePath, DEFAULT_NOTIFIER_CONFIG);
+}
+
+function writeDcpConfig(filePath: string): void {
+  if (existsSync(filePath)) {
+    return;
+  }
+  writeJson(filePath, DEFAULT_DCP_CONFIG);
+}
+
+function writeDcpPromptOverrides(overridesDir: string): void {
+  ensureDir(overridesDir);
+  const files: Record<string, string> = {
+    "system.md": DCP_SYSTEM_PROMPT_OVERRIDE,
+    "compress-range.md": DCP_COMPRESS_RANGE_PROMPT_OVERRIDE,
+  };
+
+  for (const [fileName, content] of Object.entries(files)) {
+    const filePath = join(overridesDir, fileName);
+    if (existsSync(filePath)) {
+      continue;
+    }
+    writeFileSync(filePath, content, "utf8");
+  }
 }
 
 async function fetchText(url: string): Promise<string> {
@@ -522,6 +704,33 @@ function shouldOverwriteBundledMcpFile(
   return !(relativePath === "config.json" && existsSync(targetPath));
 }
 
+function migrateManagedMcpConfig(name: (typeof MCP_NAMES)[number], targetRoot: string): void {
+  if (name !== "openai-image-gen-mcp") {
+    return;
+  }
+
+  const configPath = join(targetRoot, "config.json");
+  if (!existsSync(configPath)) {
+    return;
+  }
+
+  const config = readJsonLike(configPath);
+  let changed = false;
+  if (config.default_model === "gpt-5.5" || config.default_model === "gpt-5.4") {
+    config.default_model = "gpt-5.5-fast";
+    changed = true;
+  }
+
+  if (config.default_reasoning_effort === "high") {
+    config.default_reasoning_effort = "xhigh";
+    changed = true;
+  }
+
+  if (changed) {
+    writeJson(configPath, config);
+  }
+}
+
 export function syncManagedMcp(
   name: (typeof MCP_NAMES)[number],
   sourceRoot: string,
@@ -543,6 +752,7 @@ export function syncManagedMcp(
     overwrite: (relativePath, targetPath) =>
       shouldOverwriteBundledMcpFile(relativePath, targetPath),
   });
+  migrateManagedMcpConfig(name, targetRoot);
 
   if (
     name === "web-agent-mcp" &&
@@ -702,6 +912,9 @@ function updatePackageJson(paths: ReturnType<typeof getConfigPaths>): string {
 
   for (const [name, spec] of Object.entries(PACKAGE_SPECS)) {
     dependencies[name] = spec;
+  }
+  for (const name of STALE_MANAGED_PACKAGE_NAMES) {
+    delete dependencies[name];
   }
 
   dependencies["opencode-pair"] = resolveSelfPackageSpec();
@@ -870,38 +1083,100 @@ async function ensureSearxngContainer(): Promise<void> {
 
   try {
     const containerExists = await dockerExec(
-      ["ps", "-a", "--filter", "name=^searxng$", "--format", "{{.Names}}"],
+      ["ps", "-a", "--filter", `name=^${SEARXNG_CONTAINER_NAME}$`, "--format", "{{.Names}}"],
       { captureStdout: true },
     );
 
     if (containerExists) {
-      const containerRunning = await dockerExec(
-        ["ps", "--filter", "name=^searxng$", "--format", "{{.Names}}"],
-        { captureStdout: true },
-      );
+      if (await shouldRecreateSearxngContainer()) {
+        await dockerExec(["rm", "-f", SEARXNG_CONTAINER_NAME]);
+        await createSearxngContainer();
+      } else {
+        const containerRunning = await dockerExec(
+          ["ps", "--filter", `name=^${SEARXNG_CONTAINER_NAME}$`, "--format", "{{.Names}}"],
+          { captureStdout: true },
+        );
 
-      if (!containerRunning) {
-        await dockerExec(["start", "searxng"]);
+        if (!containerRunning) {
+          await dockerExec(["start", SEARXNG_CONTAINER_NAME]);
+        }
       }
     } else {
-      await dockerExec([
-        "run",
-        "-d",
-        "--name",
-        "searxng",
-        "--restart",
-        "unless-stopped",
-        "-p",
-        "8099:8080",
-        "searxng/searxng:latest",
-      ]);
+      await createSearxngContainer();
     }
+
     await ensureSearxngJsonFormat();
+    if (!(await waitForSearxngHealth(20_000))) {
+      console.warn(
+        `[opencode-pair] SearXNG is not reachable at ${SEARXNG_URL}. Check Docker port publishing for ${SEARXNG_PORT}:8080.`,
+      );
+    }
   } catch (error) {
     console.warn(
       `[opencode-pair] Failed to set up SearXNG container: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+}
+
+async function shouldRecreateSearxngContainer(): Promise<boolean> {
+  try {
+    const networkMode = await dockerExec(
+      ["inspect", SEARXNG_CONTAINER_NAME, "--format", "{{.HostConfig.NetworkMode}}"],
+      { captureStdout: true },
+    );
+    const ports = await dockerExec(
+      ["inspect", SEARXNG_CONTAINER_NAME, "--format", "{{json .HostConfig.PortBindings}}"],
+      { captureStdout: true },
+    );
+
+    return (
+      networkMode !== "bridge" ||
+      !ports.includes(`\"HostPort\":\"${SEARXNG_PORT}\"`) ||
+      !ports.includes(`\"HostIp\":\"${SEARXNG_HOST}\"`)
+    );
+  } catch {
+    return true;
+  }
+}
+
+async function createSearxngContainer(): Promise<void> {
+  await dockerExec([
+    "run",
+    "-d",
+    "--name",
+    SEARXNG_CONTAINER_NAME,
+    "--restart",
+    "unless-stopped",
+    "-p",
+    `${SEARXNG_HOST}:${SEARXNG_PORT}:8080`,
+    "searxng/searxng:latest",
+  ]);
+}
+
+async function waitForSearxngHealth(timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2_000);
+
+    try {
+      const response = await fetch(`${SEARXNG_URL}/healthz`, {
+        signal: controller.signal,
+      });
+      if (response.ok) {
+        return true;
+      }
+    } catch {
+      // SearXNG may still be starting.
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  return false;
 }
 
 async function ensureSearxngJsonFormat(): Promise<void> {
@@ -910,7 +1185,7 @@ async function ensureSearxngJsonFormat(): Promise<void> {
     const output = await dockerExec(
       [
         "exec",
-        "searxng",
+        SEARXNG_CONTAINER_NAME,
         "grep",
         "-c",
         "    - json",
@@ -929,14 +1204,14 @@ async function ensureSearxngJsonFormat(): Promise<void> {
 
   await dockerExec([
     "exec",
-    "searxng",
+    SEARXNG_CONTAINER_NAME,
     "sed",
     "-i",
     "/^  formats:/{n;s/    - html/    - html\\n    - json/}",
     "/etc/searxng/settings.yml",
   ]);
 
-  await dockerExec(["restart", "searxng"]);
+  await dockerExec(["restart", SEARXNG_CONTAINER_NAME]);
 }
 
 export async function installHarness(options?: { fresh?: boolean }): Promise<{
@@ -965,6 +1240,8 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{
   const packageJsonPath = updatePackageJson(paths);
   writeHarnessConfig(paths.harnessConfig);
   writeNotifierConfig(paths.notifierConfig);
+  writeDcpConfig(paths.dcpConfig);
+  writeDcpPromptOverrides(paths.dcpPromptOverridesDir);
   await runBunInstall(configDir);
   await ensureInstalledHarnessBuild(configDir);
   return {
@@ -1016,7 +1293,10 @@ export async function uninstallHarness(): Promise<{
 
     if (currentDependencies) {
       backupFile(paths.packageJson);
-      for (const packageName of MANAGED_PACKAGE_NAMES) {
+      for (const packageName of [
+        ...MANAGED_PACKAGE_NAMES,
+        ...STALE_MANAGED_PACKAGE_NAMES,
+      ]) {
         delete currentDependencies[packageName];
       }
 

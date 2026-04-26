@@ -8,9 +8,10 @@ const DEFAULT_CONFIG_PATH = join(__dirname, "..", "config.json");
 const DEFAULT_OUTPUT_DIR = join(homedir(), ".codex", "generated_images");
 
 const DEFAULT_CONFIG = {
-  default_model: "gpt-5.4",
+  default_model: "gpt-5.5-fast",
   default_reasoning_effort: "xhigh",
-  default_instructions: "Generate or edit an image that matches the user's request.",
+  default_instructions:
+    "Bridge the JSON input to a single image_generation tool call and use source_prompt verbatim.",
   default_output_dir: DEFAULT_OUTPUT_DIR,
 };
 
@@ -25,11 +26,7 @@ function resolveConfigPath() {
 }
 
 function resolveOutputDir(rawValue, configPath) {
-  return (
-    expandPath(rawValue, configPath) ||
-    expandPath(process.env.OPENAI_IMAGE_GEN_DEFAULT_OUTPUT_DIR, configPath) ||
-    DEFAULT_CONFIG.default_output_dir
-  );
+  return expandPath(rawValue, configPath) || DEFAULT_CONFIG.default_output_dir;
 }
 
 function expandPath(value, configPath) {

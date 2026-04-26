@@ -38,7 +38,6 @@ function printConfig(): void {
   console.log(`{
   "plugin": [
     "opencode-pair",
-    "opencode-google-login@latest",
     "@zenobius/opencode-skillful@latest",
     "@franlol/opencode-md-table-formatter@latest",
     "opencode-pty@latest",

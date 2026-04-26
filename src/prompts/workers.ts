@@ -1,8 +1,9 @@
 import type { McpToggles } from "../types";
+import { resolveInstalledSkills } from "../skills";
 import {
-  DEFAULT_SKILL_SHORTLIST_TEXT,
   RESPONSE_DISCIPLINE,
   WORKER_CORE,
+  buildInstalledSkillsGuidance,
   withPromptAppend,
 } from "./shared";
 import { buildMcpGuidance } from "./mcp-access";
@@ -31,9 +32,79 @@ const SUBAGENT_VERIFICATION = `
 </VerificationDiscipline>
 `;
 
+function buildClaudeSkillGuidance(skillNames?: readonly string[]): string {
+  const installedSkills = resolveInstalledSkills(skillNames);
+  const hasSkill = (name: string) => installedSkills.includes(name);
+  const narrowFrontendSkills = [
+    "layout",
+    "typeset",
+    "colorize",
+    "polish",
+    "critique",
+    "adapt",
+    "animate",
+    "harden",
+    "optimize",
+    "shape",
+  ].filter(hasSkill);
+  const lines = [
+    "- Use skill_find and skill_use when the task clearly matches an installed domain skill.",
+  ];
+
+  if (hasSkill("impeccable")) {
+    lines.push(
+      "- For greenfield, branding-heavy, or visual-system frontend packets, load impeccable first when it fits.",
+      "- For routine repo-consistent frontend fixes, do not let impeccable's teach flow block small edits; use repo evidence first and pull in only the focused skill that helps.",
+    );
+  }
+
+  if (hasSkill("taste-skill")) {
+    lines.push(
+      "- Use taste-skill for stack-aware premium UI work inside the repo's existing conventions.",
+    );
+  }
+
+  if (hasSkill("redesign-skill")) {
+    lines.push(
+      "- Use redesign-skill when improving an existing interface in place instead of restyling from zero.",
+    );
+  }
+
+  if (narrowFrontendSkills.length > 0) {
+    lines.push(
+      `- For narrower frontend passes, use the matching installed skill when helpful: ${narrowFrontendSkills.join(", ")}.`,
+    );
+  }
+
+  if (hasSkill("vue-vite-ui")) {
+    lines.push(
+      "- If the repo is Vue/Vite, use vue-vite-ui for implementation details when it fits.",
+    );
+  }
+
+  if (hasSkill("building-native-ui")) {
+    lines.push(
+      "- If the repo is Expo or Expo Router, use building-native-ui for platform patterns.",
+    );
+  }
+
+  if (hasSkill("frontend-design")) {
+    lines.push(
+      "- Use frontend-design as the fallback when the repo explicitly depends on that exact skill.",
+    );
+  }
+
+  lines.push(
+    "- Do not recommend or call a frontend skill by name unless it is listed as installed below or skill_find confirms it exists in this session.",
+  );
+
+  return lines.join("\n");
+}
+
 export function buildEliotPrompt(
   promptAppend?: string,
   mcps?: McpToggles,
+  skillNames?: readonly string[],
 ): string {
   return withPromptAppend(
     `${WORKER_CORE}
@@ -70,10 +141,10 @@ ${SUBAGENT_CONTINUATION}
 
 <Skills>
 Use skill_find and skill_use when the task clearly matches an installed domain skill.
-Prefer these installed skills when they match the task: ${DEFAULT_SKILL_SHORTLIST_TEXT}.
+${buildInstalledSkillsGuidance(skillNames)}
 </Skills>
 
-${buildMcpGuidance(mcps)}`,
+${buildMcpGuidance(mcps, skillNames)}`,
     promptAppend,
   );
 }
@@ -81,6 +152,7 @@ ${buildMcpGuidance(mcps)}`,
 export function buildTyrellPrompt(
   promptAppend?: string,
   mcps?: McpToggles,
+  skillNames?: readonly string[],
 ): string {
   return withPromptAppend(
     `${WORKER_CORE}
@@ -117,10 +189,10 @@ ${SUBAGENT_CONTINUATION}
 
 <Skills>
 Use skill_find and skill_use when the task clearly matches an installed domain skill.
-Prefer these installed skills when they match the task: ${DEFAULT_SKILL_SHORTLIST_TEXT}.
+${buildInstalledSkillsGuidance(skillNames)}
 </Skills>
 
-${buildMcpGuidance(mcps)}`,
+${buildMcpGuidance(mcps, skillNames)}`,
     promptAppend,
   );
 }
@@ -128,6 +200,7 @@ ${buildMcpGuidance(mcps)}`,
 export function buildClaudePrompt(
   promptAppend?: string,
   mcps?: McpToggles,
+  skillNames?: readonly string[],
 ): string {
   return withPromptAppend(
     `${WORKER_CORE}
@@ -168,21 +241,11 @@ ${SUBAGENT_VERIFICATION}
 ${SUBAGENT_CONTINUATION}
 
 <Skills>
-- Use skill_find and skill_use when the task clearly matches an installed domain skill.
-- For greenfield, branding-heavy, or visual-system frontend packets, load impeccable or taste-skill first depending on fit.
-- Use taste-skill for stack-aware premium UI work inside the repo's existing conventions.
-- Use redesign-skill when improving an existing interface in place instead of restyling from zero.
-- For routine repo-consistent frontend fixes, do not let impeccable's teach flow block small edits; use repo evidence first and pull in only the focused skill that helps.
-- For narrower frontend passes, reach for the matching impeccable skill such as layout, typeset, colorize, polish, critique, adapt, animate, harden, optimize, or shape.
-- If the repo is Vue/Vite and vue-vite-ui is available, pair it with taste-skill or redesign-skill for implementation details.
-- If the repo is Expo or Expo Router and building-native-ui is available, use it for platform patterns and keep taste-skill focused on hierarchy, polish, and states.
-- If the repo is plain React Native without Expo-specific scaffolding, stay inside the current mobile stack and use taste-skill or redesign-skill without forcing Expo-oriented patterns.
-- If the repo is Android-native, stay with taste-skill or redesign-skill plus the repo's existing Android UI patterns instead of reaching for web or Expo-specific skills.
-- Use frontend-design as the fallback when impeccable is unavailable or the repo explicitly depends on that exact skill.
-- Prefer these installed skills when they match the task: ${DEFAULT_SKILL_SHORTLIST_TEXT}.
+${buildClaudeSkillGuidance(skillNames)}
+${buildInstalledSkillsGuidance(skillNames)}
 </Skills>
 
-${buildMcpGuidance(mcps)}`,
+${buildMcpGuidance(mcps, skillNames)}`,
     promptAppend,
   );
 }
@@ -190,6 +253,7 @@ ${buildMcpGuidance(mcps)}`,
 export function buildTuringPrompt(
   promptAppend?: string,
   mcps?: McpToggles,
+  skillNames?: readonly string[],
 ): string {
   return withPromptAppend(
     `${WORKER_CORE}
@@ -225,10 +289,10 @@ ${SUBAGENT_VERIFICATION}
 
 <Skills>
 Use skill_find and skill_use when the task clearly matches an installed domain skill.
-Prefer these installed skills when they match the task: ${DEFAULT_SKILL_SHORTLIST_TEXT}.
+${buildInstalledSkillsGuidance(skillNames)}
 </Skills>
 
-${buildMcpGuidance(mcps)}
+${buildMcpGuidance(mcps, skillNames)}
 
 <OutputFormat>
 severity (critical | warning | suggestion) | location | issue | why | fix

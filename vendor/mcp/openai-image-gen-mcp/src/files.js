@@ -18,11 +18,7 @@ const OUTPUT_EXTENSIONS = {
 };
 
 export function defaultOutputDir(fallbackDir) {
-  return (
-    fallbackDir ||
-    process.env.OPENAI_IMAGE_GEN_DEFAULT_OUTPUT_DIR?.trim() ||
-    join(homedir(), ".codex", "generated_images")
-  );
+  return fallbackDir || join(homedir(), ".codex", "generated_images");
 }
 
 function normalizeNonEmptyString(value) {
