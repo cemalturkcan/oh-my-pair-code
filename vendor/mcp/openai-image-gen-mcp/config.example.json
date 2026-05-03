@@ -1,6 +1,7 @@
 {
-  "default_model": "gpt-5.5-fast",
+  "default_model": "gpt-5.4",
   "default_reasoning_effort": "xhigh",
+  "default_service_tier": "priority",
   "default_instructions": "Bridge the JSON input to a single image_generation tool call and use source_prompt verbatim.",
   "default_output_dir": "~/.codex/generated_images"
 }

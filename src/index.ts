@@ -1,11 +1,11 @@
-import type { Plugin } from "@opencode-ai/plugin";
+import type { Plugin as OpencodePlugin } from "@opencode-ai/plugin";
 import { loadHarnessConfig } from "./config";
 import { createHarnessAgents } from "./agents";
 import { createHarnessMcps } from "./mcp";
 import { createHarnessCommands } from "./commands";
 import { createHarnessHooks } from "./hooks";
 
-const PairAutonomyPlugin: Plugin = async (ctx) => {
+const PairAutonomyPlugin: OpencodePlugin = async (ctx) => {
   const harnessConfig = loadHarnessConfig(ctx.directory);
   const hooks = await createHarnessHooks(ctx, harnessConfig);
 
@@ -60,4 +60,6 @@ const PairAutonomyPlugin: Plugin = async (ctx) => {
   };
 };
 
+export const server = PairAutonomyPlugin;
+export const Plugin = PairAutonomyPlugin;
 export default PairAutonomyPlugin;

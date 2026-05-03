@@ -3,9 +3,9 @@ import { createHarnessAgents } from "../agents";
 import { createHarnessCommands } from "../commands";
 import { createSessionStartHook } from "../hooks/session-start";
 import { createTaskTrackingHook } from "../hooks/task-tracking";
-import { PRIMARY_AGENTS, resolveSubagentTaskLane } from "../hooks/runtime";
+import { PRIMARY_AGENTS } from "../hooks/runtime";
 import { createHookRuntime } from "../hooks/runtime";
-import { buildCoordinatorPrompt, buildWickPrompt } from "../prompts/coordinator";
+import { buildCoordinatorPrompt } from "../prompts/coordinator";
 import {
   buildEliotPrompt,
   buildClaudePrompt,
@@ -15,7 +15,7 @@ import {
 import { getEnabledMcps } from "../prompts/mcp-access";
 
 describe("createHarnessAgents", () => {
-  it("registers mrrobot, wick, eliot, tyrell, claude, and turing plus disabled built-ins", () => {
+  it("registers mrrobot, eliot, tyrell, claude, and turing plus disabled built-ins", () => {
     const agents = createHarnessAgents({ agents: {}, mcps: {} });
 
     expect(Object.keys(agents).sort()).toEqual([
@@ -26,7 +26,6 @@ describe("createHarnessAgents", () => {
       "plan",
       "turing",
       "tyrell",
-      "wick",
     ]);
   });
 
@@ -36,15 +35,6 @@ describe("createHarnessAgents", () => {
       mode: string;
       model: string;
       variant: string;
-      permission?: unknown;
-      tools?: unknown;
-    };
-    const wick = agents.wick as {
-      mode: string;
-      model: string;
-      variant: string;
-      hidden?: unknown;
-      temperature?: unknown;
       permission?: unknown;
       tools?: unknown;
     };
@@ -82,30 +72,23 @@ describe("createHarnessAgents", () => {
 
     expect(mrrobot.mode).toBe("primary");
     expect(mrrobot.model).toBe("openai/gpt-5.5-fast");
-    expect(mrrobot.variant).toBe("xhigh");
+    expect(mrrobot.variant).toBe("medium");
     expect(mrrobot.permission).toBeUndefined();
     expect(mrrobot.tools).toBeUndefined();
-    expect(wick.mode).toBe("primary");
-    expect(wick.hidden).toBe(true);
-    expect(wick.model).toBe("openai/gpt-5.5-fast");
-    expect(wick.variant).toBe("xhigh");
-    expect(wick.temperature).toBe(0.0);
-    expect(wick.permission).toBeUndefined();
-    expect(wick.tools).toBeUndefined();
     expect(eliot.model).toBe("openai/gpt-5.5-fast");
-    expect(eliot.variant).toBe("xhigh");
+    expect(eliot.variant).toBe("low");
     expect(eliot.permission).toBeUndefined();
     expect(eliot.tools).toBeUndefined();
     expect(claude.mode).toBe("subagent");
     expect(claude.model).toBe("openai/gpt-5.5-fast");
-    expect(claude.variant).toBe("xhigh");
+    expect(claude.variant).toBe("low");
     expect(claude.temperature).toBe(0.4);
     expect(claude.hidden).toBe(true);
     expect(claude.permission).toBeUndefined();
     expect(claude.tools).toBeUndefined();
     expect(tyrell.mode).toBe("subagent");
     expect(tyrell.model).toBe("openai/gpt-5.5-fast");
-    expect(tyrell.variant).toBe("xhigh");
+    expect(tyrell.variant).toBe("low");
     expect(tyrell.temperature).toBe(0.7);
     expect(tyrell.hidden).toBe(true);
     expect(tyrell.permission).toBeUndefined();
@@ -117,24 +100,8 @@ describe("createHarnessAgents", () => {
     expect(turing.tools).toBeUndefined();
   });
 
-  it("maps legacy michelangelo config and task lane references to Claude", () => {
-    const agents = createHarnessAgents({
-      agents: {
-        michelangelo: { prompt_append: "Legacy Claude override", description: "legacy" },
-        claude: { prompt_append: "Current Claude override" },
-      },
-      mcps: {},
-    });
-
-    expect(String(agents.claude.prompt)).toContain("Current Claude override");
-    expect(agents.claude.description).toBe("legacy");
-    expect(resolveSubagentTaskLane("michelangelo")).toBe("claude");
-  });
-
-  it("treats mrrobot and wick as primary agents for session injection", () => {
-    expect(PRIMARY_AGENTS.has("mrrobot")).toBe(true);
-    expect(PRIMARY_AGENTS.has("wick")).toBe(true);
-    expect(PRIMARY_AGENTS.has("eliot")).toBe(false);
+  it("treats only mrrobot as the primary harness agent for session injection", () => {
+    expect([...PRIMARY_AGENTS]).toEqual(["mrrobot"]);
   });
 });
 
@@ -177,7 +144,7 @@ describe("createHarnessCommands", () => {
 });
 
 describe("session start hook", () => {
-  it("gives Wick primary injection and Eliot compact subagent context", async () => {
+  it("gives MrRobot primary injection and Eliot compact subagent context", async () => {
     const ctx = { directory: process.cwd() } as any;
     const runtime = createHookRuntime(ctx, { workflow: { compact_subagent_context: true } });
     const hook = createSessionStartHook(
@@ -186,14 +153,14 @@ describe("session start hook", () => {
       runtime,
     );
 
-    const wickOutput: { message: Record<string, unknown> } = {
-      message: { agent: "wick" },
+    const primaryOutput: { message: Record<string, unknown> } = {
+      message: { agent: "mrrobot" },
     };
-    await hook["chat.message"]?.({ sessionID: "s1", agent: "wick" }, wickOutput);
-    expect(String(wickOutput.message.system ?? "")).toContain(
+    await hook["chat.message"]?.({ sessionID: "s1", agent: "mrrobot" }, primaryOutput);
+    expect(String(primaryOutput.message.system ?? "")).toContain(
       "[ProjectDocs] Available: README.md.",
     );
-    expect(String(wickOutput.message.system ?? "")).not.toContain("[ProjectContext]");
+    expect(String(primaryOutput.message.system ?? "")).not.toContain("[ProjectContext]");
 
     const eliotOutput: { message: Record<string, unknown> } = {
       message: { agent: "eliot" },
@@ -203,36 +170,6 @@ describe("session start hook", () => {
     expect(String(eliotOutput.message.system ?? "")).not.toContain(
       "[ProjectDocs] Available: README.md.",
     );
-  });
-
-  it("routes wick! prompts to hidden Wick on gpt-5.5-fast xhigh", async () => {
-    const ctx = { directory: process.cwd() } as any;
-    const runtime = createHookRuntime(ctx, { workflow: { compact_subagent_context: true } });
-    const hook = createSessionStartHook(
-      ctx,
-      { workflow: { compact_subagent_context: true } },
-      runtime,
-    );
-
-    const output: { message: Record<string, unknown>; parts: Array<Record<string, unknown>> } = {
-      message: {
-        agent: "mrrobot",
-        model: { providerID: "openai", modelID: "gpt-5.5-fast", variant: "xhigh" },
-      },
-      parts: [{ type: "text", text: "wick! fix the failing test" }],
-    };
-
-    await hook["chat.message"]?.({ sessionID: "s-wick-shortcut", agent: "mrrobot" }, output);
-
-    expect(output.message.agent).toBe("wick");
-    expect(output.message.model).toEqual({
-      providerID: "openai",
-      modelID: "gpt-5.5-fast",
-      variant: "xhigh",
-    });
-    expect(output.parts[0]?.text).toBe("fix the failing test");
-    expect(String(output.message.system ?? "")).toContain("[ProjectDocs]");
-    expect(String(output.message.system ?? "")).not.toContain("[ProjectContext]");
   });
 
   it("injects active subagent task ids into primary sessions without collapsing same-lane threads", async () => {
@@ -284,22 +221,22 @@ describe("session start hook", () => {
       },
     );
 
-    const wickOutput: { message: Record<string, unknown> } = {
-      message: { agent: "wick" },
+    const primaryOutput: { message: Record<string, unknown> } = {
+      message: { agent: "mrrobot" },
     };
     await sessionStartHook["chat.message"]?.(
-      { sessionID: "s3", agent: "wick" },
-      wickOutput,
+      { sessionID: "s3", agent: "mrrobot" },
+      primaryOutput,
     );
 
-    expect(String(wickOutput.message.system ?? "")).toContain("[SubagentTasks]");
-    expect(String(wickOutput.message.system ?? "")).toContain(
+    expect(String(primaryOutput.message.system ?? "")).toContain("[SubagentTasks]");
+    expect(String(primaryOutput.message.system ?? "")).toContain(
       "claude=task_123abc (Refine landing page)",
     );
-    expect(String(wickOutput.message.system ?? "")).toContain(
+    expect(String(primaryOutput.message.system ?? "")).toContain(
       "claude=task_456def (Polish checkout hero)",
     );
-    expect(String(wickOutput.message.system ?? "")).toContain(
+    expect(String(primaryOutput.message.system ?? "")).toContain(
       "claude=task_789ghi",
     );
   });
@@ -596,18 +533,18 @@ describe("session start hook", () => {
       },
     );
 
-    const wickOutput: { message: Record<string, unknown> } = {
-      message: { agent: "wick" },
+    const primaryOutput: { message: Record<string, unknown> } = {
+      message: { agent: "mrrobot" },
     };
     await sessionStartHook["chat.message"]?.(
-      { sessionID: "s-review-hints", agent: "wick" },
-      wickOutput,
+      { sessionID: "s-review-hints", agent: "mrrobot" },
+      primaryOutput,
     );
 
-    expect(String(wickOutput.message.system ?? "")).toContain(
+    expect(String(primaryOutput.message.system ?? "")).toContain(
       "turing=task_turing_open (Review latest diff) [open-review]",
     );
-    expect(String(wickOutput.message.system ?? "")).not.toContain(
+    expect(String(primaryOutput.message.system ?? "")).not.toContain(
       "task_turing_clean",
     );
   });
@@ -647,31 +584,55 @@ describe("session start hook", () => {
       {},
     );
 
-    const wickOutput: { message: Record<string, unknown> } = {
-      message: { agent: "wick" },
+    const primaryOutput: { message: Record<string, unknown> } = {
+      message: { agent: "mrrobot" },
     };
     await sessionStartHook["chat.message"]?.(
-      { sessionID: "s5", agent: "wick" },
-      wickOutput,
+      { sessionID: "s5", agent: "mrrobot" },
+      primaryOutput,
     );
 
-    expect(String(wickOutput.message.system ?? "")).toContain(
+    expect(String(primaryOutput.message.system ?? "")).toContain(
       "turing=task_turing_keepdesc (Review latest diff)",
     );
   });
 });
 
 describe("prompt policy", () => {
+  it("keeps reasoning private and answers in a compact mirrored style", () => {
+    const coordinatorPrompt = buildCoordinatorPrompt();
+    const eliotPrompt = buildEliotPrompt();
+
+    for (const prompt of [coordinatorPrompt, eliotPrompt]) {
+      expect(prompt).toContain(
+        "Internal reasoning may use whichever language gives you the strongest reasoning. Do not force internal reasoning into the user's language.",
+      );
+      expect(prompt).toContain(
+        "Do not expose private chain-of-thought. Share only the decision, result, blocker, or a short rationale when it helps the user.",
+      );
+      expect(prompt).toContain(
+        "Before tool-using or multi-step work, start with one short sentence saying what you will do first, then act.",
+      );
+      expect(prompt).toContain(
+        "Mirror the user's conversational shape and tone, but clean up grammar and punctuation.",
+      );
+      expect(prompt).toContain(
+        "Do not stack every thought on a new line. Avoid inventory-style lists unless the user asks for a list or structure materially improves scan speed.",
+      );
+      expect(prompt).toContain(
+        "When listing comparable structured items, prefer a compact markdown table over bullets.",
+      );
+    }
+  });
+
   it("requires external verification for framework and library guidance", () => {
     const coordinatorPrompt = buildCoordinatorPrompt();
-    const wickPrompt = buildWickPrompt();
     const workerPrompt = buildEliotPrompt();
     const claudePrompt = buildClaudePrompt();
     const tyrellPrompt = buildTyrellPrompt();
 
     for (const prompt of [
       coordinatorPrompt,
-      wickPrompt,
       workerPrompt,
       claudePrompt,
       tyrellPrompt,
@@ -690,7 +651,6 @@ describe("prompt policy", () => {
 
   it("pushes agents to verify bug fixes before claiming completion", () => {
     const coordinatorPrompt = buildCoordinatorPrompt();
-    const wickPrompt = buildWickPrompt();
     const eliotPrompt = buildEliotPrompt();
     const claudePrompt = buildClaudePrompt();
     const tyrellPrompt = buildTyrellPrompt();
@@ -700,7 +660,6 @@ describe("prompt policy", () => {
 
     for (const prompt of [
       coordinatorPrompt,
-      wickPrompt,
       eliotPrompt,
       claudePrompt,
       tyrellPrompt,
@@ -725,9 +684,6 @@ describe("prompt policy", () => {
 
     expect(coordinatorPrompt).toContain(
       "Keep correctness first. Do not mix unfinished bug work with rename, release, publish, cache-clearing, or adjacent cleanup unless the user explicitly wants a combined pass.",
-    );
-    expect(wickPrompt).toContain(
-      "Keep correctness ahead of rename, release, publish, cache-clearing, or adjacent cleanup unless the user explicitly combines them.",
     );
     expect(eliotPrompt).toContain(
       "Verify the fix against the same failing path before you report the packet complete.",
@@ -796,7 +752,6 @@ describe("prompt policy", () => {
       "vue-vite-ui",
     ];
     const coordinatorPrompt = buildCoordinatorPrompt(undefined, undefined, installedSkills);
-    const wickPrompt = buildWickPrompt(undefined, undefined, installedSkills);
     const eliotPrompt = buildEliotPrompt(undefined, undefined, installedSkills);
     const claudePrompt = buildClaudePrompt(undefined, undefined, installedSkills);
     const tyrellPrompt = buildTyrellPrompt(undefined, undefined, installedSkills);
@@ -893,21 +848,6 @@ describe("prompt policy", () => {
     expect(tyrellPrompt).toContain(
       "Handle ugly, open-ended, or long-running exploratory packets when MrRobot wants someone to dig through uncertainty.",
     );
-    expect(wickPrompt).toContain(
-      "Take narrow, concrete tasks and finish them fast.",
-    );
-    expect(wickPrompt).toContain(
-      "Default to direct execution instead of delegation.",
-    );
-    expect(wickPrompt).toContain(
-      "When you delegate, mark the packet as implementation, research, review, or ideation and give completion criteria instead of asking for generic output.",
-    );
-    expect(wickPrompt).toContain(
-      "That default still applies when the frontend work starts from an empty directory and needs initial project scaffolding.",
-    );
-    expect(wickPrompt).toContain(
-      "Reuse an existing subagent task_id by default for the same lane and ongoing packet; lanes may auto-reuse an active exact workstream match when safe, and Turing should only reuse while verifying an open review thread. Spawn fresh when scope changes materially, when the old thread is clean, or when you want a clean reset.",
-    );
     expect(coordinatorPrompt).toContain(
       "After any non-trivial code change, including MrRobot, Eliot, Claude, or Tyrell authored changes, run a Turing pass unless the change was truly trivial and local.",
     );
@@ -919,7 +859,6 @@ describe("prompt policy", () => {
   it("encourages skill_find and the current installed skill list", () => {
     const installedSkills = ["custom-skill", "webapp-testing"];
     const coordinatorPrompt = buildCoordinatorPrompt(undefined, undefined, installedSkills);
-    const wickPrompt = buildWickPrompt(undefined, undefined, installedSkills);
     const eliotPrompt = buildEliotPrompt(undefined, undefined, installedSkills);
     const claudePrompt = buildClaudePrompt(undefined, undefined, installedSkills);
     const tyrellPrompt = buildTyrellPrompt(undefined, undefined, installedSkills);
@@ -927,7 +866,6 @@ describe("prompt policy", () => {
 
     for (const prompt of [
       coordinatorPrompt,
-      wickPrompt,
       eliotPrompt,
       claudePrompt,
       tyrellPrompt,
@@ -935,7 +873,9 @@ describe("prompt policy", () => {
     ]) {
       expect(prompt).toContain("skill_find");
       expect(prompt).toContain("skill_use");
-      expect(prompt).toContain("Currently installed skills: custom-skill, webapp-testing");
+      expect(prompt).toContain("- Currently installed skills:");
+      expect(prompt).toContain("  - custom-skill");
+      expect(prompt).toContain("  - webapp-testing");
       expect(prompt).toContain(
         "Do not call skill_use for a skill name unless it is listed above or skill_find confirms it is installed in this session.",
       );
@@ -951,6 +891,12 @@ describe("prompt policy", () => {
     const turingPrompt = buildTuringPrompt(undefined, undefined, installedSkills);
 
     for (const prompt of [eliotPrompt, claudePrompt, tyrellPrompt, turingPrompt]) {
+      expect(prompt).toContain(
+        "- context7: Library and framework documentation with version-aware examples for current API usage and implementation details.",
+      );
+      expect(prompt).toContain(
+        "- web-agent-mcp: Browser automation for navigating pages, interacting with controls, observing DOM/a11y/text/network state, screenshots, and local web app verification.",
+      );
       expect(prompt).toContain("For openai-image-gen-mcp:");
       expect(prompt).toContain(
         "call the Skill tool directly with name `image-prompting` first; do not rely on skill_find for this path",
@@ -966,9 +912,8 @@ describe("prompt policy", () => {
   it("gives primary prompts the same image MCP bridge guidance", () => {
     const installedSkills = ["image-prompting"];
     const coordinatorPrompt = buildCoordinatorPrompt(undefined, undefined, installedSkills);
-    const wickPrompt = buildWickPrompt(undefined, undefined, installedSkills);
 
-    for (const prompt of [coordinatorPrompt, wickPrompt]) {
+    for (const prompt of [coordinatorPrompt]) {
       expect(prompt).toContain("For openai-image-gen-mcp, call the Skill tool directly with `image-prompting`");
       expect(prompt).toContain("put the final image brief in `prompt_json`");
       expect(prompt).toContain("forwards `source_prompt` verbatim");
@@ -997,7 +942,6 @@ describe("prompt policy", () => {
 
   it("prefers continuing the same subagent thread before spawning fresh", () => {
     const coordinatorPrompt = buildCoordinatorPrompt();
-    const wickPrompt = buildWickPrompt();
     const eliotPrompt = buildEliotPrompt();
     const claudePrompt = buildClaudePrompt();
     const turingPrompt = createHarnessAgents({ agents: {}, mcps: {} }).turing as {
@@ -1009,9 +953,6 @@ describe("prompt policy", () => {
     );
     expect(coordinatorPrompt).toContain(
       "Spawn a fresh subagent only when the scope changes materially, the prior thread is complete, or you intentionally want a clean context reset.",
-    );
-    expect(wickPrompt).toContain(
-      "Reuse an existing subagent task_id by default for the same lane and ongoing packet; lanes may auto-reuse an active exact workstream match when safe, and Turing should only reuse while verifying an open review thread. Spawn fresh when scope changes materially, when the old thread is clean, or when you want a clean reset.",
     );
     expect(eliotPrompt).toContain(
       "When you call Task for a continuing lane and workstream, reuse the existing task_id by default; lanes may auto-reuse an active exact workstream match when safe, and Turing should only do that for open repair verification threads.",
@@ -1026,7 +967,6 @@ describe("prompt policy", () => {
 
   it("keeps character identity user-facing instead of introducing OpenCode first", () => {
     const coordinatorPrompt = buildCoordinatorPrompt();
-    const wickPrompt = buildWickPrompt();
     const eliotPrompt = buildEliotPrompt();
     const claudePrompt = buildClaudePrompt();
     const tyrellPrompt = buildTyrellPrompt();
@@ -1035,7 +975,6 @@ describe("prompt policy", () => {
     };
 
     expect(coordinatorPrompt).toContain('Your user-facing identity is MrRobot.');
-    expect(wickPrompt).toContain('Your user-facing identity is Wick.');
     expect(eliotPrompt).toContain('Your user-facing identity is Eliot.');
     expect(claudePrompt).toContain('Your user-facing identity is Claude.');
     expect(tyrellPrompt).toContain('Your user-facing identity is Tyrell.');
@@ -1044,12 +983,4 @@ describe("prompt policy", () => {
     );
   });
 
-  it("keeps Wick on the shared primary safety and language baseline", () => {
-    const wickPrompt = buildWickPrompt();
-
-    expect(wickPrompt).toContain("Inspect repo evidence before deciding.");
-    expect(wickPrompt).toContain(
-      "Reply to the user in their language with correct grammar.",
-    );
-  });
 });

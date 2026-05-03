@@ -1,14 +1,13 @@
 # opencode-pair
 
-OpenCode harness with a six-agent setup: two primaries, one general subagent, one ideation subagent, one frontend design subagent, and one validation-focused subagent.
+OpenCode harness with a five-agent setup: one primary, one general subagent, one ideation subagent, one frontend design subagent, and one validation-focused subagent.
 
 ## What it does
 
 - **MrRobot** is the primary agent. He routes work and answers plainly.
-- **Wick** is the hidden primary executor. Prefix a prompt with `wick!` to route narrow, concrete tasks to him.
 - **Eliot** is the general subagent. He handles implementation, refactors, repo exploration, and other scoped task work.
 - **Tyrell** is the ideation subagent. It handles brainstorming, naming, UX direction, product ideas, and open-ended exploratory packets.
-- **Claude** is the frontend design subagent. He is the default implementation lane for pages, components, styling, layout, and visual polish unless the user explicitly asks for review-only output or no file edits, now on `openai/gpt-5.5-fast` `xhigh` with bundled Impeccable plus stack-aware taste/redesign skills.
+- **Claude** is the frontend design subagent. He is the default implementation lane for pages, components, styling, layout, and visual polish unless the user explicitly asks for review-only output or no file edits, on `openai/gpt-5.5-fast` `low` with bundled Impeccable plus stack-aware taste/redesign skills.
 - Implementation packets should be edited directly in the repo by the assigned subagent; research, review, and ideation packets should return findings without edits unless edits are explicitly requested.
 - Ongoing subagent work should continue with the same `task_id` by default when the lane and workstream still match.
 - **Turing** is the validation-focused subagent.
@@ -18,16 +17,15 @@ OpenCode harness with a six-agent setup: two primaries, one general subagent, on
 
 ## Agents
 
-| Agent | Character | Role | Model |
-| ----- | --------- | ---- | ----- |
-| **mrrobot** | MrRobot | Primary agent — routes, synthesizes, answers | openai/gpt-5.5-fast |
-| **wick** | Wick | Hidden executor — invoke with `wick!` | openai/gpt-5.5-fast |
-| **eliot** | Eliot | General-purpose subagent | openai/gpt-5.5-fast |
-| **tyrell** | Tyrell | Ideation-focused subagent | openai/gpt-5.5-fast |
-| **claude** | Claude | Frontend design subagent | openai/gpt-5.5-fast |
-| **turing** | Turing | Validation-focused review and verification | openai/gpt-5.5-fast |
+| Agent | Character | Role | Model | Variant |
+| ----- | --------- | ---- | ----- | ------- |
+| **mrrobot** | MrRobot | Primary agent — routes, synthesizes, answers | openai/gpt-5.5-fast | medium |
+| **eliot** | Eliot | General-purpose subagent | openai/gpt-5.5-fast | low |
+| **tyrell** | Tyrell | Ideation-focused subagent | openai/gpt-5.5-fast | low |
+| **claude** | Claude | Frontend design subagent | openai/gpt-5.5-fast | low |
+| **turing** | Turing | Validation-focused review and verification | openai/gpt-5.5-fast | xhigh |
 
-All harness agents use `openai/gpt-5.5-fast` `xhigh`. Wick stays hidden from the visible agent cycle.
+All harness agents use fast model IDs. MrRobot uses `openai/gpt-5.5-fast` `medium`, implementation/ideation/frontend subagents use `openai/gpt-5.5-fast` `low`, and Turing uses `openai/gpt-5.5-fast` `xhigh`.
 
 ## MCP Servers
 
@@ -44,7 +42,7 @@ All harness agents use `openai/gpt-5.5-fast` `xhigh`. Wick stays hidden from the
 
 Shared managed MCP roots stay under `~/.config/{mcp_name}`.
 
-All six agents receive the same enabled MCP set and the same default full tool access. The harness does not add per-agent MCP or tool restrictions.
+All five agents receive the same enabled MCP set and the same default full tool access. The harness does not add per-agent MCP or tool restrictions.
 
 ## Prerequisites
 
@@ -57,14 +55,12 @@ bunx opencode-pair install
 ```
 
 The installer will:
-1. Wire agents, DCP, and MCPs into OpenCode config
+1. Wire agents and MCPs into OpenCode config
 2. Install shell strategy instructions
 3. Vendor `pg-mcp`, `ssh-mcp`, `web-agent-mcp`, `openai-image-gen-mcp`, and bundled skills (including Impeccable plus taste/redesign skills for Claude)
 4. Install dependencies inside each shared managed MCP root
 5. Auto-provision SearXNG Docker container (`--restart unless-stopped`, `127.0.0.1:8099:8080`)
 6. Enable JSON format in SearXNG settings
-
-DCP is installed with a GPT-5.5-fast-aware config: 400k total budget means 272k input + 128k output; soft reminders start at 170k, hard compression nudges start at 258k to leave input/output headroom and avoid native compaction pressure. DCP prompt overrides preserve user decisions and task intent while treating stale tool output as low-signal disposable context.
 
 From source:
 
@@ -104,7 +100,7 @@ opencode-pair init
 
 | Hook | What it does |
 | ---- | ------------ |
-| `chat.message` | Route `wick!` prompts to hidden Wick on `openai/gpt-5.5-fast` `xhigh`; inject project docs, WSL notes, and active subagent task IDs for primaries; inject compact project facts for Eliot, Tyrell, Claude, and Turing |
+| `chat.message` | Inject project docs, WSL notes, and active subagent task IDs for MrRobot; inject compact project facts for Eliot, Tyrell, Claude, and Turing |
 | `tool.execute.before` | Block suspicious AI-style comments before writes, enforce git-push build gate, auto-transform Node commands on WSL |
 | `tool.execute.after` | Surface suspicious comments that still remain after a write; capture subagent task IDs for continuation hints |
 | `session.deleted` | Clear ephemeral runtime state |
@@ -119,7 +115,7 @@ src/
 │   ├── mcp-access.ts    # Enabled MCP list and prompt guidance
 │   ├── shared.ts        # Shared prompt rules and response style
 │   ├── workers.ts       # Eliot, Tyrell, Claude, and Turing prompt builders
-│   └── coordinator.ts   # MrRobot and Wick prompt builders plus routing rules
+│   └── coordinator.ts   # MrRobot prompt builder plus routing rules
 ├── agents.ts            # Agent definitions (models and prompts)
 ├── mcp.ts               # MCP server registration
 ├── hooks/               # Runtime hooks (comment guard, WSL, cleanup)

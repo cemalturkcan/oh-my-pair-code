@@ -157,6 +157,7 @@ export function prepareImageGenerationRequest(args, fallbackAction) {
   return {
     prompt,
     model: config.default_model,
+    service_tier: config.default_service_tier,
     instructions: buildBridgeInstructions(config.default_instructions),
     input,
     tools: [buildToolConfig(args, fallbackAction)],
@@ -380,6 +381,7 @@ export async function runImageGeneration(args, authState, fallbackAction) {
   const { response, authState: finalAuthState } = await postResponses(
     {
       model: request.model,
+      service_tier: request.service_tier,
       store: false,
       instructions: request.instructions,
       reasoning: request.reasoning,

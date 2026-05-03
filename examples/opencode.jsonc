@@ -2,7 +2,6 @@
   // Reference example for the plugin stack after installation.
   "plugin": [
     "opencode-pair",
-    "@tarquinen/opencode-dcp",
     "opencode-pty",
     "@mohak34/opencode-notifier",
     "@zenobius/opencode-skillful",
@@ -11,5 +10,5 @@
   "instructions": [
     "~/.config/opencode/plugin/shell-strategy/shell_strategy.md"
   ],
-  "default_agent": "yang"
+  "default_agent": "mrrobot"
 }

@@ -96,27 +96,20 @@ describe("installBundledSkills", () => {
 describe("mergePluginList", () => {
   it("adds the managed plugin entries and keeps unrelated custom plugins", () => {
     const merged = mergePluginList([
-      "opencode-google-login@latest",
       "custom-plugin",
     ]);
 
-    expect(merged).toContain("@tarquinen/opencode-dcp@latest");
     expect(merged).toContain("opencode-pty@latest");
-    expect(merged.some((item) => item.startsWith("opencode-google-login"))).toBe(false);
     expect(merged).toContain("custom-plugin");
   });
 
-  it("drops stale managed plugin specs before writing the current managed set", () => {
+  it("normalizes managed plugin specs before writing the current managed set", () => {
     const merged = mergePluginList([
-      "@tarquinen/opencode-dcp@3.1.0",
       "opencode-pty@1.2.3",
       "@zenobius/opencode-skillful@2.0.0",
       "custom-plugin",
     ]);
 
-    expect(merged.filter((item) => item.startsWith("@tarquinen/opencode-dcp")).sort()).toEqual([
-      "@tarquinen/opencode-dcp@latest",
-    ]);
     expect(merged.filter((item) => item.startsWith("opencode-pty")).sort()).toEqual([
       "opencode-pty@latest",
     ]);
@@ -140,21 +133,20 @@ describe("mergePluginList", () => {
 });
 
 describe("uninstallHarness", () => {
-  it("prunes stale local harness plugin targets during uninstall", async () => {
+  it("removes harness plugin wiring during uninstall", async () => {
     const root = join(
       tmpdir(),
       `opencode-pair-uninstall-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     const previousConfigDir = process.env.OPENCODE_CONFIG_DIR;
 
-    mkdirSync(join(root, "vendor", "opencode-background-agents-local"), { recursive: true });
+    mkdirSync(root, { recursive: true });
     writeFileSync(
       join(root, "opencode.json"),
       JSON.stringify(
         {
           plugin: [
-            "file:///tmp/opencode-background-agents-local",
-            "opencode-google-login@latest",
+            "file:///tmp/opencode-pair",
             "opencode-pty@latest",
             "custom-plugin",
           ],
@@ -174,7 +166,6 @@ describe("uninstallHarness", () => {
       };
 
       expect(config.plugin).toEqual(["custom-plugin"]);
-      expect(existsSync(join(root, "vendor", "opencode-background-agents-local"))).toBe(false);
     } finally {
       if (previousConfigDir === undefined) {
         delete process.env.OPENCODE_CONFIG_DIR;
@@ -215,39 +206,6 @@ describe("syncManagedMcp", () => {
     syncManagedMcp("web-agent-mcp", sourceRoot, targetRoot);
     expect(() => readFileSync(join(targetRoot, "node_modules", "leftpad", "index.js"), "utf8")).toThrow();
     expect(readFileSync(join(targetRoot, "config.json"), "utf8")).toBe('{"keep":true}');
-
-    rmSync(root, { recursive: true, force: true });
-  });
-
-  it("migrates known old image MCP model defaults without clobbering other config", () => {
-    const root = join(
-      tmpdir(),
-      `opencode-pair-image-mcp-migrate-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    );
-    const sourceRoot = join(root, "source-mcp");
-    const targetRoot = join(root, "target-mcp");
-
-    mkdirSync(sourceRoot, { recursive: true });
-    writeFileSync(join(sourceRoot, "package.json"), "{}", "utf8");
-    writeFileSync(
-      join(sourceRoot, "config.json"),
-      JSON.stringify({ default_model: "gpt-5.5-fast", custom: "source" }),
-      "utf8",
-    );
-    mkdirSync(targetRoot, { recursive: true });
-    writeFileSync(
-      join(targetRoot, "config.json"),
-      JSON.stringify({ default_model: "gpt-5.4", default_reasoning_effort: "high", custom: "user" }),
-      "utf8",
-    );
-
-    syncManagedMcp("openai-image-gen-mcp", sourceRoot, targetRoot);
-
-    expect(JSON.parse(readFileSync(join(targetRoot, "config.json"), "utf8"))).toEqual({
-      default_model: "gpt-5.5-fast",
-      default_reasoning_effort: "xhigh",
-      custom: "user",
-    });
 
     rmSync(root, { recursive: true, force: true });
   });

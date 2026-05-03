@@ -16,7 +16,7 @@ var __export = (target, all) => {
 
 // src/cli.ts
 import { existsSync as existsSync2, mkdirSync as mkdirSync2, writeFileSync as writeFileSync2 } from "fs";
-import { join as join2, resolve as resolve2 } from "path";
+import { join as join3, resolve as resolve2 } from "path";
 import { fileURLToPath as fileURLToPath2 } from "url";
 
 // node_modules/jsonc-parser/lib/esm/impl/scanner.js
@@ -14357,52 +14357,29 @@ function date4(params) {
 config(en_default());
 // src/config.ts
 var HarnessConfigSchema = exports_external.object({
-  default_mode: exports_external.enum(["coordinator"]).optional(),
   set_default_agent: exports_external.boolean().optional(),
   commands: exports_external.object({
     enabled: exports_external.boolean().optional()
-  }).optional(),
-  credentials: exports_external.object({
-    jina_api_key: exports_external.string().optional(),
-    figma_access_token: exports_external.string().optional()
-  }).optional(),
-  figma_console: exports_external.object({
-    ssh_host: exports_external.string().optional()
   }).optional(),
   hooks: exports_external.object({
     profile: exports_external.enum(["minimal", "standard", "strict"]).optional(),
     comment_guard: exports_external.boolean().optional(),
     session_start: exports_external.boolean().optional(),
     pre_tool_use: exports_external.boolean().optional(),
-    post_tool_use: exports_external.boolean().optional(),
-    pre_compact: exports_external.boolean().optional(),
-    stop: exports_external.boolean().optional(),
-    session_end: exports_external.boolean().optional(),
-    file_edited: exports_external.boolean().optional()
+    task_tracking: exports_external.boolean().optional(),
+    session_end: exports_external.boolean().optional()
   }).optional(),
-  memory: exports_external.object({
-    enabled: exports_external.boolean().optional(),
-    directory: exports_external.string().optional(),
-    lookback_days: exports_external.number().int().positive().optional(),
-    max_injected_chars: exports_external.number().int().positive().optional()
-  }).optional(),
-  learning: exports_external.object({
-    enabled: exports_external.boolean().optional(),
-    directory: exports_external.string().optional(),
-    min_observations: exports_external.number().int().positive().optional(),
-    auto_promote: exports_external.boolean().optional(),
-    max_patterns: exports_external.number().int().positive().optional(),
-    max_injected_patterns: exports_external.number().int().positive().optional()
+  workflow: exports_external.object({
+    compact_subagent_context: exports_external.boolean().optional()
   }).optional(),
   mcps: exports_external.object({
     context7: exports_external.boolean().optional(),
     grep_app: exports_external.boolean().optional(),
-    websearch: exports_external.boolean().optional(),
     web_agent_mcp: exports_external.boolean().optional(),
     pg_mcp: exports_external.boolean().optional(),
     ssh_mcp: exports_external.boolean().optional(),
-    jina: exports_external.boolean().optional(),
-    figma_console: exports_external.boolean().optional(),
+    openai_image_gen_mcp: exports_external.boolean().optional(),
+    searxng: exports_external.boolean().optional(),
     mariadb: exports_external.boolean().optional()
   }).optional(),
   agents: exports_external.record(exports_external.string(), exports_external.object({
@@ -14413,65 +14390,41 @@ var HarnessConfigSchema = exports_external.object({
   })).optional()
 });
 var ConfigSectionSchemas = {
-  default_mode: HarnessConfigSchema.shape.default_mode,
   set_default_agent: HarnessConfigSchema.shape.set_default_agent,
   commands: HarnessConfigSchema.shape.commands,
-  credentials: HarnessConfigSchema.shape.credentials,
   hooks: HarnessConfigSchema.shape.hooks,
-  memory: HarnessConfigSchema.shape.memory,
-  learning: HarnessConfigSchema.shape.learning,
-  figma_console: HarnessConfigSchema.shape.figma_console,
+  workflow: HarnessConfigSchema.shape.workflow,
   mcps: HarnessConfigSchema.shape.mcps,
   agents: HarnessConfigSchema.shape.agents
 };
 var SAMPLE_PROJECT_CONFIG = `{
   // Project-level overrides for opencode-pair
-  "default_mode": "coordinator",
-  "credentials": {
-    "jina_api_key": "",
-    "figma_access_token": ""
-  },
-  "figma_console": {
-    "ssh_host": ""
-  },
   "hooks": {
     "profile": "standard",
     "comment_guard": true,
     "session_start": true,
     "pre_tool_use": true,
-    "post_tool_use": true,
-    "pre_compact": true,
-    "stop": true,
-    "session_end": true,
-    "file_edited": true
+    "task_tracking": true,
+    "session_end": true
   },
-  "memory": {
-    "enabled": true,
-    "lookback_days": 7,
-    "max_injected_chars": 3500
-  },
-  "learning": {
-    "enabled": true,
-    "min_observations": 6,
-    "auto_promote": true,
-    "max_patterns": 24,
-    "max_injected_patterns": 5
+  "workflow": {
+    "compact_subagent_context": true
   },
   "mcps": {
     "context7": true,
     "grep_app": true,
-    "websearch": true,
     "web_agent_mcp": true,
     "pg_mcp": true,
     "ssh_mcp": true,
-    "jina": true,
-    "figma_console": true,
+    "openai_image_gen_mcp": true,
+    "searxng": true,
     "mariadb": true
   },
   "agents": {}
 }`;
 
 // src/installer.ts
+import { createHash } from "crypto";
 import {
   mkdirSync,
   existsSync,
@@ -14482,74 +14435,92 @@ import {
   rmSync,
   statSync
 } from "fs";
-import { dirname, join, resolve } from "path";
-import { homedir } from "os";
+import { dirname, join as join2, resolve } from "path";
+import { homedir as homedir2 } from "os";
 import { fileURLToPath } from "url";
 import { spawn } from "child_process";
-import { createInterface } from "readline";
+
+// src/mcp.ts
+import { homedir } from "os";
+import { join } from "path";
+function sharedConfigRoot() {
+  const xdgRoot = process.env.XDG_CONFIG_HOME?.trim();
+  return xdgRoot || join(homedir(), ".config");
+}
+function getManagedMcpRoot(name) {
+  return join(sharedConfigRoot(), name);
+}
+
+// src/installer.ts
 var MANAGED_PLUGIN_ENTRIES = [
   "@zenobius/opencode-skillful",
   "@franlol/opencode-md-table-formatter",
   "opencode-pty",
-  "@mohak34/opencode-notifier",
-  "opencode-anthropic-login-via-cli"
+  "@mohak34/opencode-notifier"
 ];
 var MANAGED_PACKAGE_NAMES = [
   "opencode-pair",
   "opencode-pty",
   "@mohak34/opencode-notifier",
   "@zenobius/opencode-skillful",
-  "@franlol/opencode-md-table-formatter",
-  "opencode-anthropic-login-via-cli"
+  "@franlol/opencode-md-table-formatter"
 ];
 var PACKAGE_SPECS = {
   "opencode-pty": "latest",
   "@mohak34/opencode-notifier": "latest",
   "@zenobius/opencode-skillful": "latest",
   "@franlol/opencode-md-table-formatter": "latest",
-  "opencode-anthropic-login-via-cli": "latest",
   "unique-names-generator": "latest",
   "@modelcontextprotocol/sdk": "latest",
   pg: "latest",
   zod: "latest"
 };
-var MCP_NAMES = ["pg-mcp", "ssh-mcp", "web-agent-mcp"];
-var BACKGROUND_AGENT_FILES = [
-  "background-agents.ts",
-  "kdco-primitives/get-project-id.ts",
-  "kdco-primitives/index.ts",
-  "kdco-primitives/log-warn.ts",
-  "kdco-primitives/mutex.ts",
-  "kdco-primitives/shell.ts",
-  "kdco-primitives/temp.ts",
-  "kdco-primitives/terminal-detect.ts",
-  "kdco-primitives/types.ts",
-  "kdco-primitives/with-timeout.ts"
+var MCP_NAMES = [
+  "pg-mcp",
+  "ssh-mcp",
+  "web-agent-mcp",
+  "openai-image-gen-mcp"
 ];
+var MANAGED_SKILLS_MANIFEST = ".opencode-pair-managed-skills.json";
+var MANAGED_MCP_STAMP = ".opencode-pair-managed-mcp.json";
+var MANAGED_SOURCE_HASH_KEY = "__sourceHash";
+var MCP_REQUIRED_PACKAGES = {
+  "pg-mcp": ["@modelcontextprotocol/sdk", "pg"],
+  "ssh-mcp": ["@modelcontextprotocol/sdk", "zod"],
+  "web-agent-mcp": [
+    "@modelcontextprotocol/sdk",
+    "zod",
+    "cloakbrowser",
+    "playwright-core"
+  ],
+  "openai-image-gen-mcp": ["@modelcontextprotocol/sdk"]
+};
+var SEARXNG_CONTAINER_NAME = "searxng";
+var SEARXNG_HOST = "127.0.0.1";
+var SEARXNG_PORT = "8099";
+var SEARXNG_URL = `http://${SEARXNG_HOST}:${SEARXNG_PORT}`;
 function getConfigDir() {
   const envDir = process.env.OPENCODE_CONFIG_DIR?.trim();
   if (envDir) {
     return resolve(envDir);
   }
-  return join(homedir(), ".config", "opencode");
+  return join2(homedir2(), ".config", "opencode");
 }
 function getConfigPaths(configDir) {
   return {
     configDir,
-    binDir: join(configDir, "bin"),
-    skillsDir: join(configDir, "skills"),
-    configJson: join(configDir, "opencode.json"),
-    configJsonc: join(configDir, "opencode.jsonc"),
-    packageJson: join(configDir, "package.json"),
-    harnessConfig: join(configDir, "opencode-pair.jsonc"),
-    vendorDir: join(configDir, "vendor", "opencode-background-agents-local"),
-    vendorMcpDir: join(configDir, "vendor", "mcp"),
-    shellStrategyDir: join(configDir, "plugin", "shell-strategy"),
-    notifierConfig: join(configDir, "opencode-notifier.json")
+    binDir: join2(configDir, "bin"),
+    skillsDir: join2(configDir, "skills"),
+    configJson: join2(configDir, "opencode.json"),
+    configJsonc: join2(configDir, "opencode.jsonc"),
+    packageJson: join2(configDir, "package.json"),
+    harnessConfig: join2(configDir, "opencode-pair.jsonc"),
+    shellStrategyDir: join2(configDir, "plugin", "shell-strategy"),
+    notifierConfig: join2(configDir, "opencode-notifier.json")
   };
 }
 function bundledMcpSourceRoot(name) {
-  return join(packageRoot(), "vendor", "mcp", name);
+  return join2(packageRoot(), "vendor", "mcp", name);
 }
 function detectMainConfigPath(paths) {
   if (existsSync(paths.configJson)) {
@@ -14585,21 +14556,14 @@ function writeJson(filePath, value) {
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}
 `, "utf8");
 }
-function normalizeJinaApiKey(value) {
-  if (!value) {
-    return;
-  }
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return;
-  }
-  return trimmed.toLowerCase().startsWith("bearer ") ? trimmed.slice(7).trim() : trimmed;
-}
 function ensureDir(dirPath) {
   mkdirSync(dirPath, { recursive: true });
 }
 function shouldPreserveFreshInstallEntry(configDir, entryName) {
-  const entryPath = join(configDir, entryName);
+  if (entryName === "skills") {
+    return true;
+  }
+  const entryPath = join2(configDir, entryName);
   if (!existsSync(entryPath)) {
     return false;
   }
@@ -14612,6 +14576,64 @@ function shouldPreserveFreshInstallEntry(configDir, entryName) {
   }
   return entryName.endsWith(".json") || entryName.endsWith(".jsonc");
 }
+function hashDirectoryContents(rootDir) {
+  const hash2 = createHash("sha1");
+  function visit2(dirPath, relativePath = "") {
+    for (const entry of readdirSync(dirPath).sort()) {
+      const entryPath = join2(dirPath, entry);
+      const nextRelativePath = relativePath ? join2(relativePath, entry) : entry;
+      const stat = statSync(entryPath);
+      if (stat.isDirectory()) {
+        hash2.update(`dir:${nextRelativePath}`);
+        visit2(entryPath, nextRelativePath);
+        continue;
+      }
+      hash2.update(`file:${nextRelativePath}`);
+      hash2.update(readFileSync(entryPath));
+    }
+  }
+  visit2(rootDir);
+  return hash2.digest("hex");
+}
+function hashFileContents(filePath) {
+  return createHash("sha1").update(readFileSync(filePath)).digest("hex");
+}
+function collectManagedEntries(rootDir) {
+  const entries = {};
+  function visit2(dirPath, relativePath = "") {
+    for (const entry of readdirSync(dirPath).sort()) {
+      const entryPath = join2(dirPath, entry);
+      const nextRelativePath = relativePath ? join2(relativePath, entry) : entry;
+      const stat = statSync(entryPath);
+      if (stat.isDirectory()) {
+        entries[nextRelativePath] = "dir";
+        visit2(entryPath, nextRelativePath);
+        continue;
+      }
+      entries[nextRelativePath] = hashFileContents(entryPath);
+    }
+  }
+  visit2(rootDir);
+  return entries;
+}
+function readManagedEntriesManifest(filePath) {
+  return readJsonLike(filePath);
+}
+function writeManagedEntriesManifest(filePath, entries) {
+  writeJson(filePath, { entries });
+}
+function managedSkillsManifestPath(skillsDir) {
+  return join2(skillsDir, MANAGED_SKILLS_MANIFEST);
+}
+function managedMcpStampPath(mcpDir) {
+  return join2(mcpDir, MANAGED_MCP_STAMP);
+}
+function pruneManagedEntries(targetRoot, previousEntries, nextEntries, preservedEntries) {
+  const stalePaths = Object.keys(previousEntries).filter((entry) => entry !== MANAGED_SOURCE_HASH_KEY).filter((entry) => !(entry in nextEntries)).filter((entry) => !preservedEntries.has(entry)).sort((a, b) => b.length - a.length);
+  for (const relativePath of stalePaths) {
+    rmSync(join2(targetRoot, relativePath), { recursive: true, force: true });
+  }
+}
 function freshInstallCleanup(configDir) {
   if (!existsSync(configDir)) {
     return;
@@ -14620,7 +14642,7 @@ function freshInstallCleanup(configDir) {
     if (shouldPreserveFreshInstallEntry(configDir, entry)) {
       continue;
     }
-    rmSync(join(configDir, entry), { recursive: true, force: true });
+    rmSync(join2(configDir, entry), { recursive: true, force: true });
   }
 }
 function packageRoot() {
@@ -14650,10 +14672,10 @@ function resolveSelfPackageSpec() {
     return override;
   }
   const root = packageRoot();
-  if (existsSync(join(root, ".git"))) {
+  if (existsSync(join2(root, ".git"))) {
     return `file:${root}`;
   }
-  const metadata = readJsonLike(join(root, "package.json"));
+  const metadata = readJsonLike(join2(root, "package.json"));
   const repositorySpec = repositoryToPackageSpec(metadata.repository);
   if (repositorySpec) {
     return repositorySpec;
@@ -14661,33 +14683,25 @@ function resolveSelfPackageSpec() {
   const version2 = typeof metadata.version === "string" ? metadata.version.trim() : "";
   return version2 || "latest";
 }
-function mergePluginList(existing, vendorDir) {
+function mergePluginList(existing) {
   const selfEntry = `file://${packageRoot()}`;
-  const backgroundEntry = `file://${vendorDir}`;
-  const desired = [
-    selfEntry,
-    ...MANAGED_PLUGIN_ENTRIES.map((pkg) => `${pkg}@latest`),
-    backgroundEntry
-  ];
-  const desiredBareNames = new Set(MANAGED_PLUGIN_ENTRIES);
+  const desired = [selfEntry, ...MANAGED_PLUGIN_ENTRIES.map((pkg) => `${pkg}@latest`)];
   const current = Array.isArray(existing) ? existing.filter((item) => typeof item === "string") : [];
-  const retained = current.filter((item) => !desired.includes(item) && !desiredBareNames.has(item) && !desiredBareNames.has(item.replace(/@latest$/, "")) && !item.includes("opencode-background-agents-local") && !item.startsWith("file://"));
+  const retained = current.filter((item) => !desired.includes(item) && !MANAGED_PLUGIN_ENTRIES.some((pkg) => item === pkg || item.startsWith(`${pkg}@`)));
   return [...desired, ...retained];
 }
 function mergeInstructionsList(existing, shellStrategyDir) {
-  const shellInstruction = join(shellStrategyDir, "shell_strategy.md");
+  const shellInstruction = join2(shellStrategyDir, "shell_strategy.md");
   const current = Array.isArray(existing) ? existing.filter((item) => typeof item === "string") : [];
   const retained = current.filter((item) => !item.endsWith("/shell-strategy/shell_strategy.md"));
   return [shellInstruction, ...retained];
 }
-function removeHarnessPluginList(existing, vendorDir) {
-  const managedBareNames = new Set(MANAGED_PLUGIN_ENTRIES);
+function removeHarnessPluginList(existing) {
   const managedEntries = new Set([
-    ...MANAGED_PLUGIN_ENTRIES.map((pkg) => `${pkg}@latest`),
-    `file://${vendorDir}`
+    ...MANAGED_PLUGIN_ENTRIES.map((pkg) => `${pkg}@latest`)
   ]);
   const current = Array.isArray(existing) ? existing.filter((item) => typeof item === "string") : [];
-  const retained = current.filter((item) => !managedEntries.has(item) && !managedBareNames.has(item) && !managedBareNames.has(item.replace(/@latest$/, "")) && !item.includes("opencode-background-agents-local") && !item.includes("opencode-pair"));
+  const retained = current.filter((item) => !managedEntries.has(item) && !MANAGED_PLUGIN_ENTRIES.some((pkg) => item === pkg || item.startsWith(`${pkg}@`)) && !item.includes("opencode-pair"));
   return retained.length > 0 ? retained : undefined;
 }
 function removeHarnessInstructionsList(existing) {
@@ -14695,132 +14709,10 @@ function removeHarnessInstructionsList(existing) {
   const retained = current.filter((item) => !item.endsWith("/shell-strategy/shell_strategy.md"));
   return retained.length > 0 ? retained : undefined;
 }
-function normalizePermissionAction(value) {
-  if (typeof value !== "string") {
-    return;
-  }
-  switch (value.trim().toLowerCase()) {
-    case "allow":
-    case "always":
-      return "allow";
-    case "ask":
-    case "prompt":
-      return "ask";
-    case "deny":
-    case "block":
-    case "never":
-      return "deny";
-    default:
-      return;
-  }
-}
-function normalizePermissionValue(value) {
-  const action = normalizePermissionAction(value);
-  if (action) {
-    return action;
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return;
-  }
-  const normalized = {};
-  for (const [key, nested] of Object.entries(value)) {
-    const next = normalizePermissionValue(nested);
-    if (next !== undefined) {
-      normalized[key] = next;
-    }
-  }
-  return Object.keys(normalized).length > 0 ? normalized : undefined;
-}
-function normalizeLegacyRuleset(config2) {
-  if (!("ruleset" in config2)) {
-    return;
-  }
-  const normalized = normalizePermissionValue(config2.ruleset);
-  delete config2.ruleset;
-  if (normalized !== undefined && config2.permission === undefined) {
-    config2.permission = normalized;
-  }
-}
 function forceAllowPermissions(config2) {
-  normalizeLegacyRuleset(config2);
   config2.permission = "allow";
 }
-function readExistingJinaApiKey(harnessConfigPath) {
-  const existingHarness = readJsonLike(harnessConfigPath);
-  const harnessKey = normalizeJinaApiKey(existingHarness.credentials?.jina_api_key);
-  if (harnessKey) {
-    return harnessKey;
-  }
-  const currentConfig = readJsonLike(detectMainConfigPath(getConfigPaths(getConfigDir())).path);
-  const bearer = currentConfig.mcp?.jina?.headers;
-  return normalizeJinaApiKey(bearer?.Authorization);
-}
-async function promptForJinaApiKey(existing) {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    return existing;
-  }
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const suffix = existing ? " (press Enter to reuse existing value)" : "";
-    const answer = await new Promise((resolveQuestion, rejectQuestion) => {
-      rl.question(`Enter Jina API key${suffix}: `, (value) => resolveQuestion(value));
-      rl.once("error", rejectQuestion);
-    });
-    const normalized = normalizeJinaApiKey(answer);
-    return normalized ?? existing;
-  } finally {
-    rl.close();
-  }
-}
-function readExistingFigmaAccessToken(harnessConfigPath) {
-  const existingHarness = readJsonLike(harnessConfigPath);
-  const creds = existingHarness.credentials;
-  const key = creds?.figma_access_token ?? creds?.figma_api_key;
-  return key?.trim() || undefined;
-}
-function readExistingFigmaConsoleSshHost(harnessConfigPath) {
-  const existingHarness = readJsonLike(harnessConfigPath);
-  const host = existingHarness.figma_console?.ssh_host;
-  return host?.trim() || undefined;
-}
-async function promptForFigmaAccessToken(existing) {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    return existing;
-  }
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const suffix = existing ? " (press Enter to reuse existing value)" : "";
-    const answer = await new Promise((resolveQuestion, rejectQuestion) => {
-      rl.question(`Enter Figma Personal Access Token${suffix}: `, (value) => resolveQuestion(value));
-      rl.once("error", rejectQuestion);
-    });
-    const trimmed = answer.trim();
-    return trimmed || existing;
-  } finally {
-    rl.close();
-  }
-}
-async function promptForFigmaConsoleSshHost(existing) {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    return existing;
-  }
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const suffix = existing ? ` (press Enter to reuse "${existing}", type "local" for local mode)` : " (leave empty for local mode)";
-    const answer = await new Promise((resolveQuestion, rejectQuestion) => {
-      rl.question(`Enter SSH host for Figma Console MCP (e.g. user@host)${suffix}: `, (value) => resolveQuestion(value));
-      rl.once("error", rejectQuestion);
-    });
-    const trimmed = answer.trim();
-    if (trimmed.toLowerCase() === "local") {
-      return;
-    }
-    return trimmed || existing;
-  } finally {
-    rl.close();
-  }
-}
-function writeHarnessConfig(filePath, jinaApiKey, figmaAccessToken, figmaConsoleSshHost) {
+function writeHarnessConfig(filePath) {
   const current = existsSync(filePath) ? readJsonLike(filePath) : {};
   const next = parse2(SAMPLE_PROJECT_CONFIG);
   const merged = {
@@ -14837,25 +14729,8 @@ function writeHarnessConfig(filePath, jinaApiKey, figmaAccessToken, figmaConsole
     agents: {
       ...next.agents ?? {},
       ...current.agents ?? {}
-    },
-    credentials: {
-      ...next.credentials ?? {},
-      ...current.credentials ?? {}
     }
   };
-  if (jinaApiKey) {
-    merged.credentials.jina_api_key = jinaApiKey;
-  }
-  if (figmaAccessToken) {
-    merged.credentials.figma_access_token = figmaAccessToken;
-  }
-  delete merged.credentials.figma_api_key;
-  if (figmaConsoleSshHost) {
-    merged.figma_console = { ssh_host: figmaConsoleSshHost };
-  } else if (!merged.figma_console) {
-    merged.figma_console = {};
-  }
-  delete merged.mcps.fff;
   writeJson(filePath, merged);
 }
 var DEFAULT_NOTIFIER_CONFIG = {
@@ -14893,41 +14768,17 @@ async function fetchText(url2) {
   }
   return await response.text();
 }
-async function installBackgroundAgentsVendor(vendorDir) {
-  ensureDir(join(vendorDir, "kdco-primitives"));
-  for (const relativePath of BACKGROUND_AGENT_FILES) {
-    const url2 = `https://raw.githubusercontent.com/kdcokenny/opencode-background-agents/main/src/plugin/${relativePath}`;
-    const targetPath = join(vendorDir, relativePath);
-    ensureDir(dirname(targetPath));
-    const content = await fetchText(url2);
-    writeFileSync(targetPath, content, "utf8");
-  }
-  const packageJson = {
-    name: "opencode-background-agents-local",
-    version: "0.1.0",
-    private: true,
-    type: "module",
-    module: "background-agents.ts",
-    main: "background-agents.ts",
-    dependencies: {
-      "@opencode-ai/plugin": "latest",
-      "@opencode-ai/sdk": "latest",
-      "unique-names-generator": "latest"
-    }
-  };
-  writeJson(join(vendorDir, "package.json"), packageJson);
-}
 async function installShellStrategyInstruction(shellStrategyDir) {
   ensureDir(shellStrategyDir);
   const content = await fetchText("https://raw.githubusercontent.com/JRedeker/opencode-shell-strategy/trunk/shell_strategy.md");
-  writeFileSync(join(shellStrategyDir, "shell_strategy.md"), content, "utf8");
+  writeFileSync(join2(shellStrategyDir, "shell_strategy.md"), content, "utf8");
 }
 function copyDirectoryContents(sourceDir, targetDir, options, relativePath = "") {
   ensureDir(targetDir);
   for (const entry of readdirSync(sourceDir)) {
-    const sourcePath = join(sourceDir, entry);
-    const targetPath = join(targetDir, entry);
-    const nextRelativePath = relativePath ? join(relativePath, entry) : entry;
+    const sourcePath = join2(sourceDir, entry);
+    const targetPath = join2(targetDir, entry);
+    const nextRelativePath = relativePath ? join2(relativePath, entry) : entry;
     const stat = statSync(sourcePath);
     if (stat.isDirectory()) {
       copyDirectoryContents(sourcePath, targetPath, options, nextRelativePath);
@@ -14939,44 +14790,72 @@ function copyDirectoryContents(sourceDir, targetDir, options, relativePath = "")
     copyFileSync(sourcePath, targetPath);
   }
 }
-function shouldOverwriteBundledMcpFile(relativePath, targetPath, fresh = false) {
-  if (fresh) {
-    return true;
+function copyPath(sourcePath, targetPath) {
+  const stat = statSync(sourcePath);
+  if (stat.isDirectory()) {
+    copyDirectoryContents(sourcePath, targetPath);
+    return;
   }
+  ensureDir(dirname(targetPath));
+  copyFileSync(sourcePath, targetPath);
+}
+function hashPathContents(path) {
+  return statSync(path).isDirectory() ? hashDirectoryContents(path) : hashFileContents(path);
+}
+function shouldOverwriteBundledMcpFile(relativePath, targetPath) {
   return !(relativePath === "config.json" && existsSync(targetPath));
 }
-function installSelfContainedMcps(vendorMcpDir, options) {
-  ensureDir(vendorMcpDir);
+function syncManagedMcp(name, sourceRoot, targetRoot) {
+  const sourceHash = hashDirectoryContents(sourceRoot);
+  const previousEntries = readManagedEntriesManifest(managedMcpStampPath(targetRoot)).entries;
+  const nextEntries = collectManagedEntries(sourceRoot);
+  ensureDir(targetRoot);
+  pruneManagedEntries(targetRoot, previousEntries ?? {}, nextEntries, new Set(["config.json"]));
+  copyDirectoryContents(sourceRoot, targetRoot, {
+    overwrite: (relativePath, targetPath) => shouldOverwriteBundledMcpFile(relativePath, targetPath)
+  });
+  if (name === "web-agent-mcp" && previousEntries?.[MANAGED_SOURCE_HASH_KEY] !== sourceHash) {
+    rmSync(join2(targetRoot, "node_modules"), { recursive: true, force: true });
+  }
+  writeManagedEntriesManifest(managedMcpStampPath(targetRoot), {
+    ...nextEntries,
+    [MANAGED_SOURCE_HASH_KEY]: sourceHash
+  });
+}
+function installSelfContainedMcps() {
   for (const name of MCP_NAMES) {
     const sourceRoot = bundledMcpSourceRoot(name);
     if (!existsSync(sourceRoot)) {
       throw new Error(`Missing MCP source directory: ${sourceRoot}`);
     }
-    const targetRoot = join(vendorMcpDir, name);
-    ensureDir(targetRoot);
-    copyDirectoryContents(sourceRoot, targetRoot, {
-      overwrite: (relativePath, targetPath) => shouldOverwriteBundledMcpFile(relativePath, targetPath, options?.fresh)
-    });
+    const targetRoot = getManagedMcpRoot(name);
+    syncManagedMcp(name, sourceRoot, targetRoot);
   }
 }
-function isWebAgentMcpInstalled(mcpDir) {
-  const nodeModules = join(mcpDir, "node_modules");
+function isManagedMcpInstalled(name, mcpDir) {
+  const nodeModules = join2(mcpDir, "node_modules");
   if (!existsSync(nodeModules)) {
     return false;
   }
-  const requiredPackages = ["@modelcontextprotocol/sdk", "zod"];
-  return requiredPackages.every((pkg) => existsSync(join(nodeModules, ...pkg.split("/"))));
+  return MCP_REQUIRED_PACKAGES[name].every((pkg) => existsSync(join2(nodeModules, ...pkg.split("/"))));
 }
-async function installWebAgentMcpDeps(vendorMcpDir) {
-  const mcpDir = join(vendorMcpDir, "web-agent-mcp");
+function getManagedMcpInstallCommand(name) {
+  if (name === "web-agent-mcp") {
+    return ["bun", "install"];
+  }
+  return ["npm", "install", "--omit=dev"];
+}
+async function installManagedMcpDeps(name) {
+  const mcpDir = getManagedMcpRoot(name);
   if (!existsSync(mcpDir)) {
     return;
   }
-  if (isWebAgentMcpInstalled(mcpDir)) {
+  if (isManagedMcpInstalled(name, mcpDir)) {
     return;
   }
+  const [command, ...args] = getManagedMcpInstallCommand(name);
   await new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn("bun", ["install"], {
+    const child = spawn(command, args, {
       cwd: mcpDir,
       stdio: "inherit"
     });
@@ -14986,29 +14865,54 @@ async function installWebAgentMcpDeps(vendorMcpDir) {
         resolvePromise();
         return;
       }
-      rejectPromise(new Error(`bun install for web-agent-mcp failed with exit code ${code ?? -1}`));
+      rejectPromise(new Error(`${command} ${args.join(" ")} failed for ${name} with exit code ${code ?? -1}`));
     });
   });
 }
-function bundledSkillsSourceRoot() {
-  return join(packageRoot(), "vendor", "skills");
+async function ensureManagedMcpDependencies() {
+  for (const name of MCP_NAMES) {
+    try {
+      await installManagedMcpDeps(name);
+    } catch (error48) {
+      console.warn(`[opencode-pair] Failed to install ${name} dependencies: ${error48 instanceof Error ? error48.message : String(error48)}`);
+    }
+  }
 }
-function installBundledSkills(skillsDir) {
-  const sourceRoot = bundledSkillsSourceRoot();
+function bundledSkillsSourceRoot() {
+  return join2(packageRoot(), "vendor", "skills");
+}
+function installBundledSkills(skillsDir, sourceRoot = bundledSkillsSourceRoot()) {
   if (!existsSync(sourceRoot)) {
     return;
   }
   ensureDir(skillsDir);
-  copyDirectoryContents(sourceRoot, skillsDir);
+  const manifestPath = managedSkillsManifestPath(skillsDir);
+  const previousEntries = readManagedEntriesManifest(manifestPath).entries ?? {};
+  const nextEntries = {};
+  const sourceEntries = readdirSync(sourceRoot).sort();
+  pruneManagedEntries(skillsDir, previousEntries, {}, new Set(sourceEntries));
+  for (const entry of sourceEntries) {
+    const sourcePath = join2(sourceRoot, entry);
+    const targetPath = join2(skillsDir, entry);
+    const sourceHash = hashPathContents(sourcePath);
+    const wasManaged = previousEntries[entry] !== undefined;
+    if (existsSync(targetPath) && !wasManaged) {
+      continue;
+    }
+    rmSync(targetPath, { recursive: true, force: true });
+    copyPath(sourcePath, targetPath);
+    nextEntries[entry] = sourceHash;
+  }
+  writeManagedEntriesManifest(manifestPath, nextEntries);
 }
 function updateConfig(paths) {
   const detected = detectMainConfigPath(paths);
   const config2 = readJsonLike(detected.path);
   backupFile(detected.path);
   config2.$schema = config2.$schema ?? "https://opencode.ai/config.json";
-  config2.plugin = mergePluginList(config2.plugin, paths.vendorDir);
+  config2.plugin = mergePluginList(config2.plugin);
   config2.instructions = mergeInstructionsList(config2.instructions, paths.shellStrategyDir);
-  config2.default_agent = "yang";
+  config2.default_agent = "mrrobot";
   forceAllowPermissions(config2);
   writeJson(detected.path, config2);
   return detected.path;
@@ -15021,14 +14925,12 @@ function updatePackageJson(paths) {
     dependencies[name] = spec;
   }
   dependencies["opencode-pair"] = resolveSelfPackageSpec();
-  delete dependencies["opencode-background-agents-local"];
-  delete dependencies["opencode-shell-non-interactive-strategy"];
   pkg.dependencies = dependencies;
   writeJson(paths.packageJson, pkg);
   return paths.packageJson;
 }
 function ensureTuiConfig(configDir) {
-  const tuiPath = join(configDir, "tui.json");
+  const tuiPath = join2(configDir, "tui.json");
   if (existsSync(tuiPath)) {
     return;
   }
@@ -15070,9 +14972,9 @@ async function runBunInstall(configDir) {
   });
 }
 async function ensureInstalledHarnessBuild(configDir) {
-  const packageDir = join(configDir, "node_modules", "opencode-pair");
-  const builtEntry = join(packageDir, "dist", "index.js");
-  const sourceEntry = join(packageDir, "src", "index.ts");
+  const packageDir = join2(configDir, "node_modules", "opencode-pair");
+  const builtEntry = join2(packageDir, "dist", "index.js");
+  const sourceEntry = join2(packageDir, "src", "index.ts");
   if (existsSync(builtEntry) || !existsSync(sourceEntry)) {
     return;
   }
@@ -15091,6 +14993,148 @@ async function ensureInstalledHarnessBuild(configDir) {
     });
   });
 }
+function dockerExec(args, options) {
+  return new Promise((resolve2, reject) => {
+    let stdout = "";
+    let stderr = "";
+    const child = spawn("docker", args, {
+      stdio: ["ignore", options?.captureStdout ? "pipe" : "inherit", "pipe"]
+    });
+    if (child.stdout) {
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk.toString();
+      });
+    }
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (err) => reject(new Error(`Failed to spawn docker: ${err.message}`)));
+    child.on("close", (code, signal) => {
+      if (code === 0) {
+        resolve2(stdout.trim());
+      } else {
+        const detail = stderr.trim() || (signal ? `killed by ${signal}` : `exit code ${code ?? -1}`);
+        reject(new Error(`docker ${args[0]} failed: ${detail}`));
+      }
+    });
+  });
+}
+async function ensureSearxngContainer() {
+  if (process.env.SEARXNG_URL?.trim()) {
+    console.log("[opencode-pair] Using external SearXNG at", process.env.SEARXNG_URL.trim());
+    return;
+  }
+  const pathValue = process.env.PATH;
+  const dockerInPath = pathValue ? pathValue.split(":").some((dir) => existsSync(join2(dir, "docker"))) : false;
+  if (!dockerInPath) {
+    console.warn("[opencode-pair] Docker not found in PATH. Skipping SearXNG container setup.");
+    return;
+  }
+  try {
+    await dockerExec(["info", "--format", "{{.ServerVersion}}"], {
+      captureStdout: true
+    });
+  } catch (error48) {
+    const detail = error48 instanceof Error ? error48.message : String(error48);
+    const isWSL = Boolean(process.env.WSL_DISTRO_NAME);
+    const hint = isWSL ? `
+  Hint: Enable WSL Integration for "${process.env.WSL_DISTRO_NAME}" in Docker Desktop \u2192 Settings \u2192 Resources \u2192 WSL Integration.` : "";
+    console.warn(`[opencode-pair] Docker daemon is not reachable. Skipping SearXNG container setup.
+` + `  ${detail}${hint}`);
+    return;
+  }
+  try {
+    const containerExists = await dockerExec(["ps", "-a", "--filter", `name=^${SEARXNG_CONTAINER_NAME}$`, "--format", "{{.Names}}"], { captureStdout: true });
+    if (containerExists) {
+      if (await shouldRecreateSearxngContainer()) {
+        await dockerExec(["rm", "-f", SEARXNG_CONTAINER_NAME]);
+        await createSearxngContainer();
+      } else {
+        const containerRunning = await dockerExec(["ps", "--filter", `name=^${SEARXNG_CONTAINER_NAME}$`, "--format", "{{.Names}}"], { captureStdout: true });
+        if (!containerRunning) {
+          await dockerExec(["start", SEARXNG_CONTAINER_NAME]);
+        }
+      }
+    } else {
+      await createSearxngContainer();
+    }
+    await ensureSearxngJsonFormat();
+    if (!await waitForSearxngHealth(20000)) {
+      console.warn(`[opencode-pair] SearXNG is not reachable at ${SEARXNG_URL}. Check Docker port publishing for ${SEARXNG_PORT}:8080.`);
+    }
+  } catch (error48) {
+    console.warn(`[opencode-pair] Failed to set up SearXNG container: ${error48 instanceof Error ? error48.message : String(error48)}`);
+  }
+}
+async function shouldRecreateSearxngContainer() {
+  try {
+    const networkMode = await dockerExec(["inspect", SEARXNG_CONTAINER_NAME, "--format", "{{.HostConfig.NetworkMode}}"], { captureStdout: true });
+    const ports = await dockerExec(["inspect", SEARXNG_CONTAINER_NAME, "--format", "{{json .HostConfig.PortBindings}}"], { captureStdout: true });
+    return networkMode !== "bridge" || !ports.includes(`"HostPort":"${SEARXNG_PORT}"`) || !ports.includes(`"HostIp":"${SEARXNG_HOST}"`);
+  } catch {
+    return true;
+  }
+}
+async function createSearxngContainer() {
+  await dockerExec([
+    "run",
+    "-d",
+    "--name",
+    SEARXNG_CONTAINER_NAME,
+    "--restart",
+    "unless-stopped",
+    "-p",
+    `${SEARXNG_HOST}:${SEARXNG_PORT}:8080`,
+    "searxng/searxng:latest"
+  ]);
+}
+async function waitForSearxngHealth(timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const controller = new AbortController;
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    try {
+      const response = await fetch(`${SEARXNG_URL}/healthz`, {
+        signal: controller.signal
+      });
+      if (response.ok) {
+        return true;
+      }
+    } catch {} finally {
+      clearTimeout(timeout);
+    }
+    await new Promise((resolve2) => setTimeout(resolve2, 500));
+  }
+  return false;
+}
+async function ensureSearxngJsonFormat() {
+  let hasJson = false;
+  try {
+    const output = await dockerExec([
+      "exec",
+      SEARXNG_CONTAINER_NAME,
+      "grep",
+      "-c",
+      "    - json",
+      "/etc/searxng/settings.yml"
+    ], { captureStdout: true });
+    hasJson = parseInt(output, 10) > 0;
+  } catch {
+    hasJson = false;
+  }
+  if (hasJson) {
+    return;
+  }
+  await dockerExec([
+    "exec",
+    SEARXNG_CONTAINER_NAME,
+    "sed",
+    "-i",
+    "/^  formats:/{n;s/    - html/    - html\\n    - json/}",
+    "/etc/searxng/settings.yml"
+  ]);
+  await dockerExec(["restart", SEARXNG_CONTAINER_NAME]);
+}
 async function installHarness(options) {
   const configDir = getConfigDir();
   const paths = getConfigPaths(configDir);
@@ -15099,27 +15143,19 @@ async function installHarness(options) {
   }
   ensureDir(configDir);
   ensureDir(paths.binDir);
-  ensureDir(join(configDir, "vendor"));
   ensureTuiConfig(configDir);
   ensureSkillsDir(paths.skillsDir);
-  const jinaApiKey = await promptForJinaApiKey(readExistingJinaApiKey(paths.harnessConfig));
-  const figmaAccessToken = await promptForFigmaAccessToken(readExistingFigmaAccessToken(paths.harnessConfig));
-  const figmaConsoleSshHost = await promptForFigmaConsoleSshHost(readExistingFigmaConsoleSshHost(paths.harnessConfig));
   await installShellStrategyInstruction(paths.shellStrategyDir);
-  await installBackgroundAgentsVendor(paths.vendorDir);
-  installSelfContainedMcps(paths.vendorMcpDir, { fresh: options?.fresh });
+  installSelfContainedMcps();
+  await ensureManagedMcpDependencies();
   installBundledSkills(paths.skillsDir);
+  await ensureSearxngContainer();
   const configPath = updateConfig(paths);
   const packageJsonPath = updatePackageJson(paths);
-  writeHarnessConfig(paths.harnessConfig, jinaApiKey, figmaAccessToken, figmaConsoleSshHost);
+  writeHarnessConfig(paths.harnessConfig);
   writeNotifierConfig(paths.notifierConfig);
   await runBunInstall(configDir);
   await ensureInstalledHarnessBuild(configDir);
-  try {
-    await installWebAgentMcpDeps(paths.vendorMcpDir);
-  } catch (error48) {
-    console.warn(`[opencode-pair] Failed to install web-agent-mcp dependencies: ${error48 instanceof Error ? error48.message : String(error48)}`);
-  }
   return {
     configPath,
     packageJsonPath,
@@ -15133,7 +15169,7 @@ async function uninstallHarness() {
   if (existsSync(detected.path)) {
     const config2 = readJsonLike(detected.path);
     backupFile(detected.path);
-    const nextPlugin = removeHarnessPluginList(config2.plugin, paths.vendorDir);
+    const nextPlugin = removeHarnessPluginList(config2.plugin);
     if (nextPlugin) {
       config2.plugin = nextPlugin;
     } else {
@@ -15164,17 +15200,18 @@ async function uninstallHarness() {
       await runBunInstall(configDir);
     }
   }
-  rmSync(join(paths.binDir, "fff-mcp"), { force: true });
-  rmSync(join(paths.binDir, "fff-mcp.exe"), { force: true });
-  rmSync(paths.vendorDir, { recursive: true, force: true });
-  rmSync(join(paths.shellStrategyDir, "shell_strategy.md"), { force: true });
+  rmSync(join2(paths.shellStrategyDir, "shell_strategy.md"), { force: true });
   removeDirectoryIfEmpty(paths.binDir);
   removeDirectoryIfEmpty(paths.shellStrategyDir);
-  removeDirectoryIfEmpty(join(configDir, "plugin"));
+  removeDirectoryIfEmpty(join2(configDir, "plugin"));
   return {
     configPath: detected.path,
     packageJsonPath: paths.packageJson,
-    preservedPaths: [paths.harnessConfig, paths.vendorMcpDir, paths.skillsDir]
+    preservedPaths: [
+      paths.harnessConfig,
+      paths.skillsDir,
+      ...MCP_NAMES.map((name) => getManagedMcpRoot(name))
+    ]
   };
 }
 
@@ -15192,8 +15229,8 @@ Commands:
 }
 function initProject(directory) {
   const targetRoot = resolve2(directory ?? process.cwd());
-  const opencodeDir = join2(targetRoot, ".opencode");
-  const configPath = join2(opencodeDir, "opencode-pair.jsonc");
+  const opencodeDir = join3(targetRoot, ".opencode");
+  const configPath = join3(opencodeDir, "opencode-pair.jsonc");
   if (!existsSync2(opencodeDir)) {
     mkdirSync2(opencodeDir, { recursive: true });
   }
@@ -15208,17 +15245,16 @@ function initProject(directory) {
 function printConfig() {
   console.log(`{
   "plugin": [
-    "file://<project-root>",
+    "opencode-pair",
     "@zenobius/opencode-skillful@latest",
     "@franlol/opencode-md-table-formatter@latest",
     "opencode-pty@latest",
-    "opencode-anthropic-login-via-cli@latest",
-    "file://~/.config/opencode/vendor/opencode-background-agents-local"
+    "@mohak34/opencode-notifier@latest"
   ],
   "instructions": [
     "~/.config/opencode/plugin/shell-strategy/shell_strategy.md"
   ],
-  "default_agent": "yang"
+  "default_agent": "mrrobot"
 }
 
 Use \`opencode-pair install\` for the real path-aware install.`);

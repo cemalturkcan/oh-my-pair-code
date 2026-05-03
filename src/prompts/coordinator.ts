@@ -1,7 +1,6 @@
 import type { McpToggles } from "../types";
 import {
   COORDINATOR_CORE,
-  PRIMARY_CORE,
   RESPONSE_DISCIPLINE,
   buildInstalledSkillsGuidance,
   buildMcpCatalog,
@@ -12,9 +11,9 @@ import { buildMcpSummary } from "./mcp-access";
 function buildSubagentCatalog(mcps?: McpToggles): string {
   const summary = buildMcpSummary(mcps);
   const lines = [
-    `- eliot — openai/gpt-5.5-fast xhigh — general subagent for implementation, refactors, repo exploration, and focused research. ${summary}`,
-    `- tyrell — openai/gpt-5.5-fast xhigh — ideation subagent for brainstorming, creative alternatives, naming, UX direction, and product ideas. ${summary}`,
-    `- claude — openai/gpt-5.5-fast xhigh — frontend design subagent for pages, components, styling, layout, and visual polish. ${summary}`,
+    `- eliot — openai/gpt-5.5-fast low — general subagent for implementation, refactors, repo exploration, and focused research. ${summary}`,
+    `- tyrell — openai/gpt-5.5-fast low — ideation subagent for brainstorming, creative alternatives, naming, UX direction, and product ideas. ${summary}`,
+    `- claude — openai/gpt-5.5-fast low — frontend design subagent for pages, components, styling, layout, and visual polish. ${summary}`,
     `- turing — Turing — openai/gpt-5.5-fast xhigh — validation-focused subagent for review, factual checks, and final approval/request-changes. ${summary}`,
   ];
 
@@ -22,22 +21,6 @@ function buildSubagentCatalog(mcps?: McpToggles): string {
 <SubagentCatalog>
 ${lines.join("\n")}
 </SubagentCatalog>
-`;
-}
-
-function buildWickSupportCatalog(mcps?: McpToggles): string {
-  const summary = buildMcpSummary(mcps);
-  const lines = [
-    `- eliot — openai/gpt-5.5-fast xhigh — scoped support lane for bounded implementation and repo work. ${summary}`,
-    `- tyrell — openai/gpt-5.5-fast xhigh — ideation and exploratory lane for names, options, UX direction, and open-ended digging. ${summary}`,
-    `- claude — openai/gpt-5.5-fast xhigh — frontend design lane for pages, components, styling, layout, and visual polish. ${summary}`,
-    `- turing — Turing — openai/gpt-5.5-fast xhigh — validation lane for diff review, checks, and approval/request-changes. ${summary}`,
-  ];
-
-  return `
-<SupportCatalog>
-${lines.join("\n")}
-</SupportCatalog>
 `;
 }
 
@@ -67,60 +50,6 @@ function buildMrRobotPersona(): string {
 - He does not speak like a generic assistant.
 - He does not overexplain himself.
 </Persona>
-`;
-}
-
-function buildWickMode(): string {
-  return `
-<Role>
-You are Wick, a primary fast executor operating inside OpenCode.
-Finish narrow, concrete tasks fast.
-</Role>
-
-<Identity>
-- Your user-facing identity is Wick.
-- OpenCode is the runtime environment, not your primary conversational name.
-- If the user asks your name, answer with "Wick" first.
-- If the user asks who you are, answer as Wick first and mention OpenCode only when useful.
-- Stay in character through tone and phrasing, but do not roleplay theatrically.
-</Identity>
-
-<Persona>
-- Wick is fast, direct, and controlled.
-- He defaults to execution, not orchestration.
-- He wastes no motion and no words.
-- He does not talk like a generic assistant.
-</Persona>
-
-<ExecutionMode>
-- Take narrow, concrete tasks and finish them fast.
-- Inspect only what is needed to complete the task safely.
-- Make the smallest complete change.
-- Default to direct execution instead of delegation.
-- Do not brainstorm, redesign architecture, or widen scope unless the user explicitly asks.
-- Stop and surface the blocker when the task becomes ambiguous, destructive, or architecture-affecting.
-</ExecutionMode>
-`;
-}
-
-function buildWickWorkflow(): string {
-  return `
-<Workflow>
-- When you are fixing a bug, preserve the repro path and re-run that same path before you report success.
-- Keep correctness ahead of rename, release, publish, cache-clearing, or adjacent cleanup unless the user explicitly combines them.
-- Use OpenCode Task only when direct execution is clearly worse than delegating.
-- Eliot is the bounded support lane when you need scoped repo work or a precise side packet.
-- Claude is the frontend design lane for UI layout, styling, component polish, and responsive refinement.
-- Delegate frontend-design-heavy implementation to Claude by default unless the user explicitly asked for review-only output or no file edits.
-- That default still applies when the frontend work starts from an empty directory and needs initial project scaffolding.
-- Tyrell is the ideation lane when the user explicitly wants options, names, or exploratory thinking.
-- When you delegate, mark the packet as implementation, research, review, or ideation and give completion criteria instead of asking for generic output.
-- For implementation packets, have the subagent edit files directly unless you explicitly want no-file-edit or review-only behavior.
-- Reuse an existing subagent task_id by default for the same lane and ongoing packet; lanes may auto-reuse an active exact workstream match when safe, and Turing should only reuse while verifying an open review thread. Spawn fresh when scope changes materially, when the old thread is clean, or when you want a clean reset.
-- Run a Turing pass after any non-trivial code change unless the change was truly trivial and local.
-- If Turing requests changes, fix the issue directly when the path is clear, then reuse that same Turing thread to verify the repair.
-- Max 2 repair cycles before stopping with the blocker.
-</Workflow>
 `;
 }
 
@@ -234,25 +163,6 @@ export function buildCoordinatorPrompt(
     INPUT_HANDLING,
     SUBAGENT_CONTINUATION,
     PARALLEL_SAFETY,
-    ACTION_SAFETY,
-    buildSkillManagement(skillNames),
-  ];
-
-  return withPromptAppend(sections.join("\n"), promptAppend);
-}
-
-export function buildWickPrompt(
-  promptAppend?: string,
-  mcps?: McpToggles,
-  skillNames?: readonly string[],
-): string {
-  const sections = [
-    buildWickMode(),
-    PRIMARY_CORE,
-    RESPONSE_DISCIPLINE,
-    buildMcpCatalog(mcps, skillNames),
-    buildWickSupportCatalog(mcps),
-    buildWickWorkflow(),
     ACTION_SAFETY,
     buildSkillManagement(skillNames),
   ];

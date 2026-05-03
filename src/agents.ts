@@ -1,13 +1,15 @@
 import type { AgentLike, HarnessConfig } from "./types";
 import { deepMerge } from "./utils";
 import { discoverInstalledSkills } from "./skills";
-import { buildCoordinatorPrompt, buildWickPrompt } from "./prompts/coordinator";
+import { buildCoordinatorPrompt } from "./prompts/coordinator";
 import {
   buildEliotPrompt,
   buildClaudePrompt,
   buildTuringPrompt,
   buildTyrellPrompt,
 } from "./prompts/workers";
+
+const DEFAULT_MODEL = "openai/gpt-5.5-fast";
 
 function withOverride(
   base: AgentLike,
@@ -21,7 +23,10 @@ export function createHarnessAgents(
   config: HarnessConfig,
 ): Record<string, AgentLike> {
   const overrides = config.agents ?? {};
-  const claudeOverride = deepMerge(overrides.michelangelo ?? {}, overrides.claude ?? {});
+  const claudeOverride = deepMerge(
+    (overrides.michelangelo ?? {}) as Record<string, unknown>,
+    (overrides.claude ?? {}) as Record<string, unknown>,
+  );
   const installedSkills = discoverInstalledSkills();
 
   return {
@@ -30,8 +35,8 @@ export function createHarnessAgents(
         mode: "primary",
         description:
           "MrRobot — Primary agent. Routes work, keeps scope tight, and answers plainly.",
-        model: "openai/gpt-5.5-fast",
-        variant: "xhigh",
+        model: DEFAULT_MODEL,
+        variant: "medium",
         prompt: buildCoordinatorPrompt(
           overrides.mrrobot?.prompt_append,
           config.mcps,
@@ -42,32 +47,13 @@ export function createHarnessAgents(
       overrides.mrrobot,
     ),
 
-    wick: withOverride(
-      {
-        mode: "primary",
-        hidden: true,
-        description:
-          "Wick — Primary fast executor. Handles narrow, concrete tasks with minimal overhead.",
-        model: "openai/gpt-5.5-fast",
-        variant: "xhigh",
-        prompt: buildWickPrompt(
-          overrides.wick?.prompt_append,
-          config.mcps,
-          installedSkills,
-        ),
-        temperature: 0.0,
-        color: "#C0392B",
-      },
-      overrides.wick,
-    ),
-
     eliot: withOverride(
       {
         mode: "subagent",
         hidden: true,
         description: "Eliot — General-purpose subagent for implementation and repo work.",
-        model: "openai/gpt-5.5-fast",
-        variant: "xhigh",
+        model: DEFAULT_MODEL,
+        variant: "low",
         prompt: buildEliotPrompt(
           overrides.eliot?.prompt_append,
           config.mcps,
@@ -85,8 +71,8 @@ export function createHarnessAgents(
         hidden: true,
         description:
           "Tyrell — Ideation subagent for creative options, naming, UX direction, and product ideas.",
-        model: "openai/gpt-5.5-fast",
-        variant: "xhigh",
+        model: DEFAULT_MODEL,
+        variant: "low",
         prompt: buildTyrellPrompt(
           overrides.tyrell?.prompt_append,
           config.mcps,
@@ -104,10 +90,12 @@ export function createHarnessAgents(
         hidden: true,
         description:
           "Claude — Frontend design subagent for UI layout, styling, and visual polish.",
-        model: "openai/gpt-5.5-fast",
-        variant: "xhigh",
+        model: DEFAULT_MODEL,
+        variant: "low",
         prompt: buildClaudePrompt(
-          claudeOverride?.prompt_append,
+          typeof claudeOverride.prompt_append === "string"
+            ? claudeOverride.prompt_append
+            : undefined,
           config.mcps,
           installedSkills,
         ),
@@ -122,7 +110,7 @@ export function createHarnessAgents(
         mode: "subagent",
         hidden: true,
         description: "Turing — Validation-focused review and verification subagent.",
-        model: "openai/gpt-5.5-fast",
+        model: DEFAULT_MODEL,
         variant: "xhigh",
         prompt: buildTuringPrompt(
           overrides.turing?.prompt_append,

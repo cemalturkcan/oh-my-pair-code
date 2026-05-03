@@ -12,14 +12,22 @@ export type McpName =
   | "mariadb";
 
 export const MCP_DESCRIPTIONS: Record<McpName, string> = {
-  context7: "Library/framework docs.",
-  grep_app: "GitHub code search.",
-  searxng: "Web search + URL read.",
-  "web-agent-mcp": "Browser automation.",
-  "pg-mcp": "PostgreSQL read-only queries.",
-  "ssh-mcp": "Remote commands.",
-  "openai-image-gen-mcp": "Image generation via Codex auth.",
-  mariadb: "MariaDB queries.",
+  context7:
+    "Library and framework documentation with version-aware examples for current API usage and implementation details.",
+  grep_app:
+    "Literal code search across public GitHub repositories for real-world usage patterns, API examples, and implementation references.",
+  searxng:
+    "General web search plus URL reading for broad research, recent information, official docs, articles, and source cross-checking.",
+  "web-agent-mcp":
+    "Browser automation for navigating pages, interacting with controls, observing DOM/a11y/text/network state, screenshots, and local web app verification.",
+  "pg-mcp":
+    "Read-only PostgreSQL inspection: list connections/databases/schemas/tables, describe tables, and run SELECT queries with row limits.",
+  "ssh-mcp":
+    "Remote command execution against configured SSH hosts, including connectivity checks and bounded non-interactive commands.",
+  "openai-image-gen-mcp":
+    "Image generation and image editing through Codex auth using OpenAI image-generation tooling, with PNG/high-quality/auto-size defaults fixed server-side.",
+  mariadb:
+    "Read-only MariaDB inspection: list connections/databases/tables, describe tables, run SELECT/SHOW/DESCRIBE/EXPLAIN queries, and suggest manual queries.",
 };
 
 export const ALL_MCPS: McpName[] = Object.keys(MCP_DESCRIPTIONS) as McpName[];
@@ -42,7 +50,9 @@ export function buildMcpGuidance(
   if (enabled.length === 0) return "";
   const installedSkills = resolveInstalledSkills(skillNames);
   const lines = [
-    `Shared MCPs for every agent: ${enabled.join(", ")}. Use the tool that best fits the task.`,
+    "Shared MCPs for every agent:",
+    ...enabled.map((mcp) => `- ${mcp}: ${MCP_DESCRIPTIONS[mcp]}`),
+    "Use the tool that best fits the task.",
   ];
 
   if (enabled.includes("openai-image-gen-mcp")) {

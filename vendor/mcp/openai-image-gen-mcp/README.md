@@ -48,8 +48,9 @@ The installer manages a preserved config file at `~/.config/openai-image-gen-mcp
 
 Default values:
 
-- `default_model`: `gpt-5.5-fast`
+- `default_model`: `gpt-5.4`
 - `default_reasoning_effort`: `xhigh`
+- `default_service_tier`: `priority`
 - `default_output_dir`: `~/.codex/generated_images`
 
 Bridge behavior:

@@ -31,7 +31,7 @@ export function profileMatches(
   return (Array.isArray(allowed) ? allowed : [allowed]).includes(profile);
 }
 
-export const PRIMARY_AGENTS = new Set(["mrrobot", "wick"]);
+export const PRIMARY_AGENTS = new Set(["mrrobot"]);
 
 export function resolveSessionID(value: unknown): string | undefined {
   if (!value || typeof value !== "object") return undefined;

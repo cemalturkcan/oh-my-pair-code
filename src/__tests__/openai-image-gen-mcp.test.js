@@ -120,7 +120,8 @@ describe("openai-image-gen-mcp request preparation", () => {
       "generate",
     );
 
-    expect(request.model).toBe("gpt-5.5-fast");
+    expect(request.model).toBe("gpt-5.4");
+    expect(request.service_tier).toBe("priority");
     expect(request.reasoning).toEqual({ effort: "xhigh" });
     expect(request.instructions).toContain("The user input is a JSON object");
     expect(request.instructions).toContain("Set the tool prompt to `source_prompt` exactly as provided");
@@ -157,7 +158,7 @@ describe("openai-image-gen-mcp request preparation", () => {
         },
         prompt_mode: "normalize",
         instructions: "Rewrite this prompt into something better",
-        model: "gpt-5.5-fast",
+        model: "caller-model",
         reasoning_effort: "none",
         output_format: "jpeg",
         output_compression: 100,
@@ -168,7 +169,8 @@ describe("openai-image-gen-mcp request preparation", () => {
 
     expect(request.instructions).toContain("Ignore caller-provided `instructions`");
     expect(request.instructions).not.toContain("Rewrite this prompt into something better");
-    expect(request.model).toBe("gpt-5.5-fast");
+    expect(request.model).toBe("gpt-5.4");
+    expect(request.service_tier).toBe("priority");
     expect(request.reasoning).toEqual({ effort: "xhigh" });
     expect(request.tools[0].output_format).toBe("png");
     expect(request.tools[0].quality).toBe("high");
@@ -333,8 +335,9 @@ describe("openai-image-gen-mcp config", () => {
   it("loads defaults from config.json", () => {
     const config = loadConfig();
 
-    expect(config.default_model).toBe("gpt-5.5-fast");
+    expect(config.default_model).toBe("gpt-5.4");
     expect(config.default_reasoning_effort).toBe("xhigh");
+    expect(config.default_service_tier).toBe("priority");
     expect(config.default_instructions).toContain("source_prompt verbatim");
     expect(config.default_output_dir.endsWith(".codex/generated_images")).toBe(true);
   });
@@ -404,7 +407,8 @@ describe("openai-image-gen-mcp execution", () => {
       expect(calls[0].init.headers["ChatGPT-Account-Id"]).toBe("acct_from_id_token");
       expect(calls[0].init.headers["X-OpenAI-Fedramp"]).toBe("true");
       const requestBody = JSON.parse(String(calls[0].init.body));
-      expect(requestBody.model).toBe("gpt-5.5-fast");
+      expect(requestBody.model).toBe("gpt-5.4");
+      expect(requestBody.service_tier).toBe("priority");
       expect(requestBody.reasoning).toEqual({ effort: "xhigh" });
       expect(requestBody.instructions).toContain("The user input is a JSON object");
       const payload = JSON.parse(requestBody.input[0].content[0].text);

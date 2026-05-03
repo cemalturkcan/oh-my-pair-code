@@ -8,8 +8,9 @@ const DEFAULT_CONFIG_PATH = join(__dirname, "..", "config.json");
 const DEFAULT_OUTPUT_DIR = join(homedir(), ".codex", "generated_images");
 
 const DEFAULT_CONFIG = {
-  default_model: "gpt-5.5-fast",
+  default_model: "gpt-5.4",
   default_reasoning_effort: "xhigh",
+  default_service_tier: "priority",
   default_instructions:
     "Bridge the JSON input to a single image_generation tool call and use source_prompt verbatim.",
   default_output_dir: DEFAULT_OUTPUT_DIR,
@@ -87,6 +88,9 @@ export function loadConfig() {
   const default_reasoning_effort =
     normalizeNonEmptyString(parsed.default_reasoning_effort) ||
     DEFAULT_CONFIG.default_reasoning_effort;
+  const default_service_tier =
+    normalizeNonEmptyString(parsed.default_service_tier) ||
+    DEFAULT_CONFIG.default_service_tier;
   const default_instructions =
     normalizeNonEmptyString(parsed.default_instructions) ||
     DEFAULT_CONFIG.default_instructions;
@@ -96,6 +100,7 @@ export function loadConfig() {
     config_path: configPath,
     default_model,
     default_reasoning_effort,
+    default_service_tier,
     default_instructions,
     default_output_dir,
   };
