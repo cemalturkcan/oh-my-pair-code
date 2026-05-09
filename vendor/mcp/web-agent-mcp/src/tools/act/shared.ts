@@ -9,6 +9,24 @@ export function createActionSuccessResult(input: {
   pageId: string;
   appliedMode: "semantic" | "physical";
   verificationHint?: string;
+  elapsedMs?: number;
+  waitedFor?: string[];
+  before?: { url: string; title?: string };
+  after?: { url: string; title?: string };
+  postAction?: {
+    observableChange: boolean;
+    guidance?: string;
+    usedDomFallback?: boolean;
+    changed?: string[];
+  };
+  formState?: {
+    input_type?: string;
+    value_present: boolean;
+    value_length: number;
+    requested_value_length: number;
+    matches_requested_value: boolean;
+    used_dom_fallback?: boolean;
+  };
   targetSelectorKnown: boolean;
 }) {
   return createToolSuccess({
@@ -21,6 +39,12 @@ export function createActionSuccessResult(input: {
       actionId: input.actionId,
       appliedMode: input.appliedMode,
       verificationHint: input.verificationHint,
+      elapsedMs: input.elapsedMs,
+      waitedFor: input.waitedFor,
+      before: input.before,
+      after: input.after,
+      postAction: input.postAction,
+      formState: input.formState,
       targetSelectorKnown: input.targetSelectorKnown
     })
   });

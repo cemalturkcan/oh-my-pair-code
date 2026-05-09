@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RuntimeServices } from "../../server.js";
 import { createFailureResult } from "../../core/errors.js";
-import { createToolSuccess } from "../../schemas/common.js";
+import { createToolSuccess, toToolInputSchema } from "../../schemas/common.js";
 import { boxesInputSchema, observeBoxesOutputSchema } from "../../schemas/observe.js";
 
 export function registerObserveBoxesTool(server: McpServer, services: RuntimeServices) {
@@ -11,7 +11,7 @@ export function registerObserveBoxesTool(server: McpServer, services: RuntimeSer
     {
       title: "Observe Element Boxes",
       description: "Resolve bounding boxes for one or more CSS selectors on the current page.",
-      inputSchema: boxesInputSchema,
+      inputSchema: toToolInputSchema(boxesInputSchema),
       outputSchema: observeBoxesOutputSchema,
       annotations: {
         readOnlyHint: true,
@@ -22,6 +22,7 @@ export function registerObserveBoxesTool(server: McpServer, services: RuntimeSer
     },
     async (input: z.infer<typeof boxesInputSchema>) => {
       try {
+        const startedAt = Date.now();
         const action = await services.history.startAction("observe.boxes", input, {
           session_id: input.session_id,
           page_id: input.page_id
@@ -43,6 +44,7 @@ export function registerObserveBoxesTool(server: McpServer, services: RuntimeSer
         });
         const data = {
           element_map_id: artifact.artifact_id,
+          elapsed_ms: Date.now() - startedAt,
           elements: result
         };
         await services.history.finishAction(action, "succeeded", {

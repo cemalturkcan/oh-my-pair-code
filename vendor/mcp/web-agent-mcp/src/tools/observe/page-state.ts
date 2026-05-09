@@ -6,7 +6,7 @@ import {
   observePageStateOutputSchema,
   pageStateInputSchema
 } from "../../schemas/observe.js";
-import { createToolSuccess } from "../../schemas/common.js";
+import { createToolSuccess, toToolInputSchema } from "../../schemas/common.js";
 import type { RuntimeServices } from "../../server.js";
 
 export function registerObservePageStateTool(server: McpServer, services: RuntimeServices) {
@@ -15,7 +15,7 @@ export function registerObservePageStateTool(server: McpServer, services: Runtim
     {
       title: "Observe Page State",
       description: "Return a composite page snapshot with text, frames, controls, and recent network activity.",
-      inputSchema: pageStateInputSchema,
+      inputSchema: toToolInputSchema(pageStateInputSchema),
       outputSchema: observePageStateOutputSchema,
       annotations: {
         readOnlyHint: true,
@@ -26,6 +26,7 @@ export function registerObservePageStateTool(server: McpServer, services: Runtim
     },
     async (input: z.infer<typeof pageStateInputSchema>) => {
       try {
+        const startedAt = Date.now();
         const action = await services.history.startAction("observe.page_state", input, {
           session_id: input.session_id,
           page_id: input.page_id
@@ -58,6 +59,7 @@ export function registerObservePageStateTool(server: McpServer, services: Runtim
 
         const data = {
           snapshot_id: artifact.artifact_id,
+          elapsed_ms: Date.now() - startedAt,
           url: result.url,
           title: result.title,
           text: result.text,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ZodObject, ZodRawShape, ZodTypeAny } from "zod";
 
 export const errorTypeSchema = z.enum([
   "INPUT",
@@ -50,7 +51,15 @@ export function createToolSuccess<TData>(envelope: ToolEnvelope<TData>) {
 
 export function createToolFailure<TData>(envelope: ToolEnvelope<TData>) {
   return {
-    content: createToolTextContent(envelope.error ?? envelope),
+    content: createToolTextContent(envelope),
     isError: true,
   };
+}
+
+export function toToolInputSchema(schema: ZodTypeAny): any {
+  const candidate = schema instanceof z.ZodEffects ? schema.innerType() : schema;
+  if (candidate instanceof z.ZodObject) {
+    return (candidate as ZodObject<ZodRawShape>).shape;
+  }
+  return {};
 }

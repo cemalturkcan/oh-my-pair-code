@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RuntimeServices } from "../../server.js";
 import { createFailureResult } from "../../core/errors.js";
-import { createToolSuccess } from "../../schemas/common.js";
+import { createToolSuccess, toToolInputSchema } from "../../schemas/common.js";
 import {
   restartSessionInputSchema,
   sessionRestartOutputSchema
@@ -14,7 +14,7 @@ export function registerRestartSessionTool(server: McpServer, services: RuntimeS
     {
       title: "Restart Session",
       description: "Restart a browser session while preserving its launch profile settings.",
-      inputSchema: restartSessionInputSchema,
+      inputSchema: toToolInputSchema(restartSessionInputSchema),
       outputSchema: sessionRestartOutputSchema,
       annotations: {
         readOnlyHint: false,

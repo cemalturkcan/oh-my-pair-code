@@ -3,3 +3,5 @@ node_modules
 dist
 session-*.md
 release-binaries/
+.opencode/state/
+!.opencode/orch.txt

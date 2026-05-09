@@ -202,5 +202,23 @@
       "await_promise": true,
       "inline": true
     }
+  },
+  "artifact_mox6go29_qjkd02l6": {
+    "artifact_id": "artifact_mox6go29_qjkd02l6",
+    "kind": "eval",
+    "created_at": "2026-05-08T17:17:05.362Z",
+    "storage_path": "/home/cemalturkcan/code/opencode-pair/.data/artifacts/artifact_mox6go29_qjkd02l6.txt",
+    "bytes": 799,
+    "session_id": "session_mox6gbum_syyy6qf7",
+    "page_id": "page_mox6gc5x_857fznc4",
+    "action_id": "action_mox6go25_r20euc19",
+    "url": "data:text/html,%3C!doctype%20html%3E%3Chtml%3E%3Chead%3E%3Ctitle%3ERunPageScript%20Smoke%3C%2Ftitle%3E%3C%2Fhead%3E%3Cbody%3E%3Ch1%20id%3D%22title%22%3ESmoke%20Ready%3C%2Fh1%3E%3Cinput%20id%3D%22name%22%20%2F%3E%3Cbutton%20id%3D%22btn%22%20onclick%3D%22document.getElementById('count').textContent%3DString(Number(document.getElementById('count').textContent)%2B1)%22%3EClick%3C%2Fbutton%3E%3Cspan%20id%3D%22count%22%3E0%3C%2Fspan%3E%3Cscript%3EsetTimeout(()%3D%3E%7Bconst%20p%3Ddocument.createElement('p')%3Bp.id%3D'delayed'%3Bp.textContent%3D'Delayed%20OK'%3Bdocument.body.appendChild(p)%3B%7D%2C50)%3C%2Fscript%3E%3C%2Fbody%3E%3C%2Fhtml%3E",
+    "title": "RunPageScript Smoke",
+    "meta": {
+      "script_hash": "9bd1d4fe6172f2190c709bee24d23f1d616c4dc5bad588afdcb001a2348d3e8b",
+      "result_truncated": false,
+      "max_result_bytes": 2000,
+      "redacted": true
+    }
   }
 }

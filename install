@@ -15,8 +15,8 @@ var __export = (target, all) => {
 };
 
 // src/cli.ts
-import { existsSync as existsSync2, mkdirSync as mkdirSync2, writeFileSync as writeFileSync2 } from "fs";
-import { join as join3, resolve as resolve2 } from "path";
+import { existsSync as existsSync3, mkdirSync as mkdirSync3, writeFileSync as writeFileSync2 } from "fs";
+import { join as join4, resolve as resolve3 } from "path";
 import { fileURLToPath as fileURLToPath2 } from "url";
 
 // node_modules/jsonc-parser/lib/esm/impl/scanner.js
@@ -14367,10 +14367,22 @@ var HarnessConfigSchema = exports_external.object({
     session_start: exports_external.boolean().optional(),
     pre_tool_use: exports_external.boolean().optional(),
     task_tracking: exports_external.boolean().optional(),
+    compaction: exports_external.boolean().optional(),
     session_end: exports_external.boolean().optional()
   }).optional(),
   workflow: exports_external.object({
-    compact_subagent_context: exports_external.boolean().optional()
+    compact_worker_context: exports_external.boolean().optional()
+  }).optional(),
+  orchestration: exports_external.object({
+    ledger_path: exports_external.string().optional(),
+    project_marker_path: exports_external.string().optional(),
+    sync: exports_external.object({
+      enabled: exports_external.boolean().optional(),
+      repo: exports_external.string().optional(),
+      url: exports_external.string().optional(),
+      path: exports_external.string().optional(),
+      branch: exports_external.string().optional()
+    }).optional()
   }).optional(),
   mcps: exports_external.object({
     context7: exports_external.boolean().optional(),
@@ -14394,6 +14406,7 @@ var ConfigSectionSchemas = {
   commands: HarnessConfigSchema.shape.commands,
   hooks: HarnessConfigSchema.shape.hooks,
   workflow: HarnessConfigSchema.shape.workflow,
+  orchestration: HarnessConfigSchema.shape.orchestration,
   mcps: HarnessConfigSchema.shape.mcps,
   agents: HarnessConfigSchema.shape.agents
 };
@@ -14405,10 +14418,26 @@ var SAMPLE_PROJECT_CONFIG = `{
     "session_start": true,
     "pre_tool_use": true,
     "task_tracking": true,
+    "compaction": true,
     "session_end": true
   },
   "workflow": {
-    "compact_subagent_context": true
+    "compact_worker_context": true
+  },
+  "orchestration": {
+    // Ledger DB defaults to the user state directory, e.g.
+    // $XDG_STATE_HOME/opencode-pair/orchestrator.sqlite or
+    // ~/.local/state/opencode-pair/orchestrator.sqlite on Linux.
+    // Set ledger_path only for tests or advanced local overrides.
+    "project_marker_path": ".opencode/orch.txt",
+    "sync": {
+      // Keep private sync repo credentials outside project repos. Prefer the
+      // user config file or OPENCODE_PAIR_SYNC_REPO / OPENCODE_PAIR_SYNC_PATH.
+      // Remote URL values belong in repo; local checkout/path values belong in path.
+      "enabled": false,
+      "repo": "",
+      "branch": "main"
+    }
   },
   "mcps": {
     "context7": true,
@@ -14424,19 +14453,19 @@ var SAMPLE_PROJECT_CONFIG = `{
 }`;
 
 // src/installer.ts
-import { createHash } from "crypto";
+import { createHash as createHash2 } from "crypto";
 import {
-  mkdirSync,
-  existsSync,
-  readFileSync,
+  mkdirSync as mkdirSync2,
+  existsSync as existsSync2,
+  readFileSync as readFileSync2,
   writeFileSync,
   copyFileSync,
   readdirSync,
   rmSync,
   statSync
 } from "fs";
-import { dirname, join as join2, resolve } from "path";
-import { homedir as homedir2 } from "os";
+import { dirname as dirname2, join as join3, resolve as resolve2 } from "path";
+import { homedir as homedir3 } from "os";
 import { fileURLToPath } from "url";
 import { spawn } from "child_process";
 
@@ -14449,6 +14478,1552 @@ function sharedConfigRoot() {
 }
 function getManagedMcpRoot(name) {
   return join(sharedConfigRoot(), name);
+}
+
+// src/orchestrator/ledger.ts
+import { createHash, randomUUID } from "crypto";
+import { existsSync, mkdirSync, readFileSync } from "fs";
+import { homedir as homedir2, hostname as hostname3, platform } from "os";
+import { dirname, isAbsolute, join as join2, relative, resolve } from "path";
+import { Database } from "bun:sqlite";
+
+// src/orchestrator/constants.ts
+var PRIMARY_AGENT = "mission-control";
+var WORKER_AGENTS = [
+  "implementation-engineer",
+  "frontend-engineer",
+  "repo-scout",
+  "research-analyst",
+  "creative-strategist",
+  "verification-engineer"
+];
+var AGENT_ROSTER = [PRIMARY_AGENT, ...WORKER_AGENTS];
+var WORKER_AGENT_SET = new Set(WORKER_AGENTS);
+var WRITER_AGENTS = new Set([
+  "implementation-engineer",
+  "frontend-engineer"
+]);
+var READ_ONLY_AGENTS = new Set([
+  "repo-scout",
+  "research-analyst",
+  "creative-strategist",
+  "verification-engineer"
+]);
+
+// src/orchestrator/ledger.ts
+var DEFAULT_LEDGER_FILENAME = "orchestrator.sqlite";
+var DEFAULT_PROJECT_MARKER_RELATIVE_PATH = ".opencode/orch.txt";
+var CURRENT_LEDGER_SCHEMA_VERSION = 2;
+var REQUIRED_LEDGER_COLUMNS = {
+  tasks: ["project_id", "parent_task_id", "backlog_status"],
+  artifacts: ["project_id"],
+  context_bundles: ["project_id"],
+  projects: ["project_key"],
+  sessions: ["project_id", "machine_id"],
+  file_locks: ["machine_id"]
+};
+function now() {
+  return new Date().toISOString();
+}
+function encodeJson(value) {
+  return JSON.stringify(value ?? null);
+}
+function decodeJson(value, fallback) {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+function asStringArray(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+}
+function compactText(value, max = 220) {
+  const oneLine = value.replace(/\s+/g, " ").trim();
+  return oneLine.length > max ? `${oneLine.slice(0, max - 1)}\u2026` : oneLine;
+}
+function emptyAcceptanceCoverage() {
+  return { unmet: 0, claimed: 0, evidenced: 0, verified: 0 };
+}
+function criterionCoverageBucket(criterion) {
+  if (criterion.met === true && criterion.evidence?.trim() && criterion.verification_type?.trim()) {
+    return "verified";
+  }
+  if (criterion.evidence?.trim()) {
+    return "evidenced";
+  }
+  if (criterion.met === true) {
+    return "claimed";
+  }
+  return "unmet";
+}
+function normalizeCriteria(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => {
+    if (typeof item === "string" && item.trim()) {
+      return { criterion: item.trim(), met: false };
+    }
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return;
+    }
+    const record2 = item;
+    const criterion = typeof record2.criterion === "string" ? record2.criterion.trim() : typeof record2.title === "string" ? record2.title.trim() : "";
+    if (!criterion) {
+      return;
+    }
+    return {
+      criterion,
+      ...typeof record2.met === "boolean" ? { met: record2.met } : {},
+      ...typeof record2.evidence === "string" ? { evidence: record2.evidence.trim() } : {},
+      ...typeof record2.verification_type === "string" ? { verification_type: record2.verification_type.trim() } : {}
+    };
+  }).filter((item) => Boolean(item));
+}
+function normalizeWorkerAgent(agent) {
+  if (!WORKER_AGENT_SET.has(agent)) {
+    throw new Error(`Unsupported worker agent: ${agent}`);
+  }
+  return agent;
+}
+function normalizeScope(scope) {
+  const trimmed = scope.trim().replace(/\\/g, "/");
+  if (!trimmed || trimmed === ".")
+    return "*";
+  return trimmed.replace(/^\.\//, "").replace(/\/+$/, "");
+}
+function canonicalLockScope(scope, input) {
+  const normalized = normalizeScope(scope);
+  if (normalized === "*")
+    return normalized;
+  const projectDirectory = input?.projectDirectory ? resolve(input.projectDirectory) : undefined;
+  const cwd = input?.cwd ? resolve(input.cwd) : projectDirectory;
+  const anchor = cwd ?? projectDirectory;
+  if (!projectDirectory || !anchor)
+    return normalized;
+  const absolute = isAbsolute(normalized) ? normalized : resolve(anchor, normalized);
+  const rel = relative(projectDirectory, absolute).replace(/\\/g, "/");
+  return normalizeScope(rel.startsWith("..") ? absolute : rel);
+}
+var OPTIONAL_ID_NO_VALUE_TOKENS = new Set(["", "null", "none", "undefined"]);
+function normalizeOptionalID(value) {
+  const trimmed = value?.trim();
+  if (!trimmed)
+    return;
+  return OPTIONAL_ID_NO_VALUE_TOKENS.has(trimmed.toLowerCase()) ? undefined : trimmed;
+}
+function invalidReferenceError(field, value, target) {
+  return new Error(`Invalid ${field}: ${value}. No matching ${target} exists. Use an existing ${target} id, omit ${field}, or pass null/none when this relationship is intentionally absent.`);
+}
+function rowToMission(row) {
+  if (!row)
+    return;
+  return {
+    id: String(row.id),
+    title: String(row.title),
+    goal: String(row.goal),
+    status: row.status,
+    created_at: String(row.created_at),
+    updated_at: String(row.updated_at),
+    metadata: decodeJson(row.metadata_json, {})
+  };
+}
+function rowToProject(row) {
+  if (!row)
+    return;
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    root_path: String(row.root_path),
+    ...typeof row.project_key === "string" ? { project_key: String(row.project_key) } : {},
+    status: row.status,
+    created_at: String(row.created_at),
+    updated_at: String(row.updated_at),
+    metadata: decodeJson(row.metadata_json, {})
+  };
+}
+function rowToSession(row) {
+  if (!row)
+    return;
+  return {
+    id: String(row.id),
+    opencode_session_id: String(row.opencode_session_id),
+    ...typeof row.project_id === "string" ? { project_id: String(row.project_id) } : {},
+    cwd: String(row.cwd),
+    machine_id: String(row.machine_id ?? getMachineId()),
+    ...typeof row.active_mission_id === "string" ? { active_mission_id: String(row.active_mission_id) } : {},
+    ...typeof row.active_task_id === "string" ? { active_task_id: String(row.active_task_id) } : {},
+    ...typeof row.agent === "string" ? { agent: String(row.agent) } : {},
+    ...typeof row.parent_session_id === "string" ? { parent_session_id: String(row.parent_session_id) } : {},
+    status: row.status,
+    started_at: String(row.started_at),
+    updated_at: String(row.updated_at),
+    ...typeof row.ended_at === "string" ? { ended_at: String(row.ended_at) } : {},
+    metadata: decodeJson(row.metadata_json, {})
+  };
+}
+function rowToTask(row) {
+  if (!row)
+    return;
+  return {
+    id: String(row.id),
+    ...typeof row.mission_id === "string" ? { mission_id: String(row.mission_id) } : {},
+    ...typeof row.project_id === "string" ? { project_id: String(row.project_id) } : {},
+    ...typeof row.parent_task_id === "string" ? { parent_task_id: String(row.parent_task_id) } : {},
+    backlog_status: row.backlog_status ?? "none",
+    title: String(row.title),
+    type: row.type,
+    assigned_agent: row.assigned_agent,
+    status: row.status,
+    priority: row.priority,
+    dependencies: decodeJson(row.dependencies_json, []),
+    acceptance_criteria: normalizeCriteria(decodeJson(row.acceptance_criteria_json, [])),
+    evidence_requirements: decodeJson(row.evidence_requirements_json, []),
+    scope: String(row.scope ?? ""),
+    file_scope: decodeJson(row.file_scope_json, []),
+    verification: decodeJson(row.verification_json, {}),
+    worker_report: decodeJson(row.worker_report_json, {}),
+    created_at: String(row.created_at),
+    updated_at: String(row.updated_at)
+  };
+}
+function taskHasEvidence(task) {
+  if (task.status === "cancelled")
+    return true;
+  if (task.verification.low_risk_exception?.trim())
+    return true;
+  const hasPassingVerification = task.verification.result === "pass" && task.verification.mode !== "mock" && task.verification.mode !== "not_run" && (task.verification.commands_or_actions?.length ?? 0) > 0;
+  if (hasPassingVerification)
+    return true;
+  if (task.acceptance_criteria.length === 0)
+    return false;
+  return task.acceptance_criteria.every((criterion) => criterion.met === true && Boolean(criterion.evidence?.trim()));
+}
+function taskSkippedSafeRealCheck(task) {
+  return task.verification.mode === "not_run" && task.verification.result !== "blocked" && !task.verification.why_not_real?.trim() && !task.verification.low_risk_exception?.trim();
+}
+function defaultUserStateDirectory() {
+  const xdgStateHome = process.env.XDG_STATE_HOME?.trim();
+  if (xdgStateHome)
+    return join2(xdgStateHome, "opencode-pair");
+  if (platform() === "win32") {
+    return join2(process.env.LOCALAPPDATA || join2(homedir2(), "AppData", "Local"), "opencode-pair");
+  }
+  if (platform() === "darwin") {
+    return join2(homedir2(), "Library", "Application Support", "opencode-pair");
+  }
+  return join2(homedir2(), ".local", "state", "opencode-pair");
+}
+function getMachineId() {
+  const explicit = process.env.OPENCODE_PAIR_MACHINE_ID?.trim();
+  if (explicit)
+    return explicit;
+  return `host:${createHash("sha256").update(hostname3()).digest("hex").slice(0, 16)}`;
+}
+function canonicalGitRemote(value) {
+  return value.trim().replace(/^git@([^:]+):/, "https://$1/").replace(/\.git$/i, "").toLowerCase();
+}
+function readGitConfigRemote(rootPath) {
+  const configPath = join2(rootPath, ".git", "config");
+  if (!existsSync(configPath))
+    return;
+  const config2 = readFileSync(configPath, "utf8");
+  const origin = config2.match(/\[remote "origin"\][\s\S]*?\n\s*url\s*=\s*(.+)/);
+  return origin?.[1] ? canonicalGitRemote(origin[1]) : undefined;
+}
+function readGitHeadFingerprint(rootPath) {
+  const headPath = join2(rootPath, ".git", "HEAD");
+  if (!existsSync(headPath))
+    return;
+  const head = readFileSync(headPath, "utf8").trim();
+  if (/^[0-9a-f]{40}$/i.test(head))
+    return head.slice(0, 12);
+  const ref = head.match(/^ref:\s*(.+)$/)?.[1];
+  if (!ref)
+    return;
+  const refPath = join2(rootPath, ".git", ref);
+  if (!existsSync(refPath))
+    return;
+  const commit = readFileSync(refPath, "utf8").trim();
+  return /^[0-9a-f]{40}$/i.test(commit) ? commit.slice(0, 12) : undefined;
+}
+function parseProjectTextMarker(raw) {
+  const marker = {};
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#"))
+      continue;
+    const index = trimmed.indexOf("=");
+    if (index <= 0)
+      continue;
+    marker[trimmed.slice(0, index).trim()] = trimmed.slice(index + 1).trim();
+  }
+  return marker;
+}
+function readProjectMarker(rootPath) {
+  const txtPath = join2(rootPath, DEFAULT_PROJECT_MARKER_RELATIVE_PATH);
+  if (existsSync(txtPath)) {
+    return { marker: parseProjectTextMarker(readFileSync(txtPath, "utf8")), marker_path: DEFAULT_PROJECT_MARKER_RELATIVE_PATH, source: "txt" };
+  }
+  return { marker: {}, source: "none" };
+}
+function findIdentityRoot(pathOrRoot) {
+  let current = resolve(pathOrRoot);
+  while (true) {
+    if (existsSync(join2(current, DEFAULT_PROJECT_MARKER_RELATIVE_PATH)) || existsSync(join2(current, ".git"))) {
+      return current;
+    }
+    const parent = dirname(current);
+    if (parent === current)
+      return resolve(pathOrRoot);
+    current = parent;
+  }
+}
+function deriveProjectIdentity(rootPath, metadata) {
+  const marker = readProjectMarker(rootPath);
+  const markerKey = typeof marker.marker.project_key === "string" ? marker.marker.project_key.trim() : "";
+  const metadataKey = typeof metadata?.project_key === "string" ? metadata.project_key.trim() : "";
+  const remote = readGitConfigRemote(rootPath);
+  const head = readGitHeadFingerprint(rootPath);
+  const gitKey = remote ? `git:${remote}${head ? `#${head}` : ""}` : undefined;
+  return {
+    project_key: markerKey || metadataKey || gitKey,
+    name: typeof marker.marker.name === "string" ? marker.marker.name : undefined,
+    repo_fingerprint: typeof marker.marker.repo_fingerprint === "string" ? marker.marker.repo_fingerprint : gitKey,
+    git_remote_canonical: remote,
+    marker_path: markerKey ? marker.marker_path : undefined,
+    marker_source: marker.source === "none" ? undefined : marker.source
+  };
+}
+
+class OrchestratorLedger {
+  dbPath;
+  db;
+  constructor(dbPath) {
+    this.dbPath = dbPath;
+    mkdirSync(dirname(dbPath), { recursive: true });
+    this.db = new Database(dbPath);
+    this.migrate();
+  }
+  getTableColumns(table) {
+    const rows = this.db.query(`PRAGMA table_info(${table})`).all();
+    return new Set(rows.map((row) => typeof row.name === "string" ? row.name : undefined).filter((name) => Boolean(name)));
+  }
+  assertCompatibleSchema() {
+    const missing = [];
+    for (const [table, columns] of Object.entries(REQUIRED_LEDGER_COLUMNS)) {
+      const available = this.getTableColumns(table);
+      for (const column of columns) {
+        if (!available.has(column)) {
+          missing.push(`${table}.${column}`);
+        }
+      }
+    }
+    if (missing.length === 0) {
+      return;
+    }
+    throw new Error(`Incompatible orchestrator ledger schema at ${this.dbPath}. Missing required columns: ${missing.join(", ")}. Reset the ignored local ledger database and restart OpenCode.`);
+  }
+  migrate() {
+    this.db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA foreign_keys = ON;
+
+      CREATE TABLE IF NOT EXISTS missions (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        goal TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+      );
+
+      CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        root_path TEXT NOT NULL UNIQUE,
+        project_key TEXT UNIQUE,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+      );
+
+      CREATE TABLE IF NOT EXISTS project_root_aliases (
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        machine_id TEXT NOT NULL,
+        root_path TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, machine_id, root_path)
+      );
+
+      CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY,
+        mission_id TEXT REFERENCES missions(id) ON DELETE CASCADE,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        parent_task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        backlog_status TEXT NOT NULL DEFAULT 'none',
+        title TEXT NOT NULL,
+        type TEXT NOT NULL,
+        assigned_agent TEXT NOT NULL,
+        status TEXT NOT NULL,
+        priority TEXT NOT NULL,
+        dependencies_json TEXT NOT NULL DEFAULT '[]',
+        acceptance_criteria_json TEXT NOT NULL DEFAULT '[]',
+        evidence_requirements_json TEXT NOT NULL DEFAULT '[]',
+        scope TEXT NOT NULL DEFAULT '',
+        file_scope_json TEXT NOT NULL DEFAULT '[]',
+        verification_json TEXT NOT NULL DEFAULT '{}',
+        worker_report_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS artifacts (
+        id TEXT PRIMARY KEY,
+        mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS context_bundles (
+        id TEXT PRIMARY KEY,
+        mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS decisions (
+        id TEXT PRIMARY KEY,
+        mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+        task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS blockers (
+        id TEXT PRIMARY KEY,
+        mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+        task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        severity TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        status TEXT NOT NULL,
+        required_user_input INTEGER NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        resolved_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS file_locks (
+        id TEXT PRIMARY KEY,
+        mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+        task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        owner_agent TEXT NOT NULL,
+        machine_id TEXT NOT NULL DEFAULT '',
+        scope TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        released_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS verification_results (
+        id TEXT PRIMARY KEY,
+        mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+        task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        verdict TEXT NOT NULL,
+        gate_status TEXT NOT NULL,
+        report_json TEXT NOT NULL DEFAULT '{}',
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        opencode_session_id TEXT NOT NULL UNIQUE,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        cwd TEXT NOT NULL,
+        machine_id TEXT NOT NULL DEFAULT '',
+        active_mission_id TEXT REFERENCES missions(id) ON DELETE SET NULL,
+        active_task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        agent TEXT,
+        parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+        status TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        ended_at TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+      );
+
+    `);
+    this.addColumnIfMissing("projects", "project_key", "TEXT");
+    this.addColumnIfMissing("sessions", "machine_id", "TEXT NOT NULL DEFAULT ''");
+    this.addColumnIfMissing("file_locks", "machine_id", "TEXT NOT NULL DEFAULT ''");
+    this.db.query("UPDATE sessions SET machine_id = $machineID WHERE machine_id = ''").run({ $machineID: getMachineId() });
+    this.db.query("UPDATE file_locks SET machine_id = $machineID WHERE machine_id = ''").run({ $machineID: getMachineId() });
+    this.assertCompatibleSchema();
+    this.db.exec(`
+
+      CREATE INDEX IF NOT EXISTS idx_projects_root ON projects(root_path);
+      CREATE INDEX IF NOT EXISTS idx_projects_key ON projects(project_key);
+      CREATE INDEX IF NOT EXISTS idx_project_aliases_root ON project_root_aliases(root_path, machine_id);
+      CREATE INDEX IF NOT EXISTS idx_tasks_mission_status ON tasks(mission_id, status);
+      CREATE INDEX IF NOT EXISTS idx_tasks_project_backlog ON tasks(project_id, backlog_status, status);
+      CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id);
+      CREATE INDEX IF NOT EXISTS idx_artifacts_task ON artifacts(task_id);
+      CREATE INDEX IF NOT EXISTS idx_artifacts_project ON artifacts(project_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_context_task ON context_bundles(task_id);
+      CREATE INDEX IF NOT EXISTS idx_context_project ON context_bundles(project_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_blockers_mission_status ON blockers(mission_id, status);
+      CREATE INDEX IF NOT EXISTS idx_locks_mission_status ON file_locks(mission_id, status);
+      CREATE INDEX IF NOT EXISTS idx_locks_machine ON file_locks(machine_id, mission_id, status);
+      CREATE INDEX IF NOT EXISTS idx_verification_task ON verification_results(task_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_sessions_project_status ON sessions(project_id, status, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_sessions_active_task ON sessions(active_task_id);
+      PRAGMA user_version = ${CURRENT_LEDGER_SCHEMA_VERSION};
+    `);
+  }
+  addColumnIfMissing(table, column, definition) {
+    const rows = this.db.query(`PRAGMA table_info(${table})`).all();
+    if (rows.some((row) => row.name === column))
+      return;
+    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+  nextSequentialId(prefix, table, missionId) {
+    const row = missionId ? this.db.query(`SELECT COUNT(*) AS count FROM ${table} WHERE mission_id = $missionId`).get({ $missionId: missionId }) : this.db.query(`SELECT COUNT(*) AS count FROM ${table}`).get();
+    const count = Number(row?.count ?? 0) + 1;
+    return `${prefix}-${String(count).padStart(3, "0")}`;
+  }
+  missionId(missionId) {
+    const resolved = missionId || this.getActiveMission()?.id;
+    if (!resolved) {
+      throw new Error("No active mission. Create one with orchestrator_mission_create first.");
+    }
+    return resolved;
+  }
+  getOrCreateProject(input) {
+    const rootPath = resolve(input.root_path);
+    const identity = deriveProjectIdentity(rootPath, input.metadata);
+    const projectKey = typeof identity.project_key === "string" && identity.project_key.trim() ? identity.project_key.trim() : undefined;
+    const byKey = projectKey ? this.getProjectByKey(projectKey) : undefined;
+    if (byKey) {
+      this.recordProjectAlias(byKey.id, rootPath);
+      return this.updateProject({
+        project_id: byKey.id,
+        root_path: rootPath,
+        name: input.name,
+        metadata: { ...identity, ...input.metadata ?? {} }
+      });
+    }
+    const existing = this.getProjectByRoot(rootPath);
+    if (existing) {
+      this.recordProjectAlias(existing.id, rootPath);
+      if (projectKey && !existing.project_key) {
+        return this.updateProject({
+          project_id: existing.id,
+          project_key: projectKey,
+          metadata: { ...identity, ...input.metadata ?? {} }
+        });
+      }
+      return existing;
+    }
+    const timestamp = now();
+    const id = this.nextSequentialId("P", "projects");
+    this.db.query(`INSERT INTO projects (id, name, root_path, project_key, status, created_at, updated_at, metadata_json)
+         VALUES ($id, $name, $rootPath, $projectKey, 'active', $createdAt, $updatedAt, $metadata)`).run({
+      $id: id,
+      $name: input.name?.trim() || rootPath.split("/").filter(Boolean).at(-1) || rootPath,
+      $rootPath: rootPath,
+      $projectKey: projectKey ?? null,
+      $createdAt: timestamp,
+      $updatedAt: timestamp,
+      $metadata: encodeJson({ ...identity, ...input.metadata ?? {} })
+    });
+    this.recordProjectAlias(id, rootPath);
+    return this.getProject(id);
+  }
+  getProject(id) {
+    return rowToProject(this.db.query("SELECT * FROM projects WHERE id = $id").get({ $id: id }));
+  }
+  getProjectByRoot(rootPath) {
+    return rowToProject(this.db.query("SELECT * FROM projects WHERE root_path = $rootPath").get({ $rootPath: resolve(rootPath) }));
+  }
+  getProjectByKey(projectKey) {
+    return rowToProject(this.db.query("SELECT * FROM projects WHERE project_key = $projectKey AND status = 'active' ORDER BY updated_at DESC LIMIT 1").get({ $projectKey: projectKey.trim() }));
+  }
+  getProjectByName(name) {
+    return rowToProject(this.db.query("SELECT * FROM projects WHERE name = $name AND status = 'active' ORDER BY id LIMIT 1").get({ $name: name.trim() }));
+  }
+  resolveProject(pathOrRoot) {
+    const absolute = resolve(pathOrRoot);
+    const identity = deriveProjectIdentity(findIdentityRoot(absolute));
+    const projectKey = typeof identity.project_key === "string" ? identity.project_key.trim() : "";
+    if (projectKey) {
+      const byKey = this.getProjectByKey(projectKey);
+      if (byKey)
+        return byKey;
+    }
+    const aliasRows = this.db.query(`SELECT p.* FROM projects p
+         JOIN project_root_aliases a ON a.project_id = p.id
+         WHERE p.status = 'active' AND a.machine_id = $machineID
+         ORDER BY length(a.root_path) DESC`).all({ $machineID: getMachineId() });
+    const aliasMatch = aliasRows.map(rowToProject).find((project) => {
+      if (!project)
+        return false;
+      const roots = this.projectAliases(project.id);
+      return roots.some((root) => absolute === root || absolute.startsWith(`${root}/`));
+    });
+    if (aliasMatch)
+      return aliasMatch;
+    const rows = this.db.query("SELECT * FROM projects WHERE status = 'active' ORDER BY length(root_path) DESC").all();
+    return rows.map(rowToProject).find((project) => {
+      if (!project)
+        return false;
+      return absolute === project.root_path || absolute.startsWith(`${project.root_path}/`);
+    });
+  }
+  updateProject(input) {
+    const existing = this.getProject(input.project_id);
+    if (!existing)
+      throw new Error(`Unknown project: ${input.project_id}`);
+    const rootPath = input.root_path ? resolve(input.root_path) : existing.root_path;
+    this.db.query(`UPDATE projects SET name = $name, root_path = $rootPath, project_key = $projectKey, status = $status, metadata_json = $metadata, updated_at = $updatedAt
+         WHERE id = $id`).run({
+      $id: existing.id,
+      $name: input.name?.trim() || existing.name,
+      $rootPath: rootPath,
+      $projectKey: input.project_key ?? existing.project_key ?? null,
+      $status: input.status ?? existing.status,
+      $metadata: encodeJson({ ...existing.metadata, ...input.metadata ?? {} }),
+      $updatedAt: now()
+    });
+    this.recordProjectAlias(existing.id, rootPath);
+    return this.getProject(existing.id);
+  }
+  recordProjectAlias(projectID, rootPath) {
+    const timestamp = now();
+    this.db.query(`INSERT INTO project_root_aliases (project_id, machine_id, root_path, created_at, updated_at)
+         VALUES ($projectID, $machineID, $rootPath, $createdAt, $updatedAt)
+         ON CONFLICT(project_id, machine_id, root_path) DO UPDATE SET updated_at = excluded.updated_at`).run({
+      $projectID: projectID,
+      $machineID: getMachineId(),
+      $rootPath: resolve(rootPath),
+      $createdAt: timestamp,
+      $updatedAt: timestamp
+    });
+  }
+  projectAliases(projectID) {
+    const rows = this.db.query("SELECT root_path FROM project_root_aliases WHERE project_id = $projectID AND machine_id = $machineID").all({ $projectID: projectID, $machineID: getMachineId() });
+    return rows.map((row) => String(row.root_path));
+  }
+  createMission(input) {
+    const timestamp = now();
+    const id = `M-${randomUUID().slice(0, 8)}`;
+    this.db.query(`INSERT INTO missions (id, title, goal, status, created_at, updated_at, metadata_json)
+         VALUES ($id, $title, $goal, 'active', $createdAt, $updatedAt, $metadata)`).run({
+      $id: id,
+      $title: input.title.trim(),
+      $goal: input.goal.trim(),
+      $createdAt: timestamp,
+      $updatedAt: timestamp,
+      $metadata: encodeJson(input.metadata ?? {})
+    });
+    if (input.sessionID) {
+      this.linkSession(input.sessionID, id, undefined, input.agent ?? "mission-control");
+    }
+    return this.getMission(id);
+  }
+  getMission(id) {
+    return rowToMission(this.db.query("SELECT * FROM missions WHERE id = $id").get({ $id: id }));
+  }
+  getActiveMission() {
+    return rowToMission(this.db.query("SELECT * FROM missions WHERE status IN ('active', 'blocked') ORDER BY updated_at DESC LIMIT 1").get());
+  }
+  linkSession(sessionID, missionID, taskID, agent) {
+    const task = taskID ? this.getTask(taskID) : undefined;
+    this.attachSession({
+      opencode_session_id: sessionID,
+      cwd: process.cwd(),
+      project_id: task?.project_id,
+      active_mission_id: missionID,
+      active_task_id: taskID,
+      agent
+    });
+  }
+  attachSession(input) {
+    const existing = this.getSession(input.opencode_session_id);
+    const timestamp = now();
+    const id = existing?.id ?? this.nextSequentialId("S", "sessions");
+    const metadata = { ...existing?.metadata ?? {}, ...input.metadata ?? {} };
+    const projectID = normalizeOptionalID(input.project_id);
+    const activeMissionID = normalizeOptionalID(input.active_mission_id);
+    const activeTaskID = normalizeOptionalID(input.active_task_id);
+    const parentSessionID = normalizeOptionalID(input.parent_session_id);
+    if (projectID && !this.getProject(projectID))
+      throw invalidReferenceError("project_id", projectID, "project");
+    if (activeMissionID && !this.getMission(activeMissionID))
+      throw invalidReferenceError("active_mission_id", activeMissionID, "mission");
+    if (activeTaskID && !this.getTask(activeTaskID))
+      throw invalidReferenceError("active_task_id", activeTaskID, "task");
+    if (parentSessionID && !this.getSessionById(parentSessionID))
+      throw invalidReferenceError("parent_session_id", parentSessionID, "session");
+    this.db.query(`INSERT INTO sessions (
+          id, opencode_session_id, project_id, cwd, machine_id, active_mission_id, active_task_id,
+          agent, parent_session_id, status, started_at, updated_at, ended_at, metadata_json
+        ) VALUES (
+          $id, $opencodeSessionID, $projectID, $cwd, $machineID, $activeMissionID, $activeTaskID,
+          $agent, $parentSessionID, $status, $startedAt, $updatedAt, NULL, $metadata
+        ) ON CONFLICT(opencode_session_id) DO UPDATE SET
+          project_id = excluded.project_id,
+          cwd = excluded.cwd,
+          machine_id = excluded.machine_id,
+          active_mission_id = excluded.active_mission_id,
+          active_task_id = excluded.active_task_id,
+          agent = excluded.agent,
+          parent_session_id = excluded.parent_session_id,
+          status = excluded.status,
+          updated_at = excluded.updated_at,
+          ended_at = NULL,
+          metadata_json = excluded.metadata_json`).run({
+      $id: id,
+      $opencodeSessionID: input.opencode_session_id,
+      $projectID: projectID ?? null,
+      $cwd: resolve(input.cwd),
+      $machineID: getMachineId(),
+      $activeMissionID: activeMissionID ?? null,
+      $activeTaskID: activeTaskID ?? null,
+      $agent: input.agent ?? null,
+      $parentSessionID: parentSessionID ?? null,
+      $status: input.status ?? "active",
+      $startedAt: existing?.started_at ?? timestamp,
+      $updatedAt: timestamp,
+      $metadata: encodeJson(metadata)
+    });
+    return this.getSession(input.opencode_session_id);
+  }
+  updateSession(input) {
+    const existing = this.getSession(input.opencode_session_id);
+    if (!existing)
+      throw new Error(`Unknown session: ${input.opencode_session_id}`);
+    const nextStatus = input.status ?? existing.status;
+    const projectID = input.project_id === undefined ? existing.project_id : normalizeOptionalID(input.project_id);
+    const activeMissionID = input.active_mission_id === undefined ? existing.active_mission_id : normalizeOptionalID(input.active_mission_id);
+    const activeTaskID = input.active_task_id === undefined ? existing.active_task_id : normalizeOptionalID(input.active_task_id);
+    const parentSessionID = input.parent_session_id === undefined ? existing.parent_session_id : normalizeOptionalID(input.parent_session_id);
+    if (projectID && !this.getProject(projectID))
+      throw invalidReferenceError("project_id", projectID, "project");
+    if (activeMissionID && !this.getMission(activeMissionID))
+      throw invalidReferenceError("active_mission_id", activeMissionID, "mission");
+    if (activeTaskID && !this.getTask(activeTaskID))
+      throw invalidReferenceError("active_task_id", activeTaskID, "task");
+    if (parentSessionID && !this.getSessionById(parentSessionID))
+      throw invalidReferenceError("parent_session_id", parentSessionID, "session");
+    this.db.query(`UPDATE sessions SET
+          project_id = $projectID,
+          cwd = $cwd,
+          machine_id = $machineID,
+          active_mission_id = $activeMissionID,
+          active_task_id = $activeTaskID,
+          agent = $agent,
+          parent_session_id = $parentSessionID,
+          status = $status,
+          updated_at = $updatedAt,
+          ended_at = $endedAt,
+          metadata_json = $metadata
+         WHERE opencode_session_id = $opencodeSessionID`).run({
+      $opencodeSessionID: input.opencode_session_id,
+      $projectID: projectID ?? null,
+      $cwd: input.cwd ? resolve(input.cwd) : existing.cwd,
+      $machineID: getMachineId(),
+      $activeMissionID: activeMissionID ?? null,
+      $activeTaskID: activeTaskID ?? null,
+      $agent: input.agent === undefined ? existing.agent ?? null : input.agent,
+      $parentSessionID: parentSessionID ?? null,
+      $status: nextStatus,
+      $updatedAt: now(),
+      $endedAt: nextStatus === "ended" || nextStatus === "crashed" ? now() : existing.ended_at ?? null,
+      $metadata: encodeJson({ ...existing.metadata, ...input.metadata ?? {} })
+    });
+    return this.getSession(input.opencode_session_id);
+  }
+  getSession(opencodeSessionID) {
+    return rowToSession(this.db.query("SELECT * FROM sessions WHERE opencode_session_id = $opencodeSessionID AND machine_id = $machineID").get({ $opencodeSessionID: opencodeSessionID, $machineID: getMachineId() }));
+  }
+  getSessionById(id) {
+    return rowToSession(this.db.query("SELECT * FROM sessions WHERE id = $id").get({ $id: id }));
+  }
+  listProjectSessions(input) {
+    const rows = this.db.query(`SELECT * FROM sessions
+         WHERE project_id = $projectID AND ($status IS NULL OR status = $status)
+           AND machine_id = $machineID
+         ORDER BY updated_at DESC
+         LIMIT $limit`).all({
+      $projectID: input.project_id,
+      $status: input.status ?? null,
+      $machineID: getMachineId(),
+      $limit: Math.max(1, Math.min(input.limit ?? 10, 25))
+    });
+    return rows.map((row) => rowToSession(row));
+  }
+  linkSessionToTask(sessionID, taskID, agent) {
+    const task = this.getTask(taskID);
+    if (!task)
+      return;
+    this.attachSession({
+      opencode_session_id: sessionID,
+      cwd: process.cwd(),
+      project_id: task.project_id,
+      active_mission_id: task.mission_id,
+      active_task_id: taskID,
+      agent
+    });
+  }
+  getSessionTask(sessionID) {
+    const row = this.db.query("SELECT active_task_id FROM sessions WHERE opencode_session_id = $sessionID AND machine_id = $machineID").get({ $sessionID: sessionID, $machineID: getMachineId() });
+    if (typeof row?.active_task_id !== "string")
+      return;
+    return this.getTask(row.active_task_id);
+  }
+  createTask(input) {
+    const projectID = normalizeOptionalID(input.project_id);
+    const explicitMissionID = normalizeOptionalID(input.mission_id);
+    const parentTaskID = normalizeOptionalID(input.parent_task_id);
+    if (projectID && !this.getProject(projectID))
+      throw invalidReferenceError("project_id", projectID, "project");
+    if (explicitMissionID && !this.getMission(explicitMissionID))
+      throw invalidReferenceError("mission_id", explicitMissionID, "mission");
+    if (parentTaskID && !this.getTask(parentTaskID))
+      throw invalidReferenceError("parent_task_id", parentTaskID, "task");
+    const missionID = explicitMissionID ?? (projectID ? undefined : this.missionId());
+    const timestamp = now();
+    const id = this.nextSequentialId("T", "tasks");
+    const assignedAgent = normalizeWorkerAgent(input.assigned_agent);
+    this.db.query(`INSERT INTO tasks (
+          id, mission_id, project_id, parent_task_id, backlog_status,
+          title, type, assigned_agent, status, priority,
+          dependencies_json, acceptance_criteria_json, evidence_requirements_json,
+          scope, file_scope_json, verification_json, worker_report_json, created_at, updated_at
+        ) VALUES (
+          $id, $missionID, $projectID, $parentTaskID, $backlogStatus,
+          $title, $type, $assignedAgent, $status, $priority,
+          $dependencies, $criteria, $evidenceRequirements,
+          $scope, $fileScope, '{}', '{}', $createdAt, $updatedAt
+        )`).run({
+      $id: id,
+      $missionID: missionID ?? null,
+      $projectID: projectID ?? null,
+      $parentTaskID: parentTaskID ?? null,
+      $backlogStatus: input.backlog_status ?? "none",
+      $title: input.title.trim(),
+      $type: input.type,
+      $assignedAgent: assignedAgent,
+      $status: input.status ?? "pending",
+      $priority: input.priority ?? "medium",
+      $dependencies: encodeJson(input.dependencies ?? []),
+      $criteria: encodeJson(normalizeCriteria(input.acceptance_criteria ?? [])),
+      $evidenceRequirements: encodeJson(input.evidence_requirements ?? []),
+      $scope: input.scope.trim(),
+      $fileScope: encodeJson((input.file_scope ?? []).map(normalizeScope)),
+      $createdAt: timestamp,
+      $updatedAt: timestamp
+    });
+    if (missionID)
+      this.touchMission(missionID);
+    return this.getTask(id);
+  }
+  getTask(id) {
+    return rowToTask(this.db.query("SELECT * FROM tasks WHERE id = $id").get({ $id: id }));
+  }
+  listTasks(missionID = this.missionId()) {
+    return this.db.query("SELECT * FROM tasks WHERE mission_id = $missionID ORDER BY id").all({ $missionID: missionID }).map((row) => rowToTask(row));
+  }
+  listProjectTasks(input) {
+    const parentTaskID = normalizeOptionalID(input.parent_task_id);
+    if (!this.getProject(input.project_id))
+      throw invalidReferenceError("project_id", input.project_id, "project");
+    if (parentTaskID && !this.getTask(parentTaskID))
+      throw invalidReferenceError("parent_task_id", parentTaskID, "task");
+    const rows = this.db.query(`SELECT * FROM tasks
+         WHERE project_id = $projectID
+           AND ($backlogStatus IS NULL OR backlog_status = $backlogStatus)
+           AND ($parentTaskIDUnset = 1 OR parent_task_id = $parentTaskID OR ($parentTaskID IS NULL AND parent_task_id IS NULL))
+         ORDER BY id`).all({
+      $projectID: input.project_id,
+      $backlogStatus: input.backlog_status ?? null,
+      $parentTaskIDUnset: input.parent_task_id === undefined ? 1 : 0,
+      $parentTaskID: parentTaskID ?? null
+    });
+    return rows.map((row) => rowToTask(row));
+  }
+  findAssignableTask(agent) {
+    const mission = this.getActiveMission();
+    if (!mission)
+      return;
+    return rowToTask(this.db.query(`SELECT * FROM tasks
+           WHERE mission_id = $missionID AND assigned_agent = $agent
+             AND status NOT IN ('done', 'cancelled')
+           ORDER BY CASE status
+             WHEN 'in_progress' THEN 0
+             WHEN 'reopened' THEN 1
+             WHEN 'needs_verification' THEN 2
+             WHEN 'pending' THEN 3
+             WHEN 'blocked' THEN 4
+             ELSE 5 END, updated_at DESC
+           LIMIT 1`).get({ $missionID: mission.id, $agent: agent }));
+  }
+  updateTask(input) {
+    const existing = this.getTask(input.task_id);
+    if (!existing) {
+      throw new Error(`Unknown task: ${input.task_id}`);
+    }
+    const mergedCriteria = input.acceptance_criteria ? mergeCriteria(existing.acceptance_criteria, input.acceptance_criteria) : existing.acceptance_criteria;
+    const mergedVerification = {
+      ...existing.verification,
+      ...input.verification ?? {}
+    };
+    const mergedReport = {
+      ...existing.worker_report,
+      ...input.summary ? { summary: input.summary } : {},
+      ...input.worker_report ?? {},
+      ...input.remaining_gaps ? { remaining_gaps: input.remaining_gaps } : {}
+    };
+    let nextStatus = input.status ?? existing.status;
+    let adjusted = false;
+    let reason;
+    const probe = {
+      ...existing,
+      status: nextStatus,
+      acceptance_criteria: mergedCriteria,
+      verification: mergedVerification,
+      worker_report: mergedReport
+    };
+    if (nextStatus === "done" && !taskHasEvidence(probe)) {
+      nextStatus = "needs_verification";
+      adjusted = true;
+      reason = "Task cannot be marked done without evidence-backed verification or an explicit low-risk exception.";
+    }
+    this.db.query(`UPDATE tasks SET
+          status = $status,
+          acceptance_criteria_json = $criteria,
+          verification_json = $verification,
+          worker_report_json = $workerReport,
+          updated_at = $updatedAt
+         WHERE id = $id`).run({
+      $id: existing.id,
+      $status: nextStatus,
+      $criteria: encodeJson(mergedCriteria),
+      $verification: encodeJson(mergedVerification),
+      $workerReport: encodeJson(mergedReport),
+      $updatedAt: now()
+    });
+    if (existing.mission_id)
+      this.touchMission(existing.mission_id);
+    return { task: this.getTask(existing.id), adjusted, reason };
+  }
+  reopenTask(input) {
+    const task = this.getTask(input.task_id);
+    if (!task)
+      throw new Error(`Unknown task: ${input.task_id}`);
+    this.updateTask({
+      task_id: input.task_id,
+      status: "reopened",
+      worker_report: {
+        reopened_reason: input.reason,
+        reopened_by: input.created_by
+      }
+    });
+    return this.getTask(input.task_id);
+  }
+  publishArtifact(input) {
+    const taskID = normalizeOptionalID(input.task_id);
+    const missionInputID = normalizeOptionalID(input.mission_id);
+    const projectInputID = normalizeOptionalID(input.project_id);
+    const task = taskID ? this.getTask(taskID) : undefined;
+    if (taskID && !task)
+      throw invalidReferenceError("task_id", taskID, "task");
+    if (missionInputID && !this.getMission(missionInputID))
+      throw invalidReferenceError("mission_id", missionInputID, "mission");
+    if (projectInputID && !this.getProject(projectInputID))
+      throw invalidReferenceError("project_id", projectInputID, "project");
+    const missionID = missionInputID ?? task?.mission_id ?? this.missionId();
+    const projectID = projectInputID ?? task?.project_id;
+    const id = this.nextSequentialId("A", "artifacts");
+    this.db.query(`INSERT INTO artifacts (id, mission_id, project_id, task_id, type, title, content, created_by, created_at)
+         VALUES ($id, $missionID, $projectID, $taskID, $type, $title, $content, $createdBy, $createdAt)`).run({
+      $id: id,
+      $missionID: missionID,
+      $projectID: projectID ?? null,
+      $taskID: taskID ?? null,
+      $type: input.type,
+      $title: input.title.trim(),
+      $content: input.content.trim(),
+      $createdBy: input.created_by,
+      $createdAt: now()
+    });
+    this.touchMission(missionID);
+    return { id };
+  }
+  queryArtifacts(input) {
+    const taskID = normalizeOptionalID(input.task_id);
+    const missionInputID = normalizeOptionalID(input.mission_id);
+    const projectInputID = normalizeOptionalID(input.project_id);
+    const task = taskID ? this.getTask(taskID) : undefined;
+    if (taskID && !task)
+      throw invalidReferenceError("task_id", taskID, "task");
+    if (missionInputID && !this.getMission(missionInputID))
+      throw invalidReferenceError("mission_id", missionInputID, "mission");
+    if (projectInputID && !this.getProject(projectInputID))
+      throw invalidReferenceError("project_id", projectInputID, "project");
+    const missionID = missionInputID ?? task?.mission_id ?? (projectInputID ? undefined : this.missionId());
+    const rows = this.db.query(`SELECT * FROM artifacts
+         WHERE ($missionID IS NULL OR mission_id = $missionID)
+           AND ($projectID IS NULL OR project_id = $projectID)
+           AND ($taskID IS NULL OR task_id = $taskID)
+           AND ($type IS NULL OR type = $type)
+         ORDER BY created_at DESC
+         LIMIT $limit`).all({
+      $missionID: missionID ?? null,
+      $projectID: projectInputID ?? task?.project_id ?? null,
+      $taskID: taskID ?? null,
+      $type: input.type ?? null,
+      $limit: Math.max(1, Math.min(input.limit ?? 10, 25))
+    });
+    return rows.map((row) => ({
+      id: String(row.id),
+      ...typeof row.task_id === "string" ? { task_id: String(row.task_id) } : {},
+      type: String(row.type),
+      title: String(row.title),
+      content: compactText(String(row.content), 1200)
+    }));
+  }
+  publishContextBundle(input) {
+    const taskID = normalizeOptionalID(input.task_id);
+    const missionInputID = normalizeOptionalID(input.mission_id);
+    const projectInputID = normalizeOptionalID(input.project_id);
+    const task = taskID ? this.getTask(taskID) : undefined;
+    if (taskID && !task)
+      throw invalidReferenceError("task_id", taskID, "task");
+    if (missionInputID && !this.getMission(missionInputID))
+      throw invalidReferenceError("mission_id", missionInputID, "mission");
+    if (projectInputID && !this.getProject(projectInputID))
+      throw invalidReferenceError("project_id", projectInputID, "project");
+    const missionID = missionInputID ?? task?.mission_id ?? this.missionId();
+    const projectID = projectInputID ?? task?.project_id;
+    const id = this.nextSequentialId("CB", "context_bundles");
+    this.db.query(`INSERT INTO context_bundles (id, mission_id, project_id, task_id, title, content, created_by, tags_json, created_at)
+         VALUES ($id, $missionID, $projectID, $taskID, $title, $content, $createdBy, $tags, $createdAt)`).run({
+      $id: id,
+      $missionID: missionID,
+      $projectID: projectID ?? null,
+      $taskID: taskID ?? null,
+      $title: input.title.trim(),
+      $content: input.content.trim(),
+      $createdBy: input.created_by,
+      $tags: encodeJson(input.tags ?? []),
+      $createdAt: now()
+    });
+    this.touchMission(missionID);
+    return { id };
+  }
+  queryContextBundles(input) {
+    const taskID = normalizeOptionalID(input.task_id);
+    const missionInputID = normalizeOptionalID(input.mission_id);
+    const projectInputID = normalizeOptionalID(input.project_id);
+    const task = taskID ? this.getTask(taskID) : undefined;
+    if (taskID && !task)
+      throw invalidReferenceError("task_id", taskID, "task");
+    if (missionInputID && !this.getMission(missionInputID))
+      throw invalidReferenceError("mission_id", missionInputID, "mission");
+    if (projectInputID && !this.getProject(projectInputID))
+      throw invalidReferenceError("project_id", projectInputID, "project");
+    const missionID = missionInputID ?? task?.mission_id ?? (projectInputID ? undefined : this.missionId());
+    const rows = this.db.query(`SELECT * FROM context_bundles
+         WHERE ($missionID IS NULL OR mission_id = $missionID)
+           AND ($projectID IS NULL OR project_id = $projectID)
+           AND ($taskID IS NULL OR task_id = $taskID)
+         ORDER BY created_at DESC
+         LIMIT $limit`).all({
+      $missionID: missionID ?? null,
+      $projectID: projectInputID ?? task?.project_id ?? null,
+      $taskID: taskID ?? null,
+      $limit: Math.max(1, Math.min(input.limit ?? 10, 25))
+    });
+    const tagFilter = new Set(input.tags ?? []);
+    return rows.map((row) => ({
+      id: String(row.id),
+      ...typeof row.task_id === "string" ? { task_id: String(row.task_id) } : {},
+      title: String(row.title),
+      content: compactText(String(row.content), 1200),
+      tags: decodeJson(row.tags_json, [])
+    })).filter((bundle) => {
+      if (tagFilter.size === 0)
+        return true;
+      return bundle.tags.some((tag) => tagFilter.has(tag));
+    });
+  }
+  searchContext(input) {
+    const query = input.query?.trim().toLowerCase();
+    const limit = Math.max(1, Math.min(input.limit ?? 10, 25));
+    const includeBundles = input.include_bundles !== false;
+    const includeArtifacts = input.include_artifacts !== false;
+    const results = [];
+    if (includeBundles) {
+      results.push(...this.queryContextBundles(input).map((bundle) => ({
+        source: "context_bundle",
+        ...bundle
+      })));
+    }
+    if (includeArtifacts) {
+      results.push(...this.queryArtifacts(input).map((artifact) => ({
+        source: "artifact",
+        ...artifact
+      })));
+    }
+    return results.filter((item) => {
+      if (!query)
+        return true;
+      return `${item.title}
+${item.content}
+${item.type ?? ""}
+${item.tags?.join(" ") ?? ""}`.toLowerCase().includes(query);
+    }).slice(0, limit);
+  }
+  recordDecision(input) {
+    const taskID = normalizeOptionalID(input.task_id);
+    const missionInputID = normalizeOptionalID(input.mission_id);
+    const task = taskID ? this.getTask(taskID) : undefined;
+    if (taskID && !task)
+      throw invalidReferenceError("task_id", taskID, "task");
+    if (missionInputID && !this.getMission(missionInputID))
+      throw invalidReferenceError("mission_id", missionInputID, "mission");
+    const missionID = missionInputID ?? task?.mission_id ?? this.missionId();
+    const id = this.nextSequentialId("D", "decisions");
+    this.db.query(`INSERT INTO decisions (id, mission_id, task_id, title, content, created_by, created_at)
+         VALUES ($id, $missionID, $taskID, $title, $content, $createdBy, $createdAt)`).run({
+      $id: id,
+      $missionID: missionID,
+      $taskID: taskID ?? null,
+      $title: input.title.trim(),
+      $content: input.content.trim(),
+      $createdBy: input.created_by,
+      $createdAt: now()
+    });
+    this.touchMission(missionID);
+    return { id };
+  }
+  createBlocker(input) {
+    const taskID = normalizeOptionalID(input.task_id);
+    const missionInputID = normalizeOptionalID(input.mission_id);
+    const task = taskID ? this.getTask(taskID) : undefined;
+    if (taskID && !task)
+      throw invalidReferenceError("task_id", taskID, "task");
+    if (missionInputID && !this.getMission(missionInputID))
+      throw invalidReferenceError("mission_id", missionInputID, "mission");
+    const missionID = missionInputID ?? task?.mission_id ?? this.missionId();
+    const id = this.nextSequentialId("B", "blockers");
+    this.db.query(`INSERT INTO blockers (
+          id, mission_id, task_id, severity, title, description, status,
+          required_user_input, created_by, created_at
+        ) VALUES (
+          $id, $missionID, $taskID, $severity, $title, $description, 'open',
+          $requiredUserInput, $createdBy, $createdAt
+        )`).run({
+      $id: id,
+      $missionID: missionID,
+      $taskID: taskID ?? null,
+      $severity: input.severity,
+      $title: input.title.trim(),
+      $description: input.description.trim(),
+      $requiredUserInput: input.required_user_input ? 1 : 0,
+      $createdBy: input.created_by,
+      $createdAt: now()
+    });
+    if (taskID) {
+      this.updateTask({ task_id: taskID, status: "blocked" });
+    }
+    this.touchMission(missionID, "blocked");
+    return { id };
+  }
+  resolveBlocker(input) {
+    const blocker = this.db.query("SELECT * FROM blockers WHERE id = $id").get({ $id: input.blocker_id });
+    if (!blocker) {
+      throw new Error(`Unknown blocker: ${input.blocker_id}`);
+    }
+    const result = this.db.query(`UPDATE blockers
+         SET status = 'resolved', resolved_at = $resolvedAt, description = description || $resolution
+         WHERE id = $id AND status = 'open'`).run({
+      $id: input.blocker_id,
+      $resolvedAt: now(),
+      $resolution: `
+
+Resolution (${input.resolved_by}): ${input.resolution.trim()}`
+    });
+    this.touchMission(String(blocker.mission_id), "active");
+    return { resolved: Number(result.changes ?? 0) > 0 };
+  }
+  recordVerification(input) {
+    const taskID = normalizeOptionalID(input.task_id);
+    const missionInputID = normalizeOptionalID(input.mission_id);
+    const task = taskID ? this.getTask(taskID) : undefined;
+    if (taskID && !task)
+      throw invalidReferenceError("task_id", taskID, "task");
+    if (missionInputID && !this.getMission(missionInputID))
+      throw invalidReferenceError("mission_id", missionInputID, "mission");
+    const missionID = missionInputID ?? task?.mission_id ?? this.missionId();
+    const id = this.nextSequentialId("V", "verification_results");
+    this.db.query(`INSERT INTO verification_results (id, mission_id, task_id, verdict, gate_status, report_json, created_by, created_at)
+         VALUES ($id, $missionID, $taskID, $verdict, $gateStatus, $report, $createdBy, $createdAt)`).run({
+      $id: id,
+      $missionID: missionID,
+      $taskID: taskID ?? null,
+      $verdict: input.verdict,
+      $gateStatus: input.gate_status,
+      $report: encodeJson(input.report),
+      $createdBy: input.created_by,
+      $createdAt: now()
+    });
+    const tasksToReopen = decodeTasksToReopen(input.report);
+    for (const taskID2 of tasksToReopen) {
+      this.reopenTask({
+        task_id: taskID2,
+        reason: "Verification requested changes.",
+        created_by: input.created_by
+      });
+    }
+    if (taskID && input.verdict === "approve" && input.gate_status === "pass") {
+      const task2 = this.getTask(taskID);
+      if (task2 && task2.status !== "done" && task2.status !== "cancelled") {
+        this.updateTask({
+          task_id: taskID,
+          status: "done",
+          verification: {
+            ...task2.verification,
+            mode: task2.verification.mode ?? "local",
+            result: "pass",
+            commands_or_actions: task2.verification.commands_or_actions?.length ? task2.verification.commands_or_actions : ["verification-engineer approval"]
+          }
+        });
+      }
+    }
+    this.touchMission(missionID);
+    return { id };
+  }
+  checkGate(missionID = this.missionId()) {
+    const tasks = this.listTasks(missionID);
+    const openTasks = tasks.filter((task) => task.status !== "done" && task.status !== "cancelled");
+    const blockers = this.openBlockers(missionID);
+    const missingEvidence = [];
+    const verificationIssues = [];
+    for (const task of tasks) {
+      if (task.status === "done" && !taskHasEvidence(task)) {
+        missingEvidence.push({
+          task_id: task.id,
+          reason: "Task is done without evidence-backed verification."
+        });
+      }
+      if (task.status === "done") {
+        for (const criterion of task.acceptance_criteria) {
+          if (criterion.met !== true || !criterion.evidence?.trim()) {
+            missingEvidence.push({
+              task_id: task.id,
+              criterion: criterion.criterion,
+              reason: "Acceptance criterion lacks met=true evidence."
+            });
+          }
+        }
+      }
+      if (taskSkippedSafeRealCheck(task)) {
+        verificationIssues.push({
+          task_id: task.id,
+          issue: "Safe real verification was skipped without a reason."
+        });
+      }
+    }
+    const criticalVerifierIssues = this.latestVerificationIssues(missionID);
+    verificationIssues.push(...criticalVerifierIssues);
+    const onlyUserBlockers = openTasks.length > 0 && openTasks.every((task) => task.status === "blocked") && blockers.length > 0 && blockers.every((blocker) => Boolean(blocker.required_user_input));
+    const pass = openTasks.length === 0 && blockers.length === 0 && missingEvidence.length === 0 && verificationIssues.length === 0;
+    const gateStatus = pass ? "pass" : onlyUserBlockers ? "blocked" : "fail";
+    return {
+      mission_id: missionID,
+      gate_status: gateStatus,
+      can_final_success: pass,
+      can_checkpoint_blockers: gateStatus === "blocked",
+      open_tasks: openTasks.map((task) => ({
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        assigned_agent: task.assigned_agent
+      })),
+      unresolved_blockers: blockers.map((blocker) => ({
+        id: String(blocker.id),
+        ...typeof blocker.task_id === "string" ? { task_id: String(blocker.task_id) } : {},
+        severity: String(blocker.severity),
+        title: String(blocker.title),
+        required_user_input: Boolean(blocker.required_user_input)
+      })),
+      missing_evidence: missingEvidence,
+      verification_issues: verificationIssues,
+      next_required_actions: buildGateActions(openTasks, blockers, missingEvidence, verificationIssues)
+    };
+  }
+  buildFlightDeckReport(input = {}) {
+    const limit = input.limit ?? 8;
+    const mission = input.mission_id ? this.getMission(input.mission_id) : input.project_id ? undefined : this.getActiveMission();
+    const project = input.project_id ? this.getProject(input.project_id) : undefined;
+    if (input.mission_id && !mission)
+      return;
+    if (input.project_id && !project)
+      return;
+    if (!mission && !project)
+      return;
+    const tasks = mission ? this.listTasks(mission.id) : this.listProjectTasks({ project_id: project.id });
+    const taskIDs = new Set(tasks.map((task) => task.id));
+    const taskByID = new Map(tasks.map((task) => [task.id, task]));
+    const taskCounts = countBy(tasks.map((task) => task.status));
+    const acceptanceCoverage = { ...emptyAcceptanceCoverage(), total: 0 };
+    const lanes = {
+      ready: [],
+      blocked: [],
+      needs_verification: [],
+      in_progress: [],
+      done: [],
+      other: []
+    };
+    const summarizeTask = (task) => {
+      const acceptance = emptyAcceptanceCoverage();
+      for (const criterion of task.acceptance_criteria) {
+        const bucket = criterionCoverageBucket(criterion);
+        acceptance[bucket] += 1;
+        acceptanceCoverage[bucket] += 1;
+        acceptanceCoverage.total += 1;
+      }
+      return {
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        assigned_agent: task.assigned_agent,
+        priority: task.priority,
+        dependencies: task.dependencies,
+        acceptance
+      };
+    };
+    const isReady = (task) => (task.status === "pending" || task.status === "reopened") && task.dependencies.every((id) => {
+      const dep = taskByID.get(id) ?? this.getTask(id);
+      return !dep || dep.status === "done";
+    });
+    for (const task of tasks) {
+      const summary = summarizeTask(task);
+      if (isReady(task))
+        lanes.ready.push(summary);
+      else if (task.status === "blocked")
+        lanes.blocked.push(summary);
+      else if (task.status === "needs_verification")
+        lanes.needs_verification.push(summary);
+      else if (task.status === "in_progress")
+        lanes.in_progress.push(summary);
+      else if (task.status === "done")
+        lanes.done.push(summary);
+      else
+        lanes.other.push(summary);
+    }
+    const priorityRank = { critical: 0, high: 1, medium: 2, low: 3 };
+    for (const lane of Object.values(lanes)) {
+      lane.sort((left, right) => priorityRank[left.priority] - priorityRank[right.priority] || left.id.localeCompare(right.id));
+      lane.splice(limit);
+    }
+    const gate = mission ? this.checkGate(mission.id) : undefined;
+    const nextSafestAction = gate?.next_required_actions[0] ?? (lanes.blocked[0] ? `Resolve blocker for ${lanes.blocked[0].id}: ${compactText(lanes.blocked[0].title, 100)}` : lanes.needs_verification[0] ? `Verify ${lanes.needs_verification[0].id}: ${compactText(lanes.needs_verification[0].title, 100)}` : lanes.ready[0] ? `Delegate or resume ${lanes.ready[0].id}: ${compactText(lanes.ready[0].title, 100)}` : lanes.in_progress[0] ? `Check progress on ${lanes.in_progress[0].id}: ${compactText(lanes.in_progress[0].title, 100)}` : "No open task action found; check gate before claiming final success.");
+    return {
+      ok: true,
+      scope: mission ? "mission" : "project",
+      ...mission ? { mission } : {},
+      ...project ? { project } : {},
+      generated_at: now(),
+      task_counts: taskCounts,
+      lanes,
+      acceptance_coverage: acceptanceCoverage,
+      ...gate ? { gate } : {},
+      next_safest_action: nextSafestAction
+    };
+  }
+  buildMissionSnapshot(sessionID) {
+    const mission = sessionID ? this.getLinkedMission(sessionID) ?? this.getActiveMission() : this.getActiveMission();
+    if (!mission) {
+      return "[MissionLedger] No active mission. Create one with orchestrator_mission_create before delegating work.";
+    }
+    const tasks = this.listTasks(mission.id);
+    const counts = countBy(tasks.map((task) => task.status));
+    const open = tasks.filter((task) => task.status !== "done" && task.status !== "cancelled").slice(0, 8).map((task) => `${task.id}:${task.status}:${task.assigned_agent}:${compactText(task.title, 80)}`);
+    const blockers = this.openBlockers(mission.id).map((blocker) => `${blocker.id}:${blocker.severity}:${compactText(String(blocker.title), 80)}`);
+    const gate = this.checkGate(mission.id);
+    return [
+      `[MissionLedger] ${mission.id} ${mission.status} \u2014 ${compactText(mission.title, 120)}`,
+      `Goal: ${compactText(mission.goal, 220)}`,
+      `Tasks: ${Object.entries(counts).map(([status, count]) => `${status}=${count}`).join(", ") || "none"}`,
+      open.length ? `Open: ${open.join("; ")}` : "Open: none",
+      blockers.length ? `Blockers: ${blockers.join("; ")}` : "Blockers: none",
+      `Gate: ${gate.gate_status}; final_success=${gate.can_final_success}`
+    ].join(`
+`);
+  }
+  buildWorkerPacket(sessionID, agent) {
+    const task = this.getSessionTask(sessionID) ?? this.findAssignableTask(agent);
+    if (!task) {
+      return "[TaskLedger] No task packet is linked to this worker session. Ask Mission Control for a ledger task packet instead of improvising scope.";
+    }
+    if (!task.mission_id) {
+      return "[TaskLedger] The linked task is project backlog work and is not attached to a mission packet yet.";
+    }
+    const mission = this.getMission(task.mission_id);
+    const dependencies = task.dependencies.map((id) => this.getTask(id)).filter((item) => Boolean(item));
+    const bundles = this.queryContextBundles({
+      mission_id: task.mission_id,
+      task_id: task.id,
+      limit: 5
+    });
+    return [
+      `[TaskLedger] mission=${mission.id} task=${task.id} status=${task.status} priority=${task.priority}`,
+      `Mission: ${compactText(mission.title, 120)}`,
+      `Assigned agent: ${task.assigned_agent}`,
+      `Title: ${compactText(task.title, 160)}`,
+      `Scope: ${compactText(task.scope, 260)}`,
+      `File scope: ${task.file_scope.length ? task.file_scope.join(", ") : "none"}`,
+      `Dependencies: ${dependencies.length ? dependencies.map((dep) => `${dep.id}:${dep.status}`).join(", ") : "none"}`,
+      `Acceptance: ${task.acceptance_criteria.length ? task.acceptance_criteria.map((item) => `${item.met ? "[x]" : "[ ]"} ${compactText(item.criterion, 120)}`).join("; ") : "none recorded"}`,
+      `Evidence required: ${task.evidence_requirements.length ? task.evidence_requirements.join("; ") : "real/local/sandbox evidence or explicit low-risk exception"}`,
+      bundles.length ? `Context bundles: ${bundles.map((bundle) => `${bundle.id}:${compactText(bundle.title, 60)}=${compactText(bundle.content, 180)}`).join("; ")}` : "Context bundles: none",
+      "Return the required structured report and publish high-signal artifacts/context bundles to the ledger."
+    ].join(`
+`);
+  }
+  buildCompactionSnapshot(sessionID) {
+    const mission = this.getLinkedMission(sessionID) ?? this.getActiveMission();
+    if (!mission) {
+      return "[MissionCompaction] No active mission in the orchestration ledger.";
+    }
+    const tasks = this.listTasks(mission.id);
+    const blockers = this.openBlockers(mission.id);
+    const decisions = this.db.query("SELECT id, title, content FROM decisions WHERE mission_id = $missionID ORDER BY created_at DESC LIMIT 8").all({ $missionID: mission.id });
+    const gate = this.checkGate(mission.id);
+    return [
+      `[MissionCompaction] Preserve ledger state for ${mission.id}: ${compactText(mission.title, 120)}`,
+      `Goal: ${compactText(mission.goal, 260)}`,
+      `Open tasks: ${tasks.filter((task) => task.status !== "done" && task.status !== "cancelled").map((task) => `${task.id}:${task.status}:${task.assigned_agent}:${compactText(task.title, 80)}`).join("; ") || "none"}`,
+      `Blockers: ${blockers.map((blocker) => `${blocker.id}:${blocker.severity}:${compactText(String(blocker.title), 90)}`).join("; ") || "none"}`,
+      `Decisions: ${decisions.map((decision) => `${decision.id}:${compactText(String(decision.title), 80)}=${compactText(String(decision.content), 160)}`).join("; ") || "none"}`,
+      `Gate: ${gate.gate_status}; next=${gate.next_required_actions.join(" | ") || "none"}`
+    ].join(`
+`);
+  }
+  relativePath(projectDirectory, filePath) {
+    const projectRoot = this.resolveProject(projectDirectory)?.root_path ?? projectDirectory;
+    return canonicalLockScope(filePath, { projectDirectory: projectRoot, cwd: projectDirectory });
+  }
+  getLinkedMission(sessionID) {
+    const row = this.db.query("SELECT active_mission_id FROM sessions WHERE opencode_session_id = $sessionID AND machine_id = $machineID").get({ $sessionID: sessionID, $machineID: getMachineId() });
+    return typeof row?.active_mission_id === "string" ? this.getMission(row.active_mission_id) : undefined;
+  }
+  touchMission(missionID, status) {
+    this.db.query(`UPDATE missions SET updated_at = $updatedAt${status ? ", status = $status" : ""} WHERE id = $id`).run({
+      $id: missionID,
+      $updatedAt: now(),
+      ...status ? { $status: status } : {}
+    });
+  }
+  openBlockers(missionID) {
+    return this.db.query("SELECT * FROM blockers WHERE mission_id = $missionID AND status = 'open' ORDER BY created_at").all({ $missionID: missionID });
+  }
+  latestVerificationIssues(missionID) {
+    const rows = this.db.query(`SELECT task_id, verdict, gate_status, report_json FROM verification_results
+         WHERE mission_id = $missionID
+         ORDER BY created_at DESC, id DESC`).all({ $missionID: missionID });
+    const issues = [];
+    const seen = new Set;
+    for (const row of rows) {
+      const key = typeof row.task_id === "string" ? row.task_id : "__mission__";
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      const report = decodeJson(row.report_json, {});
+      if (row.verdict === "request-changes" || row.gate_status === "fail") {
+        issues.push({
+          ...typeof row.task_id === "string" ? { task_id: row.task_id } : {},
+          issue: "Latest verifier report requested changes or failed the gate."
+        });
+      }
+      const reportIssues = Array.isArray(report.issues) ? report.issues : [];
+      for (const issue2 of reportIssues) {
+        if (!issue2 || typeof issue2 !== "object")
+          continue;
+        const severity = issue2.severity;
+        if (severity === "critical") {
+          issues.push({
+            ...typeof row.task_id === "string" ? { task_id: row.task_id } : {},
+            issue: String(issue2.issue ?? "critical verifier issue")
+          });
+        }
+      }
+    }
+    return issues;
+  }
+}
+function mergeCriteria(existing, updates) {
+  const merged = [...existing];
+  for (const update of normalizeCriteria(updates)) {
+    const index = merged.findIndex((item) => item.criterion === update.criterion);
+    if (index >= 0) {
+      merged[index] = { ...merged[index], ...update };
+    } else {
+      merged.push(update);
+    }
+  }
+  return merged;
+}
+function decodeTasksToReopen(report) {
+  return asStringArray(report.tasks_to_reopen);
+}
+function countBy(values) {
+  const counts = {};
+  for (const value of values) {
+    counts[value] = (counts[value] ?? 0) + 1;
+  }
+  return counts;
+}
+function buildGateActions(openTasks, blockers, missingEvidence, verificationIssues) {
+  const actions = [];
+  if (openTasks.length > 0) {
+    actions.push(`Resolve ${openTasks.length} open task(s).`);
+  }
+  if (blockers.length > 0) {
+    actions.push(`Batch ${blockers.length} unresolved blocker(s) for the user or resolve them.`);
+  }
+  if (missingEvidence.length > 0) {
+    actions.push(`Collect evidence for ${missingEvidence.length} missing criterion/check(s).`);
+  }
+  if (verificationIssues.length > 0) {
+    actions.push(`Clear ${verificationIssues.length} verifier issue(s).`);
+  }
+  return actions;
 }
 
 // src/installer.ts
@@ -14502,40 +16077,40 @@ var SEARXNG_URL = `http://${SEARXNG_HOST}:${SEARXNG_PORT}`;
 function getConfigDir() {
   const envDir = process.env.OPENCODE_CONFIG_DIR?.trim();
   if (envDir) {
-    return resolve(envDir);
+    return resolve2(envDir);
   }
-  return join2(homedir2(), ".config", "opencode");
+  return join3(homedir3(), ".config", "opencode");
 }
 function getConfigPaths(configDir) {
   return {
     configDir,
-    binDir: join2(configDir, "bin"),
-    skillsDir: join2(configDir, "skills"),
-    configJson: join2(configDir, "opencode.json"),
-    configJsonc: join2(configDir, "opencode.jsonc"),
-    packageJson: join2(configDir, "package.json"),
-    harnessConfig: join2(configDir, "opencode-pair.jsonc"),
-    shellStrategyDir: join2(configDir, "plugin", "shell-strategy"),
-    notifierConfig: join2(configDir, "opencode-notifier.json")
+    binDir: join3(configDir, "bin"),
+    skillsDir: join3(configDir, "skills"),
+    configJson: join3(configDir, "opencode.json"),
+    configJsonc: join3(configDir, "opencode.jsonc"),
+    packageJson: join3(configDir, "package.json"),
+    harnessConfig: join3(configDir, "opencode-pair.jsonc"),
+    shellStrategyDir: join3(configDir, "plugin", "shell-strategy"),
+    notifierConfig: join3(configDir, "opencode-notifier.json")
   };
 }
 function bundledMcpSourceRoot(name) {
-  return join2(packageRoot(), "vendor", "mcp", name);
+  return join3(packageRoot(), "vendor", "mcp", name);
 }
 function detectMainConfigPath(paths) {
-  if (existsSync(paths.configJson)) {
+  if (existsSync2(paths.configJson)) {
     return { path: paths.configJson, format: "json" };
   }
-  if (existsSync(paths.configJsonc)) {
+  if (existsSync2(paths.configJsonc)) {
     return { path: paths.configJsonc, format: "jsonc" };
   }
   return { path: paths.configJson, format: "json" };
 }
 function readJsonLike(filePath) {
-  if (!existsSync(filePath)) {
+  if (!existsSync2(filePath)) {
     return {};
   }
-  const raw = readFileSync(filePath, "utf8");
+  const raw = readFileSync2(filePath, "utf8");
   if (!raw.trim()) {
     return {};
   }
@@ -14546,7 +16121,7 @@ function readJsonLike(filePath) {
   return parsed;
 }
 function backupFile(filePath) {
-  if (!existsSync(filePath)) {
+  if (!existsSync2(filePath)) {
     return;
   }
   const backupPath = `${filePath}.bak.${Date.now()}`;
@@ -14557,14 +16132,14 @@ function writeJson(filePath, value) {
 `, "utf8");
 }
 function ensureDir(dirPath) {
-  mkdirSync(dirPath, { recursive: true });
+  mkdirSync2(dirPath, { recursive: true });
 }
 function shouldPreserveFreshInstallEntry(configDir, entryName) {
   if (entryName === "skills") {
     return true;
   }
-  const entryPath = join2(configDir, entryName);
-  if (!existsSync(entryPath)) {
+  const entryPath = join3(configDir, entryName);
+  if (!existsSync2(entryPath)) {
     return false;
   }
   const stat = statSync(entryPath);
@@ -14577,11 +16152,11 @@ function shouldPreserveFreshInstallEntry(configDir, entryName) {
   return entryName.endsWith(".json") || entryName.endsWith(".jsonc");
 }
 function hashDirectoryContents(rootDir) {
-  const hash2 = createHash("sha1");
+  const hash2 = createHash2("sha1");
   function visit2(dirPath, relativePath = "") {
     for (const entry of readdirSync(dirPath).sort()) {
-      const entryPath = join2(dirPath, entry);
-      const nextRelativePath = relativePath ? join2(relativePath, entry) : entry;
+      const entryPath = join3(dirPath, entry);
+      const nextRelativePath = relativePath ? join3(relativePath, entry) : entry;
       const stat = statSync(entryPath);
       if (stat.isDirectory()) {
         hash2.update(`dir:${nextRelativePath}`);
@@ -14589,21 +16164,21 @@ function hashDirectoryContents(rootDir) {
         continue;
       }
       hash2.update(`file:${nextRelativePath}`);
-      hash2.update(readFileSync(entryPath));
+      hash2.update(readFileSync2(entryPath));
     }
   }
   visit2(rootDir);
   return hash2.digest("hex");
 }
 function hashFileContents(filePath) {
-  return createHash("sha1").update(readFileSync(filePath)).digest("hex");
+  return createHash2("sha1").update(readFileSync2(filePath)).digest("hex");
 }
 function collectManagedEntries(rootDir) {
   const entries = {};
   function visit2(dirPath, relativePath = "") {
     for (const entry of readdirSync(dirPath).sort()) {
-      const entryPath = join2(dirPath, entry);
-      const nextRelativePath = relativePath ? join2(relativePath, entry) : entry;
+      const entryPath = join3(dirPath, entry);
+      const nextRelativePath = relativePath ? join3(relativePath, entry) : entry;
       const stat = statSync(entryPath);
       if (stat.isDirectory()) {
         entries[nextRelativePath] = "dir";
@@ -14623,30 +16198,30 @@ function writeManagedEntriesManifest(filePath, entries) {
   writeJson(filePath, { entries });
 }
 function managedSkillsManifestPath(skillsDir) {
-  return join2(skillsDir, MANAGED_SKILLS_MANIFEST);
+  return join3(skillsDir, MANAGED_SKILLS_MANIFEST);
 }
 function managedMcpStampPath(mcpDir) {
-  return join2(mcpDir, MANAGED_MCP_STAMP);
+  return join3(mcpDir, MANAGED_MCP_STAMP);
 }
 function pruneManagedEntries(targetRoot, previousEntries, nextEntries, preservedEntries) {
-  const stalePaths = Object.keys(previousEntries).filter((entry) => entry !== MANAGED_SOURCE_HASH_KEY).filter((entry) => !(entry in nextEntries)).filter((entry) => !preservedEntries.has(entry)).sort((a, b) => b.length - a.length);
-  for (const relativePath of stalePaths) {
-    rmSync(join2(targetRoot, relativePath), { recursive: true, force: true });
+  const orphanedPaths = Object.keys(previousEntries).filter((entry) => entry !== MANAGED_SOURCE_HASH_KEY).filter((entry) => !(entry in nextEntries)).filter((entry) => !preservedEntries.has(entry)).sort((a, b) => b.length - a.length);
+  for (const relativePath of orphanedPaths) {
+    rmSync(join3(targetRoot, relativePath), { recursive: true, force: true });
   }
 }
 function freshInstallCleanup(configDir) {
-  if (!existsSync(configDir)) {
+  if (!existsSync2(configDir)) {
     return;
   }
   for (const entry of readdirSync(configDir)) {
     if (shouldPreserveFreshInstallEntry(configDir, entry)) {
       continue;
     }
-    rmSync(join2(configDir, entry), { recursive: true, force: true });
+    rmSync(join3(configDir, entry), { recursive: true, force: true });
   }
 }
 function packageRoot() {
-  return resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  return resolve2(dirname2(fileURLToPath(import.meta.url)), "..");
 }
 function repositoryToPackageSpec(repository) {
   const source = typeof repository === "string" ? repository : repository && typeof repository === "object" && !Array.isArray(repository) && typeof repository.url === "string" ? String(repository.url) : undefined;
@@ -14672,10 +16247,10 @@ function resolveSelfPackageSpec() {
     return override;
   }
   const root = packageRoot();
-  if (existsSync(join2(root, ".git"))) {
+  if (existsSync2(join3(root, ".git"))) {
     return `file:${root}`;
   }
-  const metadata = readJsonLike(join2(root, "package.json"));
+  const metadata = readJsonLike(join3(root, "package.json"));
   const repositorySpec = repositoryToPackageSpec(metadata.repository);
   if (repositorySpec) {
     return repositorySpec;
@@ -14684,14 +16259,14 @@ function resolveSelfPackageSpec() {
   return version2 || "latest";
 }
 function mergePluginList(existing) {
-  const selfEntry = `file://${packageRoot()}`;
+  const selfEntry = `file://${join3(packageRoot(), "dist", "index.js")}`;
   const desired = [selfEntry, ...MANAGED_PLUGIN_ENTRIES.map((pkg) => `${pkg}@latest`)];
   const current = Array.isArray(existing) ? existing.filter((item) => typeof item === "string") : [];
   const retained = current.filter((item) => !desired.includes(item) && !MANAGED_PLUGIN_ENTRIES.some((pkg) => item === pkg || item.startsWith(`${pkg}@`)));
   return [...desired, ...retained];
 }
 function mergeInstructionsList(existing, shellStrategyDir) {
-  const shellInstruction = join2(shellStrategyDir, "shell_strategy.md");
+  const shellInstruction = join3(shellStrategyDir, "shell_strategy.md");
   const current = Array.isArray(existing) ? existing.filter((item) => typeof item === "string") : [];
   const retained = current.filter((item) => !item.endsWith("/shell-strategy/shell_strategy.md"));
   return [shellInstruction, ...retained];
@@ -14713,7 +16288,7 @@ function forceAllowPermissions(config2) {
   config2.permission = "allow";
 }
 function writeHarnessConfig(filePath) {
-  const current = existsSync(filePath) ? readJsonLike(filePath) : {};
+  const current = existsSync2(filePath) ? readJsonLike(filePath) : {};
   const next = parse2(SAMPLE_PROJECT_CONFIG);
   const merged = {
     ...next,
@@ -14721,6 +16296,14 @@ function writeHarnessConfig(filePath) {
     hooks: {
       ...next.hooks ?? {},
       ...current.hooks ?? {}
+    },
+    workflow: {
+      ...next.workflow ?? {},
+      ...current.workflow ?? {}
+    },
+    orchestration: {
+      ...next.orchestration ?? {},
+      ...current.orchestration ?? {}
     },
     mcps: {
       ...next.mcps ?? {},
@@ -14732,6 +16315,374 @@ function writeHarnessConfig(filePath) {
     }
   };
   writeJson(filePath, merged);
+}
+function isTruthyEnv(value) {
+  if (!value)
+    return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+function isInteractiveTerminal() {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+function getConfiguredSyncRepo(syncConfig) {
+  const candidates = [
+    syncConfig?.repo,
+    syncConfig?.path,
+    syncConfig?.url,
+    process.env.OPENCODE_PAIR_SYNC_REPO,
+    process.env.OPENCODE_PAIR_SYNC_PATH
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return "";
+}
+function hasConfiguredSyncRepo(syncConfig) {
+  return Boolean(getConfiguredSyncRepo(syncConfig));
+}
+function isGitRemoteUrl(input) {
+  const value = input.trim();
+  return /^(?:https?|ssh|git):\/\//i.test(value) || /^git@[^\s:]+:[^\s]+$/i.test(value);
+}
+function defaultLocalSyncPath() {
+  return join3(defaultUserStateDirectory(), "sync");
+}
+function classifySyncRepoInput(input) {
+  if (isGitRemoteUrl(input))
+    return { repo: input, path: defaultLocalSyncPath() };
+  return { path: input };
+}
+function quoteShell(value) {
+  return JSON.stringify(value);
+}
+function manualCloneCommand(repo, branch, path) {
+  return `GIT_TERMINAL_PROMPT=0 git clone ${quoteShell(repo)} ${quoteShell(path)} || (mkdir -p ${quoteShell(path)} && git -C ${quoteShell(path)} init && git -C ${quoteShell(path)} remote add origin ${quoteShell(repo)} && git -C ${quoteShell(path)} checkout -B ${quoteShell(branch)})`;
+}
+function isGitCheckout(path) {
+  return existsSync2(join3(path, ".git"));
+}
+function readGitCheckoutRemote(path) {
+  const configPath = join3(path, ".git", "config");
+  if (!existsSync2(configPath))
+    return "";
+  const raw = readFileSync2(configPath, "utf8");
+  const origin = raw.match(/\[remote "origin"\][\s\S]*?\n\s*url\s*=\s*([^\n]+)/);
+  return origin?.[1]?.trim() ?? "";
+}
+function readGitCheckoutBranch(path) {
+  const headPath = join3(path, ".git", "HEAD");
+  if (!existsSync2(headPath))
+    return "main";
+  const raw = readFileSync2(headPath, "utf8").trim();
+  const match = raw.match(/^ref:\s+refs\/heads\/(.+)$/);
+  return match?.[1]?.trim() || "main";
+}
+function recoverSyncConfigFromDurableCheckout(path = defaultLocalSyncPath()) {
+  if (!isGitCheckout(path))
+    return {};
+  const remote = readGitCheckoutRemote(path);
+  if (!remote)
+    return {};
+  return {
+    enabled: true,
+    repo: remote,
+    path,
+    branch: readGitCheckoutBranch(path)
+  };
+}
+function isDirectoryEmpty(path) {
+  return existsSync2(path) && statSync(path).isDirectory() && readdirSync(path).length === 0;
+}
+function cleanupInstallerCreatedPath(path) {
+  if (isDirectoryEmpty(path))
+    rmSync(path, { recursive: true, force: true });
+}
+function isEmptyRemoteCloneFailure(message = "") {
+  return /remote branch .* not found|remote HEAD refers to nonexistent ref|cloned an empty repository|repository is empty/i.test(message);
+}
+var INSTALLER_CHILD_STDIO = ["ignore", "inherit", "inherit"];
+async function defaultCommandRunner(command, args, options) {
+  return await new Promise((resolvePromise) => {
+    let settled = false;
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env ?? process.env,
+      detached: options.detached,
+      stdio: options.detached ? "ignore" : INSTALLER_CHILD_STDIO
+    });
+    child.on("error", (error48) => {
+      if (settled)
+        return;
+      settled = true;
+      resolvePromise({ ok: false, message: error48.message });
+    });
+    if (options.detached) {
+      child.unref();
+      resolvePromise({ ok: true });
+      return;
+    }
+    child.on("exit", (code) => {
+      if (settled)
+        return;
+      settled = true;
+      resolvePromise({
+        ok: code === 0,
+        message: code === 0 ? undefined : `${command} ${args.join(" ")} exited with code ${code ?? -1}`
+      });
+    });
+  });
+}
+async function defaultSyncCloneRunner(command, args, options) {
+  return await new Promise((resolvePromise) => {
+    let stderr = "";
+    let settled = false;
+    const child = spawn(command, args, {
+      env: options.env,
+      stdio: ["ignore", "ignore", "pipe"]
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (error48) => {
+      if (settled)
+        return;
+      settled = true;
+      resolvePromise({ ok: false, message: error48.message });
+    });
+    child.on("close", (code) => {
+      if (settled)
+        return;
+      settled = true;
+      resolvePromise({
+        ok: code === 0,
+        message: stderr.trim() || (code === 0 ? undefined : `git clone exited with code ${code}`)
+      });
+    });
+  });
+}
+async function runSyncGit(runner, args) {
+  return await runner("git", args, { env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+}
+function ensureLedgerCheckpointFile(checkoutPath) {
+  const target = join3(checkoutPath, DEFAULT_LEDGER_FILENAME);
+  if (existsSync2(target))
+    return;
+  const source = join3(defaultUserStateDirectory(), DEFAULT_LEDGER_FILENAME);
+  if (existsSync2(source)) {
+    copyFileSync(source, target);
+    return;
+  }
+  new OrchestratorLedger(target);
+}
+async function commitAndPushInitialCheckpoint(checkoutPath, branch, runner) {
+  const checkout = await runSyncGit(runner, ["-C", checkoutPath, "checkout", "-B", branch]);
+  if (!checkout.ok)
+    return { ok: false, warning: checkout.message ?? "git checkout failed" };
+  const add = await runSyncGit(runner, ["-C", checkoutPath, "add", DEFAULT_LEDGER_FILENAME]);
+  if (!add.ok)
+    return { ok: false, warning: add.message ?? "git add failed" };
+  const commit = await runSyncGit(runner, ["-C", checkoutPath, "commit", "-m", "checkpoint ledger"]);
+  if (!commit.ok && !/nothing to commit|no changes added/i.test(commit.message ?? "")) {
+    return { ok: false, warning: commit.message ?? "git commit failed" };
+  }
+  const push = await runSyncGit(runner, ["-C", checkoutPath, "push", "-u", "origin", branch]);
+  if (!push.ok)
+    return { ok: false, warning: push.message ?? "git push failed" };
+  return { ok: true };
+}
+async function initializeFallbackCheckout(repo, branch, path, runner) {
+  ensureDir(path);
+  for (const args of [["-C", path, "init"], ["-C", path, "remote", "add", "origin", repo], ["-C", path, "checkout", "-B", branch]]) {
+    const result = await runSyncGit(runner, args);
+    if (!result.ok)
+      return result;
+  }
+  return { ok: true };
+}
+async function prepareSyncCheckout(syncConfig, options) {
+  const repo = typeof syncConfig.repo === "string" ? syncConfig.repo.trim() : "";
+  const configuredPath = typeof syncConfig.path === "string" ? syncConfig.path.trim() : "";
+  const branch = typeof syncConfig.branch === "string" && syncConfig.branch.trim() ? syncConfig.branch.trim() : "main";
+  if (!repo || !isGitRemoteUrl(repo)) {
+    return {
+      status: configuredPath && existsSync2(configuredPath) ? "ready" : "not_applicable",
+      path: configuredPath || undefined,
+      message: configuredPath ? `Using configured local sync path: ${configuredPath}` : "No remote sync repo URL was configured for checkout preparation."
+    };
+  }
+  const path = configuredPath || defaultLocalSyncPath();
+  const nextCommand = manualCloneCommand(repo, branch, path);
+  if (existsSync2(path)) {
+    if (isGitCheckout(path)) {
+      return { status: "ready", path, message: `Sync checkout already exists at ${path}; skipping clone.` };
+    }
+    return {
+      status: "warning",
+      path,
+      message: `Sync path already exists but is not a git checkout: ${path}. Not overwriting it.`,
+      nextCommand
+    };
+  }
+  ensureDir(dirname2(path));
+  const runner = options?.cloneRunner ?? defaultSyncCloneRunner;
+  const clone2 = await runSyncGit(runner, ["clone", repo, path]);
+  let prepared = clone2.ok && existsSync2(path);
+  let fallbackMessage;
+  if (!prepared && isEmptyRemoteCloneFailure(clone2.message)) {
+    cleanupInstallerCreatedPath(path);
+    const fallback = await initializeFallbackCheckout(repo, branch, path, runner);
+    prepared = fallback.ok;
+    fallbackMessage = fallback.ok ? `Remote had no ${branch} branch; initialized local checkout on ${branch}.` : fallback.message;
+  } else if (!prepared) {
+    cleanupInstallerCreatedPath(path);
+  }
+  if (prepared) {
+    ensureLedgerCheckpointFile(path);
+    const checkpoint = await commitAndPushInitialCheckpoint(path, branch, runner);
+    const suffix = fallbackMessage ? ` ${fallbackMessage}` : "";
+    if (!checkpoint.ok) {
+      return {
+        status: "warning",
+        path,
+        message: `Prepared private sync checkout at ${path}, but initial checkpoint push failed: ${checkpoint.warning}.${suffix}`,
+        nextCommand
+      };
+    }
+    return { status: "ready", path, message: `Prepared private sync checkout at ${path} and pushed initial checkpoint to origin ${branch}.${suffix}` };
+  }
+  return {
+    status: "warning",
+    path,
+    message: `Could not prepare private sync checkout: ${clone2.message ?? fallbackMessage ?? "unknown git failure"}`,
+    nextCommand
+  };
+}
+function shouldPromptForSyncConfig(options, syncConfig) {
+  const mode = options?.promptSync ?? (options?.configureSync ? "always" : "auto");
+  if (mode === "never" || isTruthyEnv(process.env.CI) || !isInteractiveTerminal()) {
+    return false;
+  }
+  if (hasConfiguredSyncRepo(syncConfig)) {
+    return false;
+  }
+  if (mode === "always" || options?.configureSync === true) {
+    return true;
+  }
+  return true;
+}
+async function promptLine(question, defaultValue = "") {
+  process.stdout.write(defaultValue ? `${question} (${defaultValue}): ` : `${question}: `);
+  return await new Promise((resolvePromise) => {
+    let value = "";
+    const onData = (chunk) => {
+      value += chunk.toString();
+      if (!value.includes(`
+`))
+        return;
+      process.stdin.off("data", onData);
+      resolvePromise(value.trim() || defaultValue);
+    };
+    process.stdin.on("data", onData);
+  });
+}
+async function withPromptStdinCleanup(callback) {
+  try {
+    return await callback();
+  } finally {
+    if (typeof process.stdin.pause === "function") {
+      process.stdin.pause();
+    }
+  }
+}
+async function promptYesNo(question, defaultValue) {
+  const suffix = defaultValue ? "Y/n" : "y/N";
+  const answer = (await promptLine(`${question} [${suffix}]`)).trim().toLowerCase();
+  if (!answer)
+    return defaultValue;
+  return answer === "y" || answer === "yes";
+}
+function getExistingSyncConfig(filePath) {
+  const config2 = readJsonLike(filePath);
+  const orchestration = config2.orchestration;
+  if (!orchestration || typeof orchestration !== "object" || Array.isArray(orchestration)) {
+    return {};
+  }
+  const sync = orchestration.sync;
+  if (!sync || typeof sync !== "object" || Array.isArray(sync)) {
+    return {};
+  }
+  return sync;
+}
+function writeUserSyncConfig(filePath, syncConfig) {
+  const config2 = readJsonLike(filePath);
+  const orchestration = config2.orchestration && typeof config2.orchestration === "object" && !Array.isArray(config2.orchestration) ? { ...config2.orchestration } : {};
+  const previousSync = orchestration.sync && typeof orchestration.sync === "object" && !Array.isArray(orchestration.sync) ? orchestration.sync : {};
+  config2.orchestration = {
+    ...orchestration,
+    sync: { ...previousSync, ...syncConfig }
+  };
+  writeJson(filePath, config2);
+}
+function getRecoverableSyncConfig(existingSync) {
+  if (hasConfiguredSyncRepo(existingSync))
+    return existingSync;
+  return recoverSyncConfigFromDurableCheckout();
+}
+async function configureSyncRepoPrompt(harnessConfigPath, options) {
+  return await withPromptStdinCleanup(async () => {
+    const shouldConfigure = await promptYesNo("Configure private ledger sync repo now?", false);
+    if (!shouldConfigure)
+      return false;
+    const existingSync = getExistingSyncConfig(harnessConfigPath);
+    const defaultRepo = typeof existingSync.repo === "string" ? existingSync.repo : typeof existingSync.path === "string" ? existingSync.path : typeof existingSync.url === "string" ? existingSync.url : "";
+    const defaultBranch = typeof existingSync.branch === "string" ? existingSync.branch : "main";
+    const repo = (await promptLine("Private ledger sync repo URL or path", defaultRepo)).trim();
+    const branch = (await promptLine("Sync branch", defaultBranch)).trim() || "main";
+    if (!repo) {
+      console.log("[opencode-pair] Sync repo not configured; repo URL/path was empty.");
+      return false;
+    }
+    const nextSyncConfig = {
+      enabled: true,
+      ...classifySyncRepoInput(repo),
+      branch
+    };
+    writeUserSyncConfig(harnessConfigPath, nextSyncConfig);
+    console.log(`[opencode-pair] Saved private ledger sync repo settings to ${harnessConfigPath}`);
+    const prep = await prepareSyncCheckout(nextSyncConfig, options);
+    console.log(`[opencode-pair] ${prep.message}`);
+    if (prep.nextCommand) {
+      console.log(`[opencode-pair] Manual next command: ${prep.nextCommand}`);
+    }
+    return true;
+  });
+}
+async function maybeConfigureSyncRepo(harnessConfigPath, options) {
+  const existingSync = getExistingSyncConfig(harnessConfigPath);
+  const recoverableSync = getRecoverableSyncConfig(existingSync);
+  const recovered = !hasConfiguredSyncRepo(existingSync) && hasConfiguredSyncRepo(recoverableSync);
+  if (recovered) {
+    writeUserSyncConfig(harnessConfigPath, recoverableSync);
+    console.log(`[opencode-pair] Recovered private ledger sync config from durable checkout at ${String(recoverableSync.path)}; skipping prompt.`);
+  }
+  if (!shouldPromptForSyncConfig(options, recoverableSync)) {
+    const repo = typeof recoverableSync.repo === "string" ? recoverableSync.repo.trim() : "";
+    const configuredPath = typeof recoverableSync.path === "string" ? recoverableSync.path.trim() : "";
+    const localPath = configuredPath || (repo && isGitRemoteUrl(repo) ? defaultLocalSyncPath() : "");
+    if (hasConfiguredSyncRepo(recoverableSync) && localPath && existsSync2(localPath)) {
+      console.log(`[opencode-pair] Existing private ledger sync path found at ${localPath}; skipping checkout preparation.`);
+    } else if (hasConfiguredSyncRepo(recoverableSync)) {
+      console.log("[opencode-pair] Private ledger sync config is present; checkout preparation was skipped because this install is non-interactive or already configured.");
+      if (repo && isGitRemoteUrl(repo)) {
+        const branch = typeof recoverableSync.branch === "string" && recoverableSync.branch.trim() ? recoverableSync.branch.trim() : "main";
+        console.log(`[opencode-pair] Manual next command: ${manualCloneCommand(repo, branch, localPath || defaultLocalSyncPath())}`);
+      }
+    }
+    return recovered;
+  }
+  return await configureSyncRepoPrompt(harnessConfigPath);
 }
 var DEFAULT_NOTIFIER_CONFIG = {
   sound: true,
@@ -14756,7 +16707,7 @@ var DEFAULT_NOTIFIER_CONFIG = {
   }
 };
 function writeNotifierConfig(filePath) {
-  if (existsSync(filePath)) {
+  if (existsSync2(filePath)) {
     return;
   }
   writeJson(filePath, DEFAULT_NOTIFIER_CONFIG);
@@ -14771,14 +16722,14 @@ async function fetchText(url2) {
 async function installShellStrategyInstruction(shellStrategyDir) {
   ensureDir(shellStrategyDir);
   const content = await fetchText("https://raw.githubusercontent.com/JRedeker/opencode-shell-strategy/trunk/shell_strategy.md");
-  writeFileSync(join2(shellStrategyDir, "shell_strategy.md"), content, "utf8");
+  writeFileSync(join3(shellStrategyDir, "shell_strategy.md"), content, "utf8");
 }
 function copyDirectoryContents(sourceDir, targetDir, options, relativePath = "") {
   ensureDir(targetDir);
   for (const entry of readdirSync(sourceDir)) {
-    const sourcePath = join2(sourceDir, entry);
-    const targetPath = join2(targetDir, entry);
-    const nextRelativePath = relativePath ? join2(relativePath, entry) : entry;
+    const sourcePath = join3(sourceDir, entry);
+    const targetPath = join3(targetDir, entry);
+    const nextRelativePath = relativePath ? join3(relativePath, entry) : entry;
     const stat = statSync(sourcePath);
     if (stat.isDirectory()) {
       copyDirectoryContents(sourcePath, targetPath, options, nextRelativePath);
@@ -14796,14 +16747,14 @@ function copyPath(sourcePath, targetPath) {
     copyDirectoryContents(sourcePath, targetPath);
     return;
   }
-  ensureDir(dirname(targetPath));
+  ensureDir(dirname2(targetPath));
   copyFileSync(sourcePath, targetPath);
 }
 function hashPathContents(path) {
   return statSync(path).isDirectory() ? hashDirectoryContents(path) : hashFileContents(path);
 }
 function shouldOverwriteBundledMcpFile(relativePath, targetPath) {
-  return !(relativePath === "config.json" && existsSync(targetPath));
+  return !(relativePath === "config.json" && existsSync2(targetPath));
 }
 function syncManagedMcp(name, sourceRoot, targetRoot) {
   const sourceHash = hashDirectoryContents(sourceRoot);
@@ -14815,7 +16766,7 @@ function syncManagedMcp(name, sourceRoot, targetRoot) {
     overwrite: (relativePath, targetPath) => shouldOverwriteBundledMcpFile(relativePath, targetPath)
   });
   if (name === "web-agent-mcp" && previousEntries?.[MANAGED_SOURCE_HASH_KEY] !== sourceHash) {
-    rmSync(join2(targetRoot, "node_modules"), { recursive: true, force: true });
+    rmSync(join3(targetRoot, "node_modules"), { recursive: true, force: true });
   }
   writeManagedEntriesManifest(managedMcpStampPath(targetRoot), {
     ...nextEntries,
@@ -14825,7 +16776,7 @@ function syncManagedMcp(name, sourceRoot, targetRoot) {
 function installSelfContainedMcps() {
   for (const name of MCP_NAMES) {
     const sourceRoot = bundledMcpSourceRoot(name);
-    if (!existsSync(sourceRoot)) {
+    if (!existsSync2(sourceRoot)) {
       throw new Error(`Missing MCP source directory: ${sourceRoot}`);
     }
     const targetRoot = getManagedMcpRoot(name);
@@ -14833,11 +16784,11 @@ function installSelfContainedMcps() {
   }
 }
 function isManagedMcpInstalled(name, mcpDir) {
-  const nodeModules = join2(mcpDir, "node_modules");
-  if (!existsSync(nodeModules)) {
+  const nodeModules = join3(mcpDir, "node_modules");
+  if (!existsSync2(nodeModules)) {
     return false;
   }
-  return MCP_REQUIRED_PACKAGES[name].every((pkg) => existsSync(join2(nodeModules, ...pkg.split("/"))));
+  return MCP_REQUIRED_PACKAGES[name].every((pkg) => existsSync2(join3(nodeModules, ...pkg.split("/"))));
 }
 function getManagedMcpInstallCommand(name) {
   if (name === "web-agent-mcp") {
@@ -14847,7 +16798,7 @@ function getManagedMcpInstallCommand(name) {
 }
 async function installManagedMcpDeps(name) {
   const mcpDir = getManagedMcpRoot(name);
-  if (!existsSync(mcpDir)) {
+  if (!existsSync2(mcpDir)) {
     return;
   }
   if (isManagedMcpInstalled(name, mcpDir)) {
@@ -14857,7 +16808,7 @@ async function installManagedMcpDeps(name) {
   await new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(command, args, {
       cwd: mcpDir,
-      stdio: "inherit"
+      stdio: INSTALLER_CHILD_STDIO
     });
     child.on("error", rejectPromise);
     child.on("exit", (code) => {
@@ -14878,11 +16829,125 @@ async function ensureManagedMcpDependencies() {
     }
   }
 }
+async function restartManagedWebAgentDaemon(mcpDir = getManagedMcpRoot("web-agent-mcp"), runner = defaultCommandRunner) {
+  if (!existsSync2(join3(mcpDir, "package.json"))) {
+    return {
+      status: "skipped",
+      message: `web-agent-mcp is not installed at ${mcpDir}; daemon restart skipped.`
+    };
+  }
+  const stop = await runner("bun", ["run", "daemon:stop"], { cwd: mcpDir, env: process.env });
+  if (!stop.ok) {
+    return {
+      status: "warning",
+      message: `Could not stop existing web-agent MCP daemon: ${stop.message ?? "unknown failure"}`,
+      command: `cd ${quoteShell(mcpDir)} && bun run daemon:stop`
+    };
+  }
+  const start = await runner("bun", ["run", "daemon"], { cwd: mcpDir, env: process.env, detached: true });
+  if (!start.ok) {
+    return {
+      status: "warning",
+      message: `Could not restart web-agent MCP daemon: ${start.message ?? "unknown failure"}`,
+      command: `cd ${quoteShell(mcpDir)} && bun run daemon`
+    };
+  }
+  return {
+    status: "restarted",
+    message: `Restarted web-agent MCP daemon from ${mcpDir}; durable profile and registry directories were not removed.`,
+    command: `cd ${quoteShell(mcpDir)} && bun run daemon:stop && bun run daemon`
+  };
+}
+function systemdUserServicePath() {
+  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join3(homedir3(), ".config");
+  return join3(configHome, "systemd", "user", "opencode-pair-web-agent.service");
+}
+function webAgentAutostartServiceContent(mcpDir) {
+  return `[Unit]
+Description=opencode-pair global web-agent MCP daemon
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=${mcpDir}
+ExecStart=/usr/bin/env bun run daemon
+Restart=on-failure
+RestartSec=5
+Environment=WEB_AGENT_MCP_HOST=127.0.0.1
+
+[Install]
+WantedBy=default.target
+`;
+}
+async function installWebAgentAutostart(mcpDir = getManagedMcpRoot("web-agent-mcp"), runner = defaultCommandRunner) {
+  if (!existsSync2(join3(mcpDir, "package.json"))) {
+    return {
+      status: "skipped",
+      message: `web-agent-mcp is not installed at ${mcpDir}; autostart setup skipped.`,
+      commands: []
+    };
+  }
+  const servicePath = systemdUserServicePath();
+  const serviceName = "opencode-pair-web-agent.service";
+  const statusCommand = `systemctl --user status ${serviceName}`;
+  const commands = [
+    "systemctl --user daemon-reload",
+    `systemctl --user enable ${serviceName}`,
+    `systemctl --user restart ${serviceName}`,
+    statusCommand,
+    `systemctl --user disable --now ${serviceName}`
+  ];
+  ensureDir(dirname2(servicePath));
+  writeFileSync(servicePath, webAgentAutostartServiceContent(mcpDir), "utf8");
+  const available = await runner("systemctl", ["--user", "--version"], { cwd: mcpDir, env: process.env });
+  if (!available.ok) {
+    return {
+      status: "fallback",
+      message: `Wrote web-agent systemd user service to ${servicePath}, but systemctl --user is unavailable: ${available.message ?? "unknown failure"}. Start manually with: cd ${quoteShell(mcpDir)} && bun run daemon`,
+      servicePath,
+      commands
+    };
+  }
+  for (const args of [["--user", "daemon-reload"], ["--user", "enable", serviceName], ["--user", "restart", serviceName]]) {
+    const result = await runner("systemctl", args, { cwd: mcpDir, env: process.env });
+    if (!result.ok) {
+      return {
+        status: "warning",
+        message: `Wrote web-agent systemd user service to ${servicePath}, but systemctl ${args.join(" ")} failed: ${result.message ?? "unknown failure"}`,
+        servicePath,
+        commands
+      };
+    }
+  }
+  return {
+    status: "enabled",
+    message: `Enabled web-agent MCP user autostart at ${servicePath} and restarted ${serviceName}; durable profile and registry directories were not removed.`,
+    servicePath,
+    commands
+  };
+}
+async function ensureWebAgentDaemonAutostart() {
+  const autostart = await installWebAgentAutostart();
+  if (autostart.status === "enabled") {
+    console.log(`[opencode-pair] ${autostart.message}`);
+    return;
+  }
+  if (autostart.status === "fallback" || autostart.status === "warning") {
+    console.warn(`[opencode-pair] ${autostart.message}`);
+  }
+  const daemonRestart = await restartManagedWebAgentDaemon();
+  if (daemonRestart.status === "warning") {
+    console.warn(`[opencode-pair] ${daemonRestart.message}`);
+    console.warn(`[opencode-pair] Manual web-agent daemon command: ${daemonRestart.command}`);
+  } else {
+    console.log(`[opencode-pair] ${daemonRestart.message}`);
+  }
+}
 function bundledSkillsSourceRoot() {
-  return join2(packageRoot(), "vendor", "skills");
+  return join3(packageRoot(), "vendor", "skills");
 }
 function installBundledSkills(skillsDir, sourceRoot = bundledSkillsSourceRoot()) {
-  if (!existsSync(sourceRoot)) {
+  if (!existsSync2(sourceRoot)) {
     return;
   }
   ensureDir(skillsDir);
@@ -14892,11 +16957,11 @@ function installBundledSkills(skillsDir, sourceRoot = bundledSkillsSourceRoot())
   const sourceEntries = readdirSync(sourceRoot).sort();
   pruneManagedEntries(skillsDir, previousEntries, {}, new Set(sourceEntries));
   for (const entry of sourceEntries) {
-    const sourcePath = join2(sourceRoot, entry);
-    const targetPath = join2(skillsDir, entry);
+    const sourcePath = join3(sourceRoot, entry);
+    const targetPath = join3(skillsDir, entry);
     const sourceHash = hashPathContents(sourcePath);
     const wasManaged = previousEntries[entry] !== undefined;
-    if (existsSync(targetPath) && !wasManaged) {
+    if (existsSync2(targetPath) && !wasManaged) {
       continue;
     }
     rmSync(targetPath, { recursive: true, force: true });
@@ -14912,7 +16977,7 @@ function updateConfig(paths) {
   config2.$schema = config2.$schema ?? "https://opencode.ai/config.json";
   config2.plugin = mergePluginList(config2.plugin);
   config2.instructions = mergeInstructionsList(config2.instructions, paths.shellStrategyDir);
-  config2.default_agent = "mrrobot";
+  config2.default_agent = PRIMARY_AGENT;
   forceAllowPermissions(config2);
   writeJson(detected.path, config2);
   return detected.path;
@@ -14930,8 +16995,8 @@ function updatePackageJson(paths) {
   return paths.packageJson;
 }
 function ensureTuiConfig(configDir) {
-  const tuiPath = join2(configDir, "tui.json");
-  if (existsSync(tuiPath)) {
+  const tuiPath = join3(configDir, "tui.json");
+  if (existsSync2(tuiPath)) {
     return;
   }
   writeJson(tuiPath, {
@@ -14943,7 +17008,7 @@ function ensureSkillsDir(skillsDir) {
   ensureDir(skillsDir);
 }
 function removeDirectoryIfEmpty(dirPath) {
-  if (!existsSync(dirPath)) {
+  if (!existsSync2(dirPath)) {
     return;
   }
   const stat = statSync(dirPath);
@@ -14959,7 +17024,7 @@ async function runBunInstall(configDir) {
   await new Promise((resolvePromise, rejectPromise) => {
     const child = spawn("bun", ["install"], {
       cwd: configDir,
-      stdio: "inherit"
+      stdio: INSTALLER_CHILD_STDIO
     });
     child.on("error", rejectPromise);
     child.on("exit", (code) => {
@@ -14972,16 +17037,16 @@ async function runBunInstall(configDir) {
   });
 }
 async function ensureInstalledHarnessBuild(configDir) {
-  const packageDir = join2(configDir, "node_modules", "opencode-pair");
-  const builtEntry = join2(packageDir, "dist", "index.js");
-  const sourceEntry = join2(packageDir, "src", "index.ts");
-  if (existsSync(builtEntry) || !existsSync(sourceEntry)) {
+  const packageDir = join3(configDir, "node_modules", "opencode-pair");
+  const builtEntry = join3(packageDir, "dist", "index.js");
+  const sourceEntry = join3(packageDir, "src", "index.ts");
+  if (existsSync2(builtEntry) || !existsSync2(sourceEntry)) {
     return;
   }
   await new Promise((resolvePromise, rejectPromise) => {
     const child = spawn("bun", ["run", "build"], {
       cwd: packageDir,
-      stdio: "inherit"
+      stdio: INSTALLER_CHILD_STDIO
     });
     child.on("error", rejectPromise);
     child.on("exit", (code) => {
@@ -14994,7 +17059,7 @@ async function ensureInstalledHarnessBuild(configDir) {
   });
 }
 function dockerExec(args, options) {
-  return new Promise((resolve2, reject) => {
+  return new Promise((resolve3, reject) => {
     let stdout = "";
     let stderr = "";
     const child = spawn("docker", args, {
@@ -15011,7 +17076,7 @@ function dockerExec(args, options) {
     child.on("error", (err) => reject(new Error(`Failed to spawn docker: ${err.message}`)));
     child.on("close", (code, signal) => {
       if (code === 0) {
-        resolve2(stdout.trim());
+        resolve3(stdout.trim());
       } else {
         const detail = stderr.trim() || (signal ? `killed by ${signal}` : `exit code ${code ?? -1}`);
         reject(new Error(`docker ${args[0]} failed: ${detail}`));
@@ -15025,7 +17090,7 @@ async function ensureSearxngContainer() {
     return;
   }
   const pathValue = process.env.PATH;
-  const dockerInPath = pathValue ? pathValue.split(":").some((dir) => existsSync(join2(dir, "docker"))) : false;
+  const dockerInPath = pathValue ? pathValue.split(":").some((dir) => existsSync2(join3(dir, "docker"))) : false;
   if (!dockerInPath) {
     console.warn("[opencode-pair] Docker not found in PATH. Skipping SearXNG container setup.");
     return;
@@ -15103,7 +17168,7 @@ async function waitForSearxngHealth(timeoutMs) {
     } catch {} finally {
       clearTimeout(timeout);
     }
-    await new Promise((resolve2) => setTimeout(resolve2, 500));
+    await new Promise((resolve3) => setTimeout(resolve3, 500));
   }
   return false;
 }
@@ -15148,25 +17213,28 @@ async function installHarness(options) {
   await installShellStrategyInstruction(paths.shellStrategyDir);
   installSelfContainedMcps();
   await ensureManagedMcpDependencies();
+  await ensureWebAgentDaemonAutostart();
   installBundledSkills(paths.skillsDir);
   await ensureSearxngContainer();
   const configPath = updateConfig(paths);
   const packageJsonPath = updatePackageJson(paths);
   writeHarnessConfig(paths.harnessConfig);
+  const syncConfigured = await maybeConfigureSyncRepo(paths.harnessConfig, options);
   writeNotifierConfig(paths.notifierConfig);
   await runBunInstall(configDir);
   await ensureInstalledHarnessBuild(configDir);
   return {
     configPath,
     packageJsonPath,
-    harnessConfigPath: paths.harnessConfig
+    harnessConfigPath: paths.harnessConfig,
+    syncConfigured
   };
 }
 async function uninstallHarness() {
   const configDir = getConfigDir();
   const paths = getConfigPaths(configDir);
   const detected = detectMainConfigPath(paths);
-  if (existsSync(detected.path)) {
+  if (existsSync2(detected.path)) {
     const config2 = readJsonLike(detected.path);
     backupFile(detected.path);
     const nextPlugin = removeHarnessPluginList(config2.plugin);
@@ -15183,7 +17251,7 @@ async function uninstallHarness() {
     }
     writeJson(detected.path, config2);
   }
-  if (existsSync(paths.packageJson)) {
+  if (existsSync2(paths.packageJson)) {
     const pkg = readJsonLike(paths.packageJson);
     const currentDependencies = pkg.dependencies && typeof pkg.dependencies === "object" && !Array.isArray(pkg.dependencies) ? { ...pkg.dependencies } : undefined;
     if (currentDependencies) {
@@ -15200,10 +17268,10 @@ async function uninstallHarness() {
       await runBunInstall(configDir);
     }
   }
-  rmSync(join2(paths.shellStrategyDir, "shell_strategy.md"), { force: true });
+  rmSync(join3(paths.shellStrategyDir, "shell_strategy.md"), { force: true });
   removeDirectoryIfEmpty(paths.binDir);
   removeDirectoryIfEmpty(paths.shellStrategyDir);
-  removeDirectoryIfEmpty(join2(configDir, "plugin"));
+  removeDirectoryIfEmpty(join3(configDir, "plugin"));
   return {
     configPath: detected.path,
     packageJsonPath: paths.packageJson,
@@ -15216,25 +17284,42 @@ async function uninstallHarness() {
 }
 
 // src/cli.ts
+var DEFAULT_CLI_DEPS = {
+  installHarness,
+  uninstallHarness
+};
 function printHelp() {
   console.log(`opencode-pair
 
 Commands:
   init [directory]       Create .opencode/opencode-pair.jsonc
   install                Install plugin stack into the active OpenCode config
+  install --configure-sync
+                          Ask for private ledger sync setup when missing and TTY
+  install --no-prompt    Disable installer prompts, including sync setup
   fresh-install          Delete non-config files, then reinstall the stack
   uninstall              Remove harness-managed wiring and keep user config files
   print-config           Print the snippet to add into opencode.json
+
+Interactive installs ask for optional private ledger sync repo settings when
+repo/path/url config is missing. CI, non-TTY, and piped installs never prompt.
+If a private ledger sync repo/path/url is already configured, or a durable
+state checkout exists at $XDG_STATE_HOME/opencode-pair/sync, install reuses it.
+Linux installs write a user systemd service for global web-agent MCP autostart
+when systemctl --user is available.
 `);
 }
+function hasFlag(argv, flag) {
+  return argv.includes(flag);
+}
 function initProject(directory) {
-  const targetRoot = resolve2(directory ?? process.cwd());
-  const opencodeDir = join3(targetRoot, ".opencode");
-  const configPath = join3(opencodeDir, "opencode-pair.jsonc");
-  if (!existsSync2(opencodeDir)) {
-    mkdirSync2(opencodeDir, { recursive: true });
+  const targetRoot = resolve3(directory ?? process.cwd());
+  const opencodeDir = join4(targetRoot, ".opencode");
+  const configPath = join4(opencodeDir, "opencode-pair.jsonc");
+  if (!existsSync3(opencodeDir)) {
+    mkdirSync3(opencodeDir, { recursive: true });
   }
-  if (existsSync2(configPath)) {
+  if (existsSync3(configPath)) {
     console.log(`Already exists: ${configPath}`);
     return;
   }
@@ -15254,14 +17339,16 @@ function printConfig() {
   "instructions": [
     "~/.config/opencode/plugin/shell-strategy/shell_strategy.md"
   ],
-  "default_agent": "mrrobot"
+  "default_agent": "${PRIMARY_AGENT}"
 }
 
 Use \`opencode-pair install\` for the real path-aware install.`);
 }
-function main(argv) {
+async function main(argv, deps = DEFAULT_CLI_DEPS) {
   const [command, arg] = argv;
-  const fresh = argv.includes("--fresh");
+  const fresh = hasFlag(argv, "--fresh");
+  const configureSync = hasFlag(argv, "--configure-sync");
+  const noPrompt = hasFlag(argv, "--no-prompt");
   if (!command || command === "help" || command === "--help" || command === "-h") {
     printHelp();
     return;
@@ -15271,25 +17358,33 @@ function main(argv) {
     return;
   }
   if (command === "install") {
-    installHarness({ fresh }).then((result) => {
+    try {
+      const result = await deps.installHarness({ fresh, configureSync, promptSync: noPrompt ? "never" : undefined });
       console.log(`Installed into ${result.configPath}`);
       console.log(`Updated package manifest ${result.packageJsonPath}`);
       console.log(`Harness config ready at ${result.harnessConfigPath}`);
-    }).catch((error48) => {
+      if (result.syncConfigured) {
+        console.log("Private ledger sync repo configured in user harness config");
+      }
+    } catch (error48) {
       console.error(error48 instanceof Error ? error48.message : String(error48));
       process.exitCode = 1;
-    });
+    }
     return;
   }
   if (command === "fresh-install") {
-    installHarness({ fresh: true }).then((result) => {
+    try {
+      const result = await deps.installHarness({ fresh: true, configureSync, promptSync: noPrompt ? "never" : undefined });
       console.log(`Fresh-installed into ${result.configPath}`);
       console.log(`Updated package manifest ${result.packageJsonPath}`);
       console.log(`Harness config ready at ${result.harnessConfigPath}`);
-    }).catch((error48) => {
+      if (result.syncConfigured) {
+        console.log("Private ledger sync repo configured in user harness config");
+      }
+    } catch (error48) {
       console.error(error48 instanceof Error ? error48.message : String(error48));
       process.exitCode = 1;
-    });
+    }
     return;
   }
   if (command === "print-config") {
@@ -15297,14 +17392,15 @@ function main(argv) {
     return;
   }
   if (command === "uninstall") {
-    uninstallHarness().then((result) => {
+    try {
+      const result = await deps.uninstallHarness();
       console.log(`Uninstalled harness wiring from ${result.configPath}`);
       console.log(`Updated package manifest ${result.packageJsonPath}`);
       console.log(`Preserved user files: ${result.preservedPaths.join(", ")}`);
-    }).catch((error48) => {
+    } catch (error48) {
       console.error(error48 instanceof Error ? error48.message : String(error48));
       process.exitCode = 1;
-    });
+    }
     return;
   }
   printHelp();
@@ -15314,10 +17410,10 @@ function isDirectExecution() {
   if (!entryPath) {
     return false;
   }
-  return resolve2(entryPath) === fileURLToPath2(import.meta.url);
+  return resolve3(entryPath) === fileURLToPath2(import.meta.url);
 }
 if (isDirectExecution()) {
-  main(process.argv.slice(2));
+  await main(process.argv.slice(2));
 }
 export {
   main

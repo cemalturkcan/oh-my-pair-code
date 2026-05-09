@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RuntimeServices } from "../../server.js";
 import { createFailureResult } from "../../core/errors.js";
-import { createToolSuccess } from "../../schemas/common.js";
+import { createToolSuccess, toToolInputSchema } from "../../schemas/common.js";
 import { closeSessionInputSchema, sessionCloseOutputSchema } from "../../schemas/session.js";
 
 export function registerCloseSessionTool(server: McpServer, services: RuntimeServices) {
@@ -11,7 +11,7 @@ export function registerCloseSessionTool(server: McpServer, services: RuntimeSer
     {
       title: "Close Session",
       description: "Close a browser session and release its runtime resources.",
-      inputSchema: closeSessionInputSchema,
+      inputSchema: toToolInputSchema(closeSessionInputSchema),
       outputSchema: sessionCloseOutputSchema,
       annotations: {
         readOnlyHint: false,

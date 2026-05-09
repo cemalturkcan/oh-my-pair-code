@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RuntimeServices } from "../../server.js";
+import { toToolInputSchema } from "../../schemas/common.js";
 import { actionResultSchema, wheelInputSchema } from "../../schemas/act.js";
 import { createActionFailureResponse, createActionSuccessResult } from "./shared.js";
 
@@ -10,7 +11,7 @@ export function registerWheelTool(server: McpServer, services: RuntimeServices) 
     {
       title: "Wheel Scroll",
       description: "Scroll the viewport or a target element using wheel input.",
-      inputSchema: wheelInputSchema,
+      inputSchema: toToolInputSchema(wheelInputSchema),
       outputSchema: actionResultSchema,
       annotations: {
         readOnlyHint: false,
@@ -42,6 +43,10 @@ export function registerWheelTool(server: McpServer, services: RuntimeServices) 
           pageId: page.pageId,
           appliedMode: "physical",
           verificationHint: result.verificationHint,
+          elapsedMs: result.elapsedMs,
+          waitedFor: result.waitedFor,
+          before: result.before,
+          after: result.after,
           targetSelectorKnown: Boolean(input.selector)
         });
       } catch (error) {

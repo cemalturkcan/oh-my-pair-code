@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RuntimeServices } from "../../server.js";
+import { toToolInputSchema } from "../../schemas/common.js";
 import { actionResultSchema, clickInputSchema } from "../../schemas/act.js";
 import {
   createActionFailureResponse,
@@ -16,7 +17,7 @@ export function registerClickTool(
     {
       title: "Click Element",
       description: "Click an element using a CSS selector.",
-      inputSchema: clickInputSchema,
+      inputSchema: toToolInputSchema(clickInputSchema),
       outputSchema: actionResultSchema,
       annotations: {
         readOnlyHint: false,
@@ -26,8 +27,9 @@ export function registerClickTool(
       },
     },
     async (input: z.infer<typeof clickInputSchema>) => {
+      let action: Awaited<ReturnType<typeof services.history.startAction>> | undefined;
       try {
-        const action = await services.history.startAction("act.click", input, {
+        action = await services.history.startAction("act.click", input, {
           session_id: input.session_id,
           page_id: input.page_id,
         });
@@ -42,7 +44,7 @@ export function registerClickTool(
             timeoutMs: input.timeout_ms,
           },
         );
-        const data = { verificationHint: result.verificationHint };
+        const data = { verificationHint: result.verificationHint, postAction: result.postAction };
         services.sessions.recordSuccess(session.sessionId);
         await services.history.finishAction(action, "succeeded", data);
         return createActionSuccessResult({
@@ -51,12 +53,18 @@ export function registerClickTool(
           pageId: page.pageId,
           appliedMode: "semantic",
           verificationHint: result.verificationHint,
+          elapsedMs: result.elapsedMs,
+          waitedFor: result.waitedFor,
+          before: result.before,
+          after: result.after,
+          postAction: result.postAction,
           targetSelectorKnown: true,
         });
       } catch (error) {
         return createActionFailureResponse({
           services,
           error,
+          actionId: action?.action_id,
           sessionId: input.session_id,
           pageId: input.page_id,
           appliedMode: "semantic",

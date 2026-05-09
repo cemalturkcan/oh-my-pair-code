@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RuntimeServices } from "../../server.js";
+import { toToolInputSchema } from "../../schemas/common.js";
 import { actionResultSchema, enterCodeInputSchema } from "../../schemas/act.js";
 import {
   createActionFailureResponse,
@@ -17,7 +18,7 @@ export function registerEnterCodeTool(
       title: "Enter Verification Code",
       description:
         "Fill a one-time code into a focused, single, or segmented input flow.",
-      inputSchema: enterCodeInputSchema,
+      inputSchema: toToolInputSchema(enterCodeInputSchema),
       outputSchema: actionResultSchema,
       annotations: {
         readOnlyHint: false,
@@ -60,6 +61,10 @@ export function registerEnterCodeTool(
           pageId: page.pageId,
           appliedMode: "semantic",
           verificationHint: result.verificationHint,
+          elapsedMs: result.elapsedMs,
+          waitedFor: result.waitedFor,
+          before: result.before,
+          after: result.after,
           targetSelectorKnown: Boolean(input.selector),
         });
       } catch (error) {

@@ -4,10 +4,14 @@ import { createHarnessAgents } from "./agents";
 import { createHarnessMcps } from "./mcp";
 import { createHarnessCommands } from "./commands";
 import { createHarnessHooks } from "./hooks";
+import { createOrchestratorLedger } from "./orchestrator/ledger";
+import { createOrchestrationTools } from "./orchestrator/tools";
+import { PRIMARY_AGENT } from "./orchestrator/constants";
 
 const PairAutonomyPlugin: OpencodePlugin = async (ctx) => {
   const harnessConfig = loadHarnessConfig(ctx.directory);
-  const hooks = await createHarnessHooks(ctx, harnessConfig);
+  const ledger = createOrchestratorLedger(ctx.directory, harnessConfig);
+  const hooks = await createHarnessHooks(ctx, harnessConfig, ledger);
 
   return {
     config: async (config) => {
@@ -41,11 +45,12 @@ const PairAutonomyPlugin: OpencodePlugin = async (ctx) => {
       };
 
       if (harnessConfig.set_default_agent !== false) {
-        mutableConfig.default_agent = "mrrobot";
+        mutableConfig.default_agent = PRIMARY_AGENT;
       }
 
       await hooks.config?.(config);
     },
+    tool: createOrchestrationTools(ledger, harnessConfig, ctx.directory),
     ...(hooks["chat.message"] ? { "chat.message": hooks["chat.message"] } : {}),
     ...(hooks.event ? { event: hooks.event } : {}),
     ...(hooks["tool.execute.before"]
@@ -56,6 +61,9 @@ const PairAutonomyPlugin: OpencodePlugin = async (ctx) => {
       : {}),
     ...(hooks["session.deleted"]
       ? { "session.deleted": hooks["session.deleted"] }
+      : {}),
+    ...(hooks["experimental.session.compacting"]
+      ? { "experimental.session.compacting": hooks["experimental.session.compacting"] }
       : {}),
   };
 };

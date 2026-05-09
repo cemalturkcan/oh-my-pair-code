@@ -9,11 +9,42 @@ export function buildActionSuccessPayload(input: {
   appliedMode: "semantic" | "physical";
   verificationHint?: string;
   targetSelectorKnown: boolean;
+  elapsedMs?: number;
+  waitedFor?: string[];
+  before?: { url: string; title?: string };
+  after?: { url: string; title?: string };
+  postAction?: {
+    observableChange: boolean;
+    guidance?: string;
+    usedDomFallback?: boolean;
+    changed?: string[];
+  };
+  formState?: {
+    input_type?: string;
+    value_present: boolean;
+    value_length: number;
+    requested_value_length: number;
+    matches_requested_value: boolean;
+    used_dom_fallback?: boolean;
+  };
 }) {
   return {
     action_id: input.actionId,
     applied_mode: input.appliedMode,
     verification_hint: input.verificationHint,
+    timings: input.elapsedMs === undefined ? undefined : { elapsed_ms: input.elapsedMs },
+    waited_for: input.waitedFor,
+    before: input.before,
+    after: input.after,
+    post_action: input.postAction
+      ? {
+          observable_change: input.postAction.observableChange,
+          guidance: input.postAction.guidance,
+          used_dom_fallback: input.postAction.usedDomFallback,
+          changed: input.postAction.changed,
+        }
+      : undefined,
+    form_state: input.formState,
     follow_up_by_goal: buildFollowUpByGoal({
       pageStateKnown: true,
       targetSelectorKnown: input.targetSelectorKnown,

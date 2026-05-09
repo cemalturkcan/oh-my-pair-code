@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { buildFollowUpByGoal } from "../../core/observation-flow.js";
 import type { RuntimeServices } from "../../server.js";
 import { createFailureResult } from "../../core/errors.js";
-import { createToolSuccess } from "../../schemas/common.js";
+import { createToolSuccess, toToolInputSchema } from "../../schemas/common.js";
 import { observeDomOutputSchema, observeSessionInputSchema } from "../../schemas/observe.js";
 
 export function registerObserveDomTool(server: McpServer, services: RuntimeServices) {
@@ -12,7 +12,7 @@ export function registerObserveDomTool(server: McpServer, services: RuntimeServi
     {
       title: "Observe DOM Summary",
       description: "Return a lightweight DOM summary for the current page.",
-      inputSchema: observeSessionInputSchema,
+      inputSchema: toToolInputSchema(observeSessionInputSchema),
       outputSchema: observeDomOutputSchema,
       annotations: {
         readOnlyHint: true,
@@ -23,6 +23,7 @@ export function registerObserveDomTool(server: McpServer, services: RuntimeServi
     },
     async (input: z.infer<typeof observeSessionInputSchema>) => {
       try {
+        const startedAt = Date.now();
         const action = await services.history.startAction("observe.dom", input, {
           session_id: input.session_id,
           page_id: input.page_id
@@ -40,6 +41,7 @@ export function registerObserveDomTool(server: McpServer, services: RuntimeServi
         });
         const data = {
           snapshot_id: artifact.artifact_id,
+          elapsed_ms: Date.now() - startedAt,
           format: "dom",
           url: result.url,
           title: result.title,

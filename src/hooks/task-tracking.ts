@@ -1,10 +1,11 @@
 import type { HookRuntime } from "./runtime";
 import {
+  extractLedgerTaskId,
   extractSessionId,
-  extractTaskId,
+  extractOpenCodeTaskId,
   extractTaskVerdict,
   resolveSessionID,
-  resolveSubagentTaskLane,
+  resolveWorkerTaskLane,
   resolveToolArgs,
   resolveToolName,
 } from "./runtime";
@@ -54,13 +55,13 @@ export function createTaskTrackingHook(runtime: HookRuntime) {
       }
 
       const args = resolveEffectiveToolArgs(input, output);
-      const lane = resolveSubagentTaskLane(args.subagent_type);
+      const lane = resolveWorkerTaskLane(args.subagent_type);
       const description = resolveTaskDescription(args);
       const taskId =
         typeof args.task_id === "string"
           ? args.task_id
           : lane
-            ? runtime.findReusableSubagentTaskId(sessionID, lane, description)
+            ? runtime.findReusableWorkerTaskId(sessionID, lane, description)
             : undefined;
 
       if (!args.task_id && taskId) {
@@ -71,7 +72,7 @@ export function createTaskTrackingHook(runtime: HookRuntime) {
         return;
       }
 
-      runtime.rememberSubagentTask(
+      runtime.rememberWorkerTask(
         sessionID,
         lane,
         taskId,
@@ -89,21 +90,29 @@ export function createTaskTrackingHook(runtime: HookRuntime) {
       }
 
       const args = resolveToolArgs(input);
-      const lane = resolveSubagentTaskLane(args.subagent_type);
+      const lane = resolveWorkerTaskLane(args.subagent_type);
       if (!lane) {
         return;
       }
 
-      const taskId = extractTaskId(output) ?? extractTaskId(args.task_id);
+      const description = resolveTaskDescription(args);
+      const openCodeTaskId =
+        extractOpenCodeTaskId(output) ?? extractOpenCodeTaskId(args.task_id);
+      const ledgerTaskId =
+        extractLedgerTaskId(args.prompt) ?? extractLedgerTaskId(args.description);
+      const reviewVerdict =
+        lane === "verification-engineer" ? extractTaskVerdict(output) : undefined;
+      const childSessionID = extractSessionId(output);
+      if (childSessionID && ledgerTaskId) {
+        runtime.linkLedgerTaskSession(childSessionID, lane, ledgerTaskId, sessionID);
+      }
+
+      const taskId = openCodeTaskId;
       if (!taskId) {
         return;
       }
-
-      const description = resolveTaskDescription(args);
-      const reviewVerdict = lane === "turing" ? extractTaskVerdict(output) : undefined;
-      const childSessionID = extractSessionId(output);
       if (childSessionID && childSessionID !== sessionID) {
-        runtime.markSubagentTaskSession(
+        runtime.markWorkerTaskSession(
           childSessionID,
           sessionID,
           lane,
@@ -114,7 +123,7 @@ export function createTaskTrackingHook(runtime: HookRuntime) {
         return;
       }
 
-      runtime.rememberSubagentTask(
+      runtime.rememberWorkerTask(
         sessionID,
         lane,
         taskId,

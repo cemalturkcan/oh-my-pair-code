@@ -29,6 +29,40 @@ export type ActionRecord = {
   error_code?: string;
 };
 
+function redactScalar(value: unknown) {
+  const length = typeof value === "string" ? value.length : undefined;
+  return {
+    redacted: true,
+    value_present: value !== undefined && value !== null && value !== "",
+    ...(length !== undefined ? { value_length: length } : {}),
+  };
+}
+
+function isSecretSummaryKey(key: string) {
+  return /^(value|code|password|passcode|otp|token|secret)$/i.test(key);
+}
+
+function sanitizeHistoryInput(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeHistoryInput(entry));
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+      key,
+      isSecretSummaryKey(key) ? redactScalar(entry) : sanitizeHistoryInput(entry),
+    ]),
+  );
+}
+
+export function sanitizeActionInputSummary(inputSummary?: Record<string, unknown>) {
+  return sanitizeHistoryInput(inputSummary) as Record<string, unknown> | undefined;
+}
+
 export class TaskHistoryStore {
   private readonly taskPath: string;
   private readonly actionPath: string;
@@ -73,7 +107,7 @@ export class TaskHistoryStore {
       kind,
       status: "started",
       started_at: nowIso(),
-      input_summary: inputSummary,
+      input_summary: sanitizeActionInputSummary(inputSummary),
       ...refs,
     };
     await appendJsonLine(this.actionPath, action);

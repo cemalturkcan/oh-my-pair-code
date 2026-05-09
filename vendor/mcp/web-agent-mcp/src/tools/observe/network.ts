@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RuntimeServices } from "../../server.js";
 import { createFailureResult } from "../../core/errors.js";
-import { createToolSuccess } from "../../schemas/common.js";
+import { createToolSuccess, toToolInputSchema } from "../../schemas/common.js";
 import { logsInputSchema, observeLogsOutputSchema } from "../../schemas/observe.js";
 
 export function registerObserveNetworkTool(server: McpServer, services: RuntimeServices) {
@@ -11,7 +11,7 @@ export function registerObserveNetworkTool(server: McpServer, services: RuntimeS
     {
       title: "Observe Network Logs",
       description: "Return recent network events captured for the current page.",
-      inputSchema: logsInputSchema,
+      inputSchema: toToolInputSchema(logsInputSchema),
       outputSchema: observeLogsOutputSchema,
       annotations: {
         readOnlyHint: true,
@@ -22,6 +22,7 @@ export function registerObserveNetworkTool(server: McpServer, services: RuntimeS
     },
     async (input: z.infer<typeof logsInputSchema>) => {
       try {
+        const startedAt = Date.now();
         const action = await services.history.startAction("observe.network", input, {
           session_id: input.session_id,
           page_id: input.page_id
@@ -44,6 +45,7 @@ export function registerObserveNetworkTool(server: McpServer, services: RuntimeS
         });
         const data = {
           artifact_id: artifact.artifact_id,
+          elapsed_ms: Date.now() - startedAt,
           entries: result
         };
         await services.history.finishAction(action, "succeeded", {

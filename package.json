@@ -1,7 +1,7 @@
 {
   "name": "opencode-pair",
   "version": "0.1.0",
-  "description": "OpenCode harness with a five-agent topology: mrrobot, eliot, tyrell, claude, turing.",
+  "description": "OpenCode Mission Control harness with ledger-backed orchestration workers.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -20,6 +20,8 @@
     "clean": "rm -rf dist",
     "pipe": "rm -rf /home/cemalturkcan/.config/openai-image-gen-mcp /home/cemalturkcan/.config/opencode && bun run build && bun run dist/cli.js install",
     "prepare": "bun run build",
+    "render-agents": "bun run scripts/render-agents.ts",
+    "render-agents:check": "bun run scripts/render-agents.ts --check",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },

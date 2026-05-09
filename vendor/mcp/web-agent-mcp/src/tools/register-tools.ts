@@ -10,6 +10,8 @@ import { registerSwipeTool } from "./act/swipe.js";
 import { registerWaitForTool } from "./act/wait-for.js";
 import { registerWheelTool } from "./act/wheel.js";
 import { registerNavigatePageTool } from "./page/navigate.js";
+import { registerCreatePageTool } from "./page/create.js";
+import { registerResizePageTool } from "./page/resize.js";
 import { registerObserveA11yTool } from "./observe/a11y.js";
 import { registerObserveAuthStateTool } from "./observe/auth-state.js";
 import { registerObserveBoxesTool } from "./observe/boxes.js";
@@ -22,15 +24,21 @@ import { registerObserveTextTool } from "./observe/text.js";
 import { registerWaitForNetworkTool } from "./observe/wait-for-network.js";
 import { registerRecommendObservationTool } from "./policy/recommend-observation.js";
 import { registerEvaluateJsTool } from "./runtime/evaluate-js.js";
+import { registerInjectCssTool, registerRemoveCssTool } from "./runtime/css.js";
+import { registerRunPageScriptTool } from "./runtime/run-page-script.js";
 import { registerCloseSessionTool } from "./session/close.js";
 import { registerCreateSessionTool } from "./session/create.js";
 import { registerRestartSessionTool } from "./session/restart.js";
+import { registerSessionStatusTool } from "./session/status.js";
 
 export function registerTools(server: McpServer, services: RuntimeServices) {
   registerCreateSessionTool(server, services);
+  registerSessionStatusTool(server, services);
   registerCloseSessionTool(server, services);
   registerRestartSessionTool(server, services);
+  registerCreatePageTool(server, services);
   registerNavigatePageTool(server, services);
+  registerResizePageTool(server, services);
   registerClickTool(server, services);
   registerDragTool(server, services);
   registerEnterCodeTool(server, services);
@@ -52,4 +60,7 @@ export function registerTools(server: McpServer, services: RuntimeServices) {
   registerWaitForNetworkTool(server, services);
   registerRecommendObservationTool(server);
   registerEvaluateJsTool(server, services);
+  registerInjectCssTool(server, services);
+  registerRemoveCssTool(server, services);
+  registerRunPageScriptTool(server, services);
 }

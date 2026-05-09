@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { PluginInput } from "@opencode-ai/plugin";
+import { runLedgerSyncStartPull, type LedgerSyncRunner } from "../orchestrator/sync";
 import { joinProjectFactLabels } from "../project-facts";
 import type { HarnessConfig } from "../types";
 import type { HookRuntime } from "./runtime";
@@ -19,12 +20,12 @@ function compactFactList(values: string[]): string {
   return values.length > 0 ? values.join("/") : "-";
 }
 
-function buildSubagentProjectContext(
+function buildWorkerProjectContext(
   config: HarnessConfig,
   runtime: HookRuntime,
 ): string {
   const facts = runtime.detectProjectFacts();
-  if (config.workflow?.compact_subagent_context !== false) {
+  if (config.workflow?.compact_worker_context !== false) {
     return `[ProjectContext] pkg=${facts.packageManager} lang=${compactFactList(
       facts.languages,
     )} fw=${compactFactList(facts.frameworks)}`;
@@ -60,7 +61,9 @@ export function createSessionStartHook(
   ctx: PluginInput,
   config: HarnessConfig,
   runtime: HookRuntime,
+  syncRunner?: LedgerSyncRunner,
 ) {
+  const pulledSessions = new Set<string>();
   return {
     "chat.message": async (
       input: ChatMessageInput,
@@ -71,11 +74,18 @@ export function createSessionStartHook(
           ? output.message.agent
           : undefined) ?? input.agent;
       runtime.setSessionAgent(input.sessionID, agentName);
+      if (!pulledSessions.has(input.sessionID)) {
+        pulledSessions.add(input.sessionID);
+        const sync = await runLedgerSyncStartPull(ctx.directory, config, syncRunner);
+        for (const warning of sync.warnings.filter((item) => item.includes("failed") || item.includes("skipped") || item.includes("does not exist"))) {
+          console.warn(`[opencode-pair] ledger sync start: ${warning}`);
+        }
+      }
 
       if (agentName && !PRIMARY_AGENTS.has(agentName)) {
         const injectionParts = [
-          buildSubagentProjectContext(config, runtime),
-          runtime.buildSubagentTaskInjection(input.sessionID),
+          buildWorkerProjectContext(config, runtime),
+          runtime.buildWorkerTaskInjection(input.sessionID, agentName),
         ].filter(Boolean);
         const previousSystem =
           typeof output.message.system === "string"
@@ -89,8 +99,8 @@ export function createSessionStartHook(
 
       const injectionParts = [
         runtime.buildPrimaryInjection(),
+        runtime.buildMissionControlInjection(input.sessionID),
         buildResourceInjection(ctx.directory),
-        runtime.buildSubagentTaskInjection(input.sessionID),
       ].filter(Boolean);
 
       if (injectionParts.length === 0) {

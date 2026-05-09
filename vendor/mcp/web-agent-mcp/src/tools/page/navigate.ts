@@ -4,7 +4,7 @@ import { buildFollowUpByGoal } from "../../core/observation-flow.js";
 import type { RuntimeServices } from "../../server.js";
 import { createId } from "../../utils/ids.js";
 import { createFailureResult } from "../../core/errors.js";
-import { createToolSuccess } from "../../schemas/common.js";
+import { createToolSuccess, toToolInputSchema } from "../../schemas/common.js";
 import { navigatePageInputSchema, navigatePageOutputSchema } from "../../schemas/page.js";
 
 export function registerNavigatePageTool(server: McpServer, services: RuntimeServices) {
@@ -13,7 +13,7 @@ export function registerNavigatePageTool(server: McpServer, services: RuntimeSer
     {
       title: "Navigate Page",
       description: "Navigate the active page to a URL and return lightweight metadata.",
-      inputSchema: navigatePageInputSchema,
+      inputSchema: toToolInputSchema(navigatePageInputSchema),
       outputSchema: navigatePageOutputSchema,
       annotations: {
         readOnlyHint: false,
@@ -23,8 +23,9 @@ export function registerNavigatePageTool(server: McpServer, services: RuntimeSer
       }
     },
     async (input: z.infer<typeof navigatePageInputSchema>) => {
+      let action: Awaited<ReturnType<typeof services.history.startAction>> | undefined;
       try {
-        const action = await services.history.startAction("page.navigate", input, {
+        action = await services.history.startAction("page.navigate", input, {
           session_id: input.session_id,
           page_id: input.page_id
         });
@@ -36,10 +37,15 @@ export function registerNavigatePageTool(server: McpServer, services: RuntimeSer
         );
         const response = {
           page_id: page.pageId,
+          tab_id: page.tabId,
           requested_url: result.requestedUrl,
           final_url: result.finalUrl,
           title: result.title,
           navigation_id: createId("action"),
+          waited_for: result.waitDescription,
+          wait_until: result.waitUntil,
+          networkidle_discouraged: result.networkidleDiscouraged,
+          before: result.before,
           timings: {
             elapsed_ms: result.elapsedMs
           },
@@ -52,7 +58,11 @@ export function registerNavigatePageTool(server: McpServer, services: RuntimeSer
         await services.history.finishAction(action, "succeeded", response);
         return createToolSuccess({ ok: true, code: "OK", action_id: action.action_id, session_id: session.sessionId, page_id: page.pageId, data: response });
       } catch (error) {
-        return createFailureResult(error);
+        return createFailureResult(error, {
+          action_id: action?.action_id,
+          session_id: input.session_id,
+          page_id: input.page_id
+        });
       }
     }
   );

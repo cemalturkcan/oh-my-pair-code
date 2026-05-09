@@ -53,6 +53,33 @@ function isAppleAuthDocument(document: AuthDocumentInspection) {
 
 function hasVerificationCodeInputs(document: AuthDocumentInspection) {
   const visibleInputs = getVisibleInputs(document.inputs);
+  const combined = toLowerText([
+    document.title,
+    document.text,
+    ...getButtonTexts(document.buttons),
+    ...visibleInputs.flatMap((input) => [
+      input.id,
+      input.name,
+      input.placeholder,
+      input.autocomplete,
+      input.text
+    ])
+  ].join(" "));
+  const hasStrongCodeCopy =
+    /verification code|security code|one[- ]?time code|one[- ]?time password|otp|2fa|mfa|auth(?:entication|enticator)? code|login code|sms code|enter (?:the )?(?:verification|security|one[- ]?time|otp|2fa|mfa|auth(?:entication|enticator)?|login|sms) code|dogrulama kodu|doğrulama kodu|iki faktorlu|iki faktörlü/i.test(combined);
+  const hasStrongCodeField = visibleInputs.some((input) => {
+    const autocomplete = input.autocomplete?.toLowerCase();
+    const name = toLowerText([input.id, input.name, input.placeholder, input.text].join(" "));
+    return (
+      autocomplete === "one-time-code" ||
+      /otp|one[- ]?time|verification|security.?code|2fa|mfa|auth(?:entication|enticator)?|sms.?code|login.?code/.test(name)
+    );
+  });
+
+  if (!hasStrongCodeCopy && !hasStrongCodeField) {
+    return false;
+  }
+
   const otpInputs = visibleInputs.filter((input) => {
     const autocomplete = input.autocomplete?.toLowerCase();
     const type = input.type?.toLowerCase();
@@ -65,7 +92,7 @@ function hasVerificationCodeInputs(document: AuthDocumentInspection) {
     );
   });
 
-  return otpInputs.length >= 4;
+  return otpInputs.length >= 4 || hasStrongCodeField;
 }
 
 function hasPhoneChallengeButtons(document: AuthDocumentInspection) {
@@ -91,9 +118,13 @@ function hasVisiblePasswordInput(document: AuthDocumentInspection) {
 }
 
 function hasVisibleIdentityInput(document: AuthDocumentInspection) {
+  const combined = toLowerText([document.title, document.text, ...getButtonTexts(document.buttons)].join(" "));
   return getVisibleInputs(document.inputs).some((input) => {
     const type = input.type?.toLowerCase();
-    return type === "email" || type === "text" || type === "tel";
+    if (type === "email" || type === "tel") {
+      return true;
+    }
+    return type === "text" && /email|e-posta|telefon|phone number|sign in|giris yap|giriş yap|account|login/i.test(combined);
   });
 }
 
@@ -255,7 +286,7 @@ export function classifyAuthStateSnapshot(input: {
 
   if (
     hasVerificationCodeInputs(primary) ||
-    /verification code|dogrulama kodu|doğrulama kodu|security code|enter the code|iki faktorlu|iki faktörlü/i.test(primaryText)
+    /verification code|dogrulama kodu|doğrulama kodu|security code|iki faktorlu|iki faktörlü/i.test(primaryText)
   ) {
     evidence.push("verification code step detected from live DOM");
     return {

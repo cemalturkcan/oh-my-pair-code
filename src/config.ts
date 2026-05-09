@@ -20,12 +20,28 @@ const HarnessConfigSchema = z.object({
       session_start: z.boolean().optional(),
       pre_tool_use: z.boolean().optional(),
       task_tracking: z.boolean().optional(),
+      compaction: z.boolean().optional(),
       session_end: z.boolean().optional(),
     })
     .optional(),
   workflow: z
     .object({
-      compact_subagent_context: z.boolean().optional(),
+      compact_worker_context: z.boolean().optional(),
+    })
+    .optional(),
+  orchestration: z
+    .object({
+      ledger_path: z.string().optional(),
+      project_marker_path: z.string().optional(),
+      sync: z
+        .object({
+          enabled: z.boolean().optional(),
+          repo: z.string().optional(),
+          url: z.string().optional(),
+          path: z.string().optional(),
+          branch: z.string().optional(),
+        })
+        .optional(),
     })
     .optional(),
   mcps: z
@@ -64,10 +80,18 @@ const DEFAULTS: HarnessConfig = {
     session_start: true,
     pre_tool_use: true,
     task_tracking: true,
+    compaction: true,
     session_end: true,
   },
   workflow: {
-    compact_subagent_context: true,
+    compact_worker_context: true,
+  },
+  orchestration: {
+    project_marker_path: ".opencode/orch.txt",
+    sync: {
+      enabled: false,
+      branch: "main",
+    },
   },
   mcps: {
     context7: true,
@@ -87,6 +111,7 @@ const ConfigSectionSchemas = {
   commands: HarnessConfigSchema.shape.commands,
   hooks: HarnessConfigSchema.shape.hooks,
   workflow: HarnessConfigSchema.shape.workflow,
+  orchestration: HarnessConfigSchema.shape.orchestration,
   mcps: HarnessConfigSchema.shape.mcps,
   agents: HarnessConfigSchema.shape.agents,
 } satisfies Record<keyof HarnessConfig, z.ZodTypeAny>;
@@ -192,10 +217,26 @@ export const SAMPLE_PROJECT_CONFIG = `{
     "session_start": true,
     "pre_tool_use": true,
     "task_tracking": true,
+    "compaction": true,
     "session_end": true
   },
   "workflow": {
-    "compact_subagent_context": true
+    "compact_worker_context": true
+  },
+  "orchestration": {
+    // Ledger DB defaults to the user state directory, e.g.
+    // $XDG_STATE_HOME/opencode-pair/orchestrator.sqlite or
+    // ~/.local/state/opencode-pair/orchestrator.sqlite on Linux.
+    // Set ledger_path only for tests or advanced local overrides.
+    "project_marker_path": ".opencode/orch.txt",
+    "sync": {
+      // Keep private sync repo credentials outside project repos. Prefer the
+      // user config file or OPENCODE_PAIR_SYNC_REPO / OPENCODE_PAIR_SYNC_PATH.
+      // Remote URL values belong in repo; local checkout/path values belong in path.
+      "enabled": false,
+      "repo": "",
+      "branch": "main"
+    }
   },
   "mcps": {
     "context7": true,

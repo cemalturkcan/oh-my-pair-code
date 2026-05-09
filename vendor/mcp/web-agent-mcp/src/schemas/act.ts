@@ -5,10 +5,43 @@ import {
   sessionRestartRecommendationSchema,
 } from "./policy.js";
 
+const optionalFrameSelectorSchema = z
+  .union([
+    z.string().min(1),
+    z.literal("").transform(() => undefined),
+    z.null().transform(() => undefined),
+  ])
+  .optional()
+  .describe(
+    "Optional CSS selector for a real iframe that contains the target element (for example, 'iframe#aid-auth-widget-iFrame'). Omit this field for main-page elements; do not pass placeholders such as body, :scope, or __none__.",
+  );
+
 export const actionResultSchema = z.object({
   action_id: z.string(),
   applied_mode: z.enum(["semantic", "physical"]),
   verification_hint: z.string().optional(),
+  timings: z.object({ elapsed_ms: z.number().nonnegative() }).optional(),
+  waited_for: z.array(z.string()).optional(),
+  before: z.object({ url: z.string(), title: z.string().optional() }).optional(),
+  after: z.object({ url: z.string(), title: z.string().optional() }).optional(),
+  post_action: z
+    .object({
+      observable_change: z.boolean(),
+      guidance: z.string().optional(),
+      used_dom_fallback: z.boolean().optional(),
+      changed: z.array(z.string()).optional(),
+    })
+    .optional(),
+  form_state: z
+    .object({
+      input_type: z.string().optional(),
+      value_present: z.boolean(),
+      value_length: z.number().int().nonnegative(),
+      requested_value_length: z.number().int().nonnegative(),
+      matches_requested_value: z.boolean(),
+      used_dom_fallback: z.boolean().optional(),
+    })
+    .optional(),
   retry_hint: z.string().optional(),
   fallback_observation: observationRecommendationSchema.optional(),
   follow_up_by_goal: followUpByGoalSchema,
@@ -19,13 +52,7 @@ export const clickInputSchema = z.object({
   session_id: z.string().min(1),
   page_id: z.string().min(1).optional(),
   selector: z.string().min(1),
-  frame_selector: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      "CSS selector of an iframe to scope the action into (e.g. 'iframe#aid-auth-widget-iFrame'). Use when the target element is inside a cross-origin or embedded iframe.",
-    ),
+  frame_selector: optionalFrameSelectorSchema,
   button: z.enum(["left", "right", "middle"]).default("left"),
   click_count: z.number().int().min(1).max(3).default(1),
   timeout_ms: z.number().int().positive().max(60000).optional(),
@@ -35,13 +62,7 @@ export const fillInputSchema = z.object({
   session_id: z.string().min(1),
   page_id: z.string().min(1).optional(),
   selector: z.string().min(1),
-  frame_selector: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      "CSS selector of an iframe to scope the action into (e.g. 'iframe#aid-auth-widget-iFrame'). Use when the target element is inside a cross-origin or embedded iframe.",
-    ),
+  frame_selector: optionalFrameSelectorSchema,
   value: z.string(),
   clear_first: z.boolean().default(true),
   timeout_ms: z.number().int().positive().max(60000).optional(),
@@ -52,13 +73,7 @@ export const pressInputSchema = z.object({
   page_id: z.string().min(1).optional(),
   key: z.string().min(1),
   selector: z.string().min(1).optional(),
-  frame_selector: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      "CSS selector of an iframe to scope the action into. Use when the target element is inside a cross-origin or embedded iframe.",
-    ),
+  frame_selector: optionalFrameSelectorSchema,
   timeout_ms: z.number().int().positive().max(60000).optional(),
 });
 
@@ -66,13 +81,7 @@ export const enterCodeInputSchema = z.object({
   session_id: z.string().min(1),
   page_id: z.string().min(1).optional(),
   selector: z.string().min(1).optional(),
-  frame_selector: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      "CSS selector of an iframe to scope the action into. Use when the target element is inside a cross-origin or embedded iframe.",
-    ),
+  frame_selector: optionalFrameSelectorSchema,
   code: z.string().min(1),
   submit: z.boolean().default(false),
   timeout_ms: z.number().int().positive().max(60000).optional(),

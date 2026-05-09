@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RuntimeServices } from "../../server.js";
 import { createFailureResult } from "../../core/errors.js";
-import { createToolSuccess } from "../../schemas/common.js";
+import { createToolSuccess, toToolInputSchema } from "../../schemas/common.js";
 import {
   createSessionInputSchema,
   sessionOutputSchema,
@@ -17,7 +17,7 @@ export function registerCreateSessionTool(
     {
       title: "Create Session",
       description: "Launch a browser session and create the initial page.",
-      inputSchema: createSessionInputSchema,
+      inputSchema: toToolInputSchema(createSessionInputSchema),
       outputSchema: sessionOutputSchema,
       annotations: {
         readOnlyHint: false,

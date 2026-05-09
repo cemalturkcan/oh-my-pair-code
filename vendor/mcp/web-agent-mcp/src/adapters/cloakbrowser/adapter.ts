@@ -15,6 +15,14 @@ export type AdapterSessionHandle = {
   viewport: ViewportSize;
 };
 
+export type AdapterPageIdentity = {
+  pageId: string;
+  url: string;
+  title?: string;
+  closed: boolean;
+  viewport: ViewportSize;
+};
+
 export type AdapterSessionCreateInput = {
   sessionId: string;
   profileMode: AdapterProfileMode;
@@ -33,6 +41,13 @@ export type AdapterNavigationResult = {
   finalUrl: string;
   title?: string;
   elapsedMs: number;
+  waitUntil: WaitUntilState;
+  waitDescription: string;
+  networkidleDiscouraged?: boolean;
+  before?: {
+    url: string;
+    title?: string;
+  };
 };
 
 export type AdapterA11yResult = {
@@ -134,10 +149,50 @@ export type AdapterScreenshotResult = {
   height?: number;
 };
 
+export type AdapterResizePageResult = {
+  before?: ViewportSize;
+  viewport: ViewportSize;
+  deviceScaleFactor?: number;
+  isMobile?: boolean;
+};
+
+export type AdapterInjectCssResult = {
+  cssId: string;
+  bytes: number;
+};
+
+export type AdapterRemoveCssResult = {
+  removed: boolean;
+};
+
 export type AdapterActionResult = {
   url: string;
   title?: string;
   verificationHint?: string;
+  elapsedMs?: number;
+  waitedFor?: string[];
+  before?: {
+    url: string;
+    title?: string;
+  };
+  after?: {
+    url: string;
+    title?: string;
+  };
+  postAction?: {
+    observableChange: boolean;
+    guidance?: string;
+    usedDomFallback?: boolean;
+    changed?: string[];
+  };
+  formState?: {
+    input_type?: string;
+    value_present: boolean;
+    value_length: number;
+    requested_value_length: number;
+    matches_requested_value: boolean;
+    used_dom_fallback?: boolean;
+  };
 };
 
 export type AdapterElementBox = {
@@ -176,6 +231,19 @@ export type AdapterEvaluateResult = {
   value: unknown;
 };
 
+export type AdapterRunPageScriptResult = {
+  before: {
+    url: string;
+    title?: string;
+  };
+  after: {
+    url: string;
+    title?: string;
+  };
+  elapsedMs: number;
+  value: unknown;
+};
+
 export type AdapterWaitForNetworkResult = {
   url: string;
   title?: string;
@@ -188,6 +256,9 @@ export interface CloakBrowserAdapter {
     input: AdapterSessionCreateInput,
   ): Promise<AdapterSessionHandle>;
   closeSession(session: AdapterSessionHandle): Promise<void>;
+  createPage(session: AdapterSessionHandle): Promise<AdapterSessionHandle>;
+  closePage(session: AdapterSessionHandle): Promise<void>;
+  listPages(session: AdapterSessionHandle): Promise<AdapterPageIdentity[]>;
   navigate(
     session: AdapterSessionHandle,
     url: string,
@@ -214,6 +285,15 @@ export interface CloakBrowserAdapter {
     quality?: number,
     selector?: string,
   ): Promise<AdapterScreenshotResult>;
+  resizePage(
+    session: AdapterSessionHandle,
+    input: {
+      width: number;
+      height: number;
+      deviceScaleFactor?: number;
+      isMobile?: boolean;
+    },
+  ): Promise<AdapterResizePageResult>;
   observeBoxes(
     session: AdapterSessionHandle,
     selectors: string[],
@@ -244,6 +324,21 @@ export interface CloakBrowserAdapter {
       awaitPromise: boolean;
     },
   ): Promise<AdapterEvaluateResult>;
+  runPageScript(
+    session: AdapterSessionHandle,
+    input: {
+      script: string;
+      timeoutMs: number;
+    },
+  ): Promise<AdapterRunPageScriptResult>;
+  injectCss(
+    session: AdapterSessionHandle,
+    input: { cssId: string; css: string },
+  ): Promise<AdapterInjectCssResult>;
+  removeCss(
+    session: AdapterSessionHandle,
+    input: { cssId: string },
+  ): Promise<AdapterRemoveCssResult>;
   click(
     session: AdapterSessionHandle,
     input: {

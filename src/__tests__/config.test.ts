@@ -69,11 +69,11 @@ describe("deepMerge", () => {
   it("handles three-level deep merge (defaults → user → project)", () => {
     const defaults = {
       hooks: { profile: "standard", comment_guard: true, session_start: true },
-      workflow: { compact_subagent_context: true },
+      workflow: { compact_worker_context: true },
     };
     const userConfig = {
       hooks: { comment_guard: false },
-      workflow: { compact_subagent_context: false },
+      workflow: { compact_worker_context: false },
     };
     const projectConfig = {
       hooks: { session_start: false },
@@ -84,16 +84,16 @@ describe("deepMerge", () => {
 
     expect(final).toEqual({
       hooks: { profile: "standard", comment_guard: false, session_start: false },
-      workflow: { compact_subagent_context: false },
+      workflow: { compact_worker_context: false },
     });
   });
 
   it("project config overrides user config which overrides defaults", () => {
     const merged = deepMerge(
-      deepMerge({ mode: "coordinator", limit: 7 }, { limit: 14 }),
+      deepMerge({ mode: "orchestrator", limit: 7 }, { limit: 14 }),
       { limit: 30 },
     );
-    expect(merged).toEqual({ mode: "coordinator", limit: 30 });
+    expect(merged).toEqual({ mode: "orchestrator", limit: 30 });
   });
 
   it("skips prototype-polluting keys", () => {

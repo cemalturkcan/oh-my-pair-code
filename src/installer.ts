@@ -13,14 +13,85 @@ import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { parse } from "jsonc-parser";
-import { spawn } from "node:child_process";
+import { spawn, type StdioOptions } from "node:child_process";
 import { SAMPLE_PROJECT_CONFIG } from "./config";
 import { getManagedMcpRoot } from "./mcp";
+import { DEFAULT_LEDGER_FILENAME, OrchestratorLedger, defaultUserStateDirectory } from "./orchestrator/ledger";
+import { PRIMARY_AGENT } from "./orchestrator/constants";
 
 type JsonRecord = Record<string, unknown>;
 type ManagedEntriesManifest = {
   entries?: Record<string, string>;
 };
+
+type SyncPromptMode = "auto" | "never" | "always";
+
+type InstallHarnessOptions = {
+  fresh?: boolean;
+  configureSync?: boolean;
+  promptSync?: SyncPromptMode;
+};
+
+export type SyncCloneRunner = (
+  command: string,
+  args: string[],
+  options: { env: NodeJS.ProcessEnv },
+) => Promise<{ ok: boolean; message?: string }>;
+
+export type CommandRunner = (
+  command: string,
+  args: string[],
+  options: { cwd: string; env?: NodeJS.ProcessEnv; detached?: boolean },
+) => Promise<{ ok: boolean; message?: string }>;
+
+export type SyncCheckoutPrepareResult = {
+  status: "not_applicable" | "ready" | "missing" | "warning";
+  path?: string;
+  message: string;
+  nextCommand?: string;
+};
+
+export type SyncCheckoutPrepareOptions = {
+  ask?: (question: string, defaultValue: boolean) => Promise<boolean>;
+  cloneRunner?: SyncCloneRunner;
+};
+
+export type WebAgentDaemonRestartResult = {
+  status: "restarted" | "skipped" | "warning";
+  message: string;
+  command?: string;
+};
+
+export type WebAgentDaemonStopResult = {
+  status: "stopped" | "skipped" | "warning";
+  message: string;
+  commands: string[];
+};
+
+export type WebAgentDaemonStopOptions = {
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  isProcessRunning?: (pid: number) => boolean;
+};
+
+export type WebAgentAutostartResult = {
+  status: "enabled" | "fallback" | "skipped" | "warning";
+  message: string;
+  servicePath?: string;
+  commands: string[];
+};
+
+function webAgentDaemonEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return {
+    ...env,
+    WEB_AGENT_DAEMON: "true",
+    WEB_AGENT_DAEMON_DATA_DIR:
+      env.WEB_AGENT_DAEMON_DATA_DIR?.trim() || join(homedir(), ".local", "share", "opencode-pair", "web-agent"),
+  };
+}
+
+const WEB_AGENT_STOP_WAIT_TIMEOUT_MS = 5000;
+const WEB_AGENT_STOP_WAIT_POLL_MS = 100;
 
 /**
  * npm package names used as plugin entries in opencode.json.
@@ -252,13 +323,13 @@ function pruneManagedEntries(
   nextEntries: Record<string, string>,
   preservedEntries: Set<string>,
 ): void {
-  const stalePaths = Object.keys(previousEntries)
+  const orphanedPaths = Object.keys(previousEntries)
     .filter((entry) => entry !== MANAGED_SOURCE_HASH_KEY)
     .filter((entry) => !(entry in nextEntries))
     .filter((entry) => !preservedEntries.has(entry))
     .sort((a, b) => b.length - a.length);
 
-  for (const relativePath of stalePaths) {
+  for (const relativePath of orphanedPaths) {
     rmSync(join(targetRoot, relativePath), { recursive: true, force: true });
   }
 }
@@ -407,6 +478,14 @@ function writeHarnessConfig(filePath: string): void {
       ...((next.hooks as JsonRecord | undefined) ?? {}),
       ...((current.hooks as JsonRecord | undefined) ?? {}),
     },
+    workflow: {
+      ...((next.workflow as JsonRecord | undefined) ?? {}),
+      ...((current.workflow as JsonRecord | undefined) ?? {}),
+    },
+    orchestration: {
+      ...((next.orchestration as JsonRecord | undefined) ?? {}),
+      ...((current.orchestration as JsonRecord | undefined) ?? {}),
+    },
     mcps: {
       ...((next.mcps as JsonRecord | undefined) ?? {}),
       ...((current.mcps as JsonRecord | undefined) ?? {}),
@@ -418,6 +497,445 @@ function writeHarnessConfig(filePath: string): void {
   };
 
   writeJson(filePath, merged);
+}
+
+function isTruthyEnv(value: string | undefined): boolean {
+  if (!value) return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+function isInteractiveTerminal(): boolean {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+export function shouldPromptForSync(options?: InstallHarnessOptions): boolean {
+  return shouldPromptForSyncConfig(options);
+}
+
+function getConfiguredSyncRepo(syncConfig?: JsonRecord): string {
+  const candidates = [
+    syncConfig?.repo,
+    syncConfig?.path,
+    syncConfig?.url,
+    process.env.OPENCODE_PAIR_SYNC_REPO,
+    process.env.OPENCODE_PAIR_SYNC_PATH,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return "";
+}
+
+export function hasConfiguredSyncRepo(syncConfig?: JsonRecord): boolean {
+  return Boolean(getConfiguredSyncRepo(syncConfig));
+}
+
+export function isGitRemoteUrl(input: string): boolean {
+  const value = input.trim();
+  return /^(?:https?|ssh|git):\/\//i.test(value) || /^git@[^\s:]+:[^\s]+$/i.test(value);
+}
+
+export function defaultLocalSyncPath(): string {
+  return join(defaultUserStateDirectory(), "sync");
+}
+
+function classifySyncRepoInput(input: string): Partial<Pick<JsonRecord, "repo" | "path">> {
+  if (isGitRemoteUrl(input)) return { repo: input, path: defaultLocalSyncPath() };
+  return { path: input };
+}
+
+function quoteShell(value: string): string {
+  return JSON.stringify(value);
+}
+
+function manualCloneCommand(repo: string, branch: string, path: string): string {
+  return `GIT_TERMINAL_PROMPT=0 git clone ${quoteShell(repo)} ${quoteShell(path)} || (mkdir -p ${quoteShell(path)} && git -C ${quoteShell(path)} init && git -C ${quoteShell(path)} remote add origin ${quoteShell(repo)} && git -C ${quoteShell(path)} checkout -B ${quoteShell(branch)})`;
+}
+
+function isGitCheckout(path: string): boolean {
+  return existsSync(join(path, ".git"));
+}
+
+function readGitCheckoutRemote(path: string): string {
+  const configPath = join(path, ".git", "config");
+  if (!existsSync(configPath)) return "";
+  const raw = readFileSync(configPath, "utf8");
+  const origin = raw.match(/\[remote "origin"\][\s\S]*?\n\s*url\s*=\s*([^\n]+)/);
+  return origin?.[1]?.trim() ?? "";
+}
+
+function readGitCheckoutBranch(path: string): string {
+  const headPath = join(path, ".git", "HEAD");
+  if (!existsSync(headPath)) return "main";
+  const raw = readFileSync(headPath, "utf8").trim();
+  const match = raw.match(/^ref:\s+refs\/heads\/(.+)$/);
+  return match?.[1]?.trim() || "main";
+}
+
+export function recoverSyncConfigFromDurableCheckout(path = defaultLocalSyncPath()): JsonRecord {
+  if (!isGitCheckout(path)) return {};
+  const remote = readGitCheckoutRemote(path);
+  if (!remote) return {};
+  return {
+    enabled: true,
+    repo: remote,
+    path,
+    branch: readGitCheckoutBranch(path),
+  };
+}
+
+function isDirectoryEmpty(path: string): boolean {
+  return existsSync(path) && statSync(path).isDirectory() && readdirSync(path).length === 0;
+}
+
+function cleanupInstallerCreatedPath(path: string): void {
+  if (isDirectoryEmpty(path)) rmSync(path, { recursive: true, force: true });
+}
+
+function isEmptyRemoteCloneFailure(message = ""): boolean {
+  return /remote branch .* not found|remote HEAD refers to nonexistent ref|cloned an empty repository|repository is empty/i.test(message);
+}
+
+const INSTALLER_CHILD_STDIO: StdioOptions = ["ignore", "inherit", "inherit"];
+
+async function defaultCommandRunner(
+  command: string,
+  args: string[],
+  options: { cwd: string; env?: NodeJS.ProcessEnv; detached?: boolean },
+): Promise<{ ok: boolean; message?: string }> {
+  return await new Promise((resolvePromise) => {
+    let settled = false;
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env ?? process.env,
+      detached: options.detached,
+      stdio: options.detached ? "ignore" : INSTALLER_CHILD_STDIO,
+    });
+
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      resolvePromise({ ok: false, message: error.message });
+    });
+
+    if (options.detached) {
+      child.unref();
+      resolvePromise({ ok: true });
+      return;
+    }
+
+    child.on("exit", (code) => {
+      if (settled) return;
+      settled = true;
+      resolvePromise({
+        ok: code === 0,
+        message: code === 0 ? undefined : `${command} ${args.join(" ")} exited with code ${code ?? -1}`,
+      });
+    });
+  });
+}
+
+async function defaultSyncCloneRunner(
+  command: string,
+  args: string[],
+  options: { env: NodeJS.ProcessEnv },
+): Promise<{ ok: boolean; message?: string }> {
+  return await new Promise((resolvePromise) => {
+    let stderr = "";
+    let settled = false;
+    const child = spawn(command, args, {
+      env: options.env,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      resolvePromise({ ok: false, message: error.message });
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      resolvePromise({
+        ok: code === 0,
+        message: stderr.trim() || (code === 0 ? undefined : `git clone exited with code ${code}`),
+      });
+    });
+  });
+}
+
+async function runSyncGit(runner: SyncCloneRunner, args: string[]): Promise<{ ok: boolean; message?: string }> {
+  return await runner("git", args, { env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+}
+
+function ensureLedgerCheckpointFile(checkoutPath: string): void {
+  const target = join(checkoutPath, DEFAULT_LEDGER_FILENAME);
+  if (existsSync(target)) return;
+  const source = join(defaultUserStateDirectory(), DEFAULT_LEDGER_FILENAME);
+  if (existsSync(source)) {
+    copyFileSync(source, target);
+    return;
+  }
+  new OrchestratorLedger(target);
+}
+
+async function commitAndPushInitialCheckpoint(checkoutPath: string, branch: string, runner: SyncCloneRunner): Promise<{ ok: boolean; warning?: string }> {
+  const checkout = await runSyncGit(runner, ["-C", checkoutPath, "checkout", "-B", branch]);
+  if (!checkout.ok) return { ok: false, warning: checkout.message ?? "git checkout failed" };
+  const add = await runSyncGit(runner, ["-C", checkoutPath, "add", DEFAULT_LEDGER_FILENAME]);
+  if (!add.ok) return { ok: false, warning: add.message ?? "git add failed" };
+  const commit = await runSyncGit(runner, ["-C", checkoutPath, "commit", "-m", "checkpoint ledger"]);
+  if (!commit.ok && !/nothing to commit|no changes added/i.test(commit.message ?? "")) {
+    return { ok: false, warning: commit.message ?? "git commit failed" };
+  }
+  const push = await runSyncGit(runner, ["-C", checkoutPath, "push", "-u", "origin", branch]);
+  if (!push.ok) return { ok: false, warning: push.message ?? "git push failed" };
+  return { ok: true };
+}
+
+async function initializeFallbackCheckout(repo: string, branch: string, path: string, runner: SyncCloneRunner): Promise<{ ok: boolean; message?: string }> {
+  ensureDir(path);
+  for (const args of [["-C", path, "init"], ["-C", path, "remote", "add", "origin", repo], ["-C", path, "checkout", "-B", branch]]) {
+    const result = await runSyncGit(runner, args);
+    if (!result.ok) return result;
+  }
+  return { ok: true };
+}
+
+export async function prepareSyncCheckout(
+  syncConfig: JsonRecord,
+  options?: SyncCheckoutPrepareOptions,
+): Promise<SyncCheckoutPrepareResult> {
+  const repo = typeof syncConfig.repo === "string" ? syncConfig.repo.trim() : "";
+  const configuredPath = typeof syncConfig.path === "string" ? syncConfig.path.trim() : "";
+  const branch = typeof syncConfig.branch === "string" && syncConfig.branch.trim()
+    ? syncConfig.branch.trim()
+    : "main";
+
+  if (!repo || !isGitRemoteUrl(repo)) {
+    return {
+      status: configuredPath && existsSync(configuredPath) ? "ready" : "not_applicable",
+      path: configuredPath || undefined,
+      message: configuredPath
+        ? `Using configured local sync path: ${configuredPath}`
+        : "No remote sync repo URL was configured for checkout preparation.",
+    };
+  }
+
+  const path = configuredPath || defaultLocalSyncPath();
+  const nextCommand = manualCloneCommand(repo, branch, path);
+  if (existsSync(path)) {
+    if (isGitCheckout(path)) {
+      return { status: "ready", path, message: `Sync checkout already exists at ${path}; skipping clone.` };
+    }
+    return {
+      status: "warning",
+      path,
+      message: `Sync path already exists but is not a git checkout: ${path}. Not overwriting it.`,
+      nextCommand,
+    };
+  }
+
+  ensureDir(dirname(path));
+  const runner = options?.cloneRunner ?? defaultSyncCloneRunner;
+  const clone = await runSyncGit(runner, ["clone", repo, path]);
+  let prepared = clone.ok && existsSync(path);
+  let fallbackMessage: string | undefined;
+
+  if (!prepared && isEmptyRemoteCloneFailure(clone.message)) {
+    cleanupInstallerCreatedPath(path);
+    const fallback = await initializeFallbackCheckout(repo, branch, path, runner);
+    prepared = fallback.ok;
+    fallbackMessage = fallback.ok ? `Remote had no ${branch} branch; initialized local checkout on ${branch}.` : fallback.message;
+  } else if (!prepared) {
+    cleanupInstallerCreatedPath(path);
+  }
+
+  if (prepared) {
+    ensureLedgerCheckpointFile(path);
+    const checkpoint = await commitAndPushInitialCheckpoint(path, branch, runner);
+    const suffix = fallbackMessage ? ` ${fallbackMessage}` : "";
+    if (!checkpoint.ok) {
+      return {
+        status: "warning",
+        path,
+        message: `Prepared private sync checkout at ${path}, but initial checkpoint push failed: ${checkpoint.warning}.${suffix}`,
+        nextCommand,
+      };
+    }
+    return { status: "ready", path, message: `Prepared private sync checkout at ${path} and pushed initial checkpoint to origin ${branch}.${suffix}` };
+  }
+
+  return {
+    status: "warning",
+    path,
+    message: `Could not prepare private sync checkout: ${clone.message ?? fallbackMessage ?? "unknown git failure"}`,
+    nextCommand,
+  };
+}
+
+export function shouldPromptForSyncConfig(
+  options?: InstallHarnessOptions,
+  syncConfig?: JsonRecord,
+): boolean {
+  const mode = options?.promptSync ?? (options?.configureSync ? "always" : "auto");
+  if (mode === "never" || isTruthyEnv(process.env.CI) || !isInteractiveTerminal()) {
+    return false;
+  }
+  if (hasConfiguredSyncRepo(syncConfig)) {
+    return false;
+  }
+  if (mode === "always" || options?.configureSync === true) {
+    return true;
+  }
+  return true;
+}
+
+async function promptLine(question: string, defaultValue = ""): Promise<string> {
+  process.stdout.write(defaultValue ? `${question} (${defaultValue}): ` : `${question}: `);
+
+  return await new Promise<string>((resolvePromise) => {
+    let value = "";
+    const onData = (chunk: Buffer) => {
+      value += chunk.toString();
+      if (!value.includes("\n")) return;
+      process.stdin.off("data", onData);
+      resolvePromise(value.trim() || defaultValue);
+    };
+    process.stdin.on("data", onData);
+  });
+}
+
+async function withPromptStdinCleanup<T>(callback: () => Promise<T>): Promise<T> {
+  try {
+    return await callback();
+  } finally {
+    if (typeof process.stdin.pause === "function") {
+      process.stdin.pause();
+    }
+  }
+}
+
+async function promptYesNo(question: string, defaultValue: boolean): Promise<boolean> {
+  const suffix = defaultValue ? "Y/n" : "y/N";
+  const answer = (await promptLine(`${question} [${suffix}]`)).trim().toLowerCase();
+  if (!answer) return defaultValue;
+  return answer === "y" || answer === "yes";
+}
+
+function getExistingSyncConfig(filePath: string): JsonRecord {
+  const config = readJsonLike(filePath);
+  const orchestration = config.orchestration;
+  if (!orchestration || typeof orchestration !== "object" || Array.isArray(orchestration)) {
+    return {};
+  }
+  const sync = (orchestration as JsonRecord).sync;
+  if (!sync || typeof sync !== "object" || Array.isArray(sync)) {
+    return {};
+  }
+  return sync as JsonRecord;
+}
+
+function writeUserSyncConfig(filePath: string, syncConfig: JsonRecord): void {
+  const config = readJsonLike(filePath);
+  const orchestration =
+    config.orchestration && typeof config.orchestration === "object" && !Array.isArray(config.orchestration)
+      ? { ...(config.orchestration as JsonRecord) }
+      : {};
+  const previousSync =
+    orchestration.sync && typeof orchestration.sync === "object" && !Array.isArray(orchestration.sync)
+      ? (orchestration.sync as JsonRecord)
+      : {};
+
+  config.orchestration = {
+    ...orchestration,
+    sync: { ...previousSync, ...syncConfig },
+  };
+  writeJson(filePath, config);
+}
+
+function getRecoverableSyncConfig(existingSync: JsonRecord): JsonRecord {
+  if (hasConfiguredSyncRepo(existingSync)) return existingSync;
+  return recoverSyncConfigFromDurableCheckout();
+}
+
+export async function configureSyncRepoPrompt(
+  harnessConfigPath: string,
+  options?: SyncCheckoutPrepareOptions,
+): Promise<boolean> {
+  return await withPromptStdinCleanup(async () => {
+    const shouldConfigure = await promptYesNo("Configure private ledger sync repo now?", false);
+    if (!shouldConfigure) return false;
+
+    const existingSync = getExistingSyncConfig(harnessConfigPath);
+    const defaultRepo =
+      typeof existingSync.repo === "string"
+        ? existingSync.repo
+        : typeof existingSync.path === "string"
+          ? existingSync.path
+          : typeof existingSync.url === "string"
+            ? existingSync.url
+            : "";
+    const defaultBranch = typeof existingSync.branch === "string" ? existingSync.branch : "main";
+    const repo = (await promptLine("Private ledger sync repo URL or path", defaultRepo)).trim();
+    const branch = (await promptLine("Sync branch", defaultBranch)).trim() || "main";
+
+    if (!repo) {
+      console.log("[opencode-pair] Sync repo not configured; repo URL/path was empty.");
+      return false;
+    }
+
+    const nextSyncConfig = {
+      enabled: true,
+      ...classifySyncRepoInput(repo),
+      branch,
+    };
+    writeUserSyncConfig(harnessConfigPath, nextSyncConfig);
+    console.log(`[opencode-pair] Saved private ledger sync repo settings to ${harnessConfigPath}`);
+    const prep = await prepareSyncCheckout(nextSyncConfig, options);
+    console.log(`[opencode-pair] ${prep.message}`);
+    if (prep.nextCommand) {
+      console.log(`[opencode-pair] Manual next command: ${prep.nextCommand}`);
+    }
+    return true;
+  });
+}
+
+async function maybeConfigureSyncRepo(
+  harnessConfigPath: string,
+  options?: InstallHarnessOptions,
+): Promise<boolean> {
+  const existingSync = getExistingSyncConfig(harnessConfigPath);
+  const recoverableSync = getRecoverableSyncConfig(existingSync);
+  const recovered = !hasConfiguredSyncRepo(existingSync) && hasConfiguredSyncRepo(recoverableSync);
+  if (recovered) {
+    writeUserSyncConfig(harnessConfigPath, recoverableSync);
+    console.log(`[opencode-pair] Recovered private ledger sync config from durable checkout at ${String(recoverableSync.path)}; skipping prompt.`);
+  }
+
+  if (!shouldPromptForSyncConfig(options, recoverableSync)) {
+    const repo = typeof recoverableSync.repo === "string" ? recoverableSync.repo.trim() : "";
+    const configuredPath = typeof recoverableSync.path === "string" ? recoverableSync.path.trim() : "";
+    const localPath = configuredPath || (repo && isGitRemoteUrl(repo) ? defaultLocalSyncPath() : "");
+    if (hasConfiguredSyncRepo(recoverableSync) && localPath && existsSync(localPath)) {
+      console.log(`[opencode-pair] Existing private ledger sync path found at ${localPath}; skipping checkout preparation.`);
+    } else if (hasConfiguredSyncRepo(recoverableSync)) {
+      console.log("[opencode-pair] Private ledger sync config is present; checkout preparation was skipped because this install is non-interactive or already configured.");
+      if (repo && isGitRemoteUrl(repo)) {
+        const branch = typeof recoverableSync.branch === "string" && recoverableSync.branch.trim() ? recoverableSync.branch.trim() : "main";
+        console.log(`[opencode-pair] Manual next command: ${manualCloneCommand(repo, branch, localPath || defaultLocalSyncPath())}`);
+      }
+    }
+    return recovered;
+  }
+  return await configureSyncRepoPrompt(harnessConfigPath);
 }
 
 const DEFAULT_NOTIFIER_CONFIG: JsonRecord = {
@@ -556,6 +1074,114 @@ export function syncManagedMcp(
   });
 }
 
+function isTextBusyError(error: unknown): boolean {
+  return error instanceof Error && /ETXTBSY|text file busy/i.test(error.message);
+}
+
+export function webAgentTargetBusyMessage(targetRoot: string): string {
+  return `Could not sync web-agent-mcp because a target binary is still busy. Stop the web-agent daemon/service, then rerun install: systemctl --user stop opencode-pair-web-agent.service; cd ${quoteShell(targetRoot)} && bun run daemon:stop`;
+}
+
+function webAgentDaemonRegistryPath(env: NodeJS.ProcessEnv): string {
+  return join(String(env.WEB_AGENT_DAEMON_DATA_DIR), "daemon.json");
+}
+
+function readWebAgentDaemonPid(env: NodeJS.ProcessEnv): number | undefined {
+  try {
+    const registry = JSON.parse(readFileSync(webAgentDaemonRegistryPath(env), "utf8")) as { pid?: unknown };
+    return typeof registry.pid === "number" ? registry.pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForWebAgentDaemonExit(
+  env: NodeJS.ProcessEnv,
+  options?: WebAgentDaemonStopOptions,
+): Promise<boolean> {
+  const pid = readWebAgentDaemonPid(env);
+  if (!pid) return true;
+
+  const isRunning = options?.isProcessRunning ?? isProcessRunning;
+  const timeoutMs = options?.timeoutMs ?? WEB_AGENT_STOP_WAIT_TIMEOUT_MS;
+  const pollIntervalMs = options?.pollIntervalMs ?? WEB_AGENT_STOP_WAIT_POLL_MS;
+  const deadline = Date.now() + timeoutMs;
+
+  while (isRunning(pid)) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, pollIntervalMs));
+  }
+
+  return true;
+}
+
+export async function stopManagedWebAgentDaemonForSync(
+  mcpDir = getManagedMcpRoot("web-agent-mcp"),
+  runner: CommandRunner = defaultCommandRunner,
+  options?: WebAgentDaemonStopOptions,
+): Promise<WebAgentDaemonStopResult> {
+  const commands = [
+    "systemctl --user stop opencode-pair-web-agent.service",
+    `cd ${quoteShell(mcpDir)} && bun run daemon:stop`,
+  ];
+
+  if (!existsSync(join(mcpDir, "package.json"))) {
+    return {
+      status: "skipped",
+      message: `web-agent-mcp is not installed at ${mcpDir}; daemon stop before sync skipped.`,
+      commands,
+    };
+  }
+
+  const systemdAvailable = await runner("systemctl", ["--user", "--version"], { cwd: mcpDir, env: process.env });
+  if (systemdAvailable.ok) {
+    const serviceStop = await runner("systemctl", ["--user", "stop", "opencode-pair-web-agent.service"], {
+      cwd: mcpDir,
+      env: process.env,
+    });
+    if (!serviceStop.ok) {
+      return {
+        status: "warning",
+        message: `Could not stop opencode-pair-web-agent.service before syncing web-agent-mcp: ${serviceStop.message ?? "unknown failure"}. Stop it manually with: systemctl --user stop opencode-pair-web-agent.service`,
+        commands,
+      };
+    }
+  }
+
+  const env = webAgentDaemonEnv();
+  const daemonStop = await runner("bun", ["run", "daemon:stop"], { cwd: mcpDir, env });
+  if (!daemonStop.ok) {
+    return {
+      status: "warning",
+      message: `Could not stop existing web-agent MCP daemon before syncing web-agent-mcp: ${daemonStop.message ?? "unknown failure"}. Stop it manually with: cd ${quoteShell(mcpDir)} && bun run daemon:stop`,
+      commands,
+    };
+  }
+
+  if (!(await waitForWebAgentDaemonExit(env, options))) {
+    return {
+      status: "warning",
+      message: `Timed out waiting for existing web-agent MCP daemon to exit before syncing web-agent-mcp. Stop it manually with: systemctl --user stop opencode-pair-web-agent.service; cd ${quoteShell(mcpDir)} && bun run daemon:stop`,
+      commands,
+    };
+  }
+
+  return {
+    status: "stopped",
+    message: `Stopped existing web-agent MCP service/daemon before syncing ${mcpDir}.`,
+    commands,
+  };
+}
+
 function installSelfContainedMcps(): void {
   for (const name of MCP_NAMES) {
     const sourceRoot = bundledMcpSourceRoot(name);
@@ -564,7 +1190,14 @@ function installSelfContainedMcps(): void {
     }
 
     const targetRoot = getManagedMcpRoot(name);
-    syncManagedMcp(name, sourceRoot, targetRoot);
+    try {
+      syncManagedMcp(name, sourceRoot, targetRoot);
+    } catch (error) {
+      if (name === "web-agent-mcp" && isTextBusyError(error)) {
+        throw new Error(webAgentTargetBusyMessage(targetRoot), { cause: error });
+      }
+      throw error;
+    }
   }
 }
 
@@ -605,7 +1238,7 @@ async function installManagedMcpDeps(
   await new Promise<void>((resolvePromise, rejectPromise) => {
     const child = spawn(command, args, {
       cwd: mcpDir,
-      stdio: "inherit",
+      stdio: INSTALLER_CHILD_STDIO,
     });
     child.on("error", rejectPromise);
     child.on("exit", (code) => {
@@ -631,6 +1264,142 @@ async function ensureManagedMcpDependencies(): Promise<void> {
         `[opencode-pair] Failed to install ${name} dependencies: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+  }
+}
+
+export async function restartManagedWebAgentDaemon(
+  mcpDir = getManagedMcpRoot("web-agent-mcp"),
+  runner: CommandRunner = defaultCommandRunner,
+): Promise<WebAgentDaemonRestartResult> {
+  if (!existsSync(join(mcpDir, "package.json"))) {
+    return {
+      status: "skipped",
+      message: `web-agent-mcp is not installed at ${mcpDir}; daemon restart skipped.`,
+    };
+  }
+
+  const env = webAgentDaemonEnv();
+  const stop = await runner("bun", ["run", "daemon:stop"], { cwd: mcpDir, env });
+  if (!stop.ok) {
+    return {
+      status: "warning",
+      message: `Could not stop existing web-agent MCP daemon: ${stop.message ?? "unknown failure"}`,
+      command: `cd ${quoteShell(mcpDir)} && bun run daemon:stop`,
+    };
+  }
+
+  const start = await runner("bun", ["run", "daemon"], { cwd: mcpDir, env, detached: true });
+  if (!start.ok) {
+    return {
+      status: "warning",
+      message: `Could not restart web-agent MCP daemon: ${start.message ?? "unknown failure"}`,
+      command: `cd ${quoteShell(mcpDir)} && bun run daemon`,
+    };
+  }
+
+  return {
+    status: "restarted",
+    message: `Restarted web-agent MCP daemon from ${mcpDir}; durable profile and registry directories were not removed.`,
+    command: `cd ${quoteShell(mcpDir)} && bun run daemon:stop && bun run daemon`,
+  };
+}
+
+function systemdUserServicePath(): string {
+  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+  return join(configHome, "systemd", "user", "opencode-pair-web-agent.service");
+}
+
+function webAgentAutostartServiceContent(mcpDir: string): string {
+  return `[Unit]
+Description=opencode-pair global web-agent MCP daemon
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=${mcpDir}
+ExecStart=/usr/bin/env bun run daemon
+Restart=on-failure
+RestartSec=5
+Environment=WEB_AGENT_MCP_HOST=127.0.0.1
+Environment=WEB_AGENT_DAEMON=true
+Environment=WEB_AGENT_DAEMON_DATA_DIR=%h/.local/share/opencode-pair/web-agent
+
+[Install]
+WantedBy=default.target
+`;
+}
+
+export async function installWebAgentAutostart(
+  mcpDir = getManagedMcpRoot("web-agent-mcp"),
+  runner: CommandRunner = defaultCommandRunner,
+): Promise<WebAgentAutostartResult> {
+  if (!existsSync(join(mcpDir, "package.json"))) {
+    return {
+      status: "skipped",
+      message: `web-agent-mcp is not installed at ${mcpDir}; autostart setup skipped.`,
+      commands: [],
+    };
+  }
+
+  const servicePath = systemdUserServicePath();
+  const serviceName = "opencode-pair-web-agent.service";
+  const statusCommand = `systemctl --user status ${serviceName}`;
+  const commands = [
+    "systemctl --user daemon-reload",
+    `systemctl --user enable ${serviceName}`,
+    `systemctl --user restart ${serviceName}`,
+    statusCommand,
+    `systemctl --user disable --now ${serviceName}`,
+  ];
+
+  ensureDir(dirname(servicePath));
+  writeFileSync(servicePath, webAgentAutostartServiceContent(mcpDir), "utf8");
+
+  const available = await runner("systemctl", ["--user", "--version"], { cwd: mcpDir, env: process.env });
+  if (!available.ok) {
+    return {
+      status: "fallback",
+      message: `Wrote web-agent systemd user service to ${servicePath}, but systemctl --user is unavailable: ${available.message ?? "unknown failure"}. Start manually with: cd ${quoteShell(mcpDir)} && bun run daemon`,
+      servicePath,
+      commands,
+    };
+  }
+
+  for (const args of [["--user", "daemon-reload"], ["--user", "enable", serviceName], ["--user", "restart", serviceName]]) {
+    const result = await runner("systemctl", args, { cwd: mcpDir, env: process.env });
+    if (!result.ok) {
+      return {
+        status: "warning",
+        message: `Wrote web-agent systemd user service to ${servicePath}, but systemctl ${args.join(" ")} failed: ${result.message ?? "unknown failure"}`,
+        servicePath,
+        commands,
+      };
+    }
+  }
+
+  return {
+    status: "enabled",
+    message: `Enabled web-agent MCP user autostart at ${servicePath} and restarted ${serviceName}; durable profile and registry directories were not removed.`,
+    servicePath,
+    commands,
+  };
+}
+
+async function ensureWebAgentDaemonAutostart(): Promise<void> {
+  const autostart = await installWebAgentAutostart();
+  if (autostart.status === "enabled") {
+    console.log(`[opencode-pair] ${autostart.message}`);
+    return;
+  }
+  if (autostart.status === "fallback" || autostart.status === "warning") {
+    console.warn(`[opencode-pair] ${autostart.message}`);
+  }
+  const daemonRestart = await restartManagedWebAgentDaemon();
+  if (daemonRestart.status === "warning") {
+    console.warn(`[opencode-pair] ${daemonRestart.message}`);
+    console.warn(`[opencode-pair] Manual web-agent daemon command: ${daemonRestart.command}`);
+  } else {
+    console.log(`[opencode-pair] ${daemonRestart.message}`);
   }
 }
 
@@ -682,7 +1451,7 @@ function updateConfig(paths: ReturnType<typeof getConfigPaths>): string {
     config.instructions,
     paths.shellStrategyDir,
   );
-  config.default_agent = "mrrobot";
+  config.default_agent = PRIMARY_AGENT;
   forceAllowPermissions(config);
   writeJson(detected.path, config);
   return detected.path;
@@ -747,7 +1516,7 @@ async function runBunInstall(configDir: string): Promise<void> {
   await new Promise<void>((resolvePromise, rejectPromise) => {
     const child = spawn("bun", ["install"], {
       cwd: configDir,
-      stdio: "inherit",
+      stdio: INSTALLER_CHILD_STDIO,
     });
 
     child.on("error", rejectPromise);
@@ -775,7 +1544,7 @@ async function ensureInstalledHarnessBuild(configDir: string): Promise<void> {
   await new Promise<void>((resolvePromise, rejectPromise) => {
     const child = spawn("bun", ["run", "build"], {
       cwd: packageDir,
-      stdio: "inherit",
+      stdio: INSTALLER_CHILD_STDIO,
     });
 
     child.on("error", rejectPromise);
@@ -1000,10 +1769,11 @@ async function ensureSearxngJsonFormat(): Promise<void> {
   await dockerExec(["restart", SEARXNG_CONTAINER_NAME]);
 }
 
-export async function installHarness(options?: { fresh?: boolean }): Promise<{
+export async function installHarness(options?: InstallHarnessOptions): Promise<{
   configPath: string;
   packageJsonPath: string;
   harnessConfigPath: string;
+  syncConfigured: boolean;
 }> {
   const configDir = getConfigDir();
   const paths = getConfigPaths(configDir);
@@ -1018,13 +1788,19 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{
   ensureSkillsDir(paths.skillsDir);
 
   await installShellStrategyInstruction(paths.shellStrategyDir);
+  const webAgentStop = await stopManagedWebAgentDaemonForSync();
+  if (webAgentStop.status === "warning") {
+    throw new Error(webAgentStop.message);
+  }
   installSelfContainedMcps();
   await ensureManagedMcpDependencies();
+  await ensureWebAgentDaemonAutostart();
   installBundledSkills(paths.skillsDir);
   await ensureSearxngContainer();
   const configPath = updateConfig(paths);
   const packageJsonPath = updatePackageJson(paths);
   writeHarnessConfig(paths.harnessConfig);
+  const syncConfigured = await maybeConfigureSyncRepo(paths.harnessConfig, options);
   writeNotifierConfig(paths.notifierConfig);
   await runBunInstall(configDir);
   await ensureInstalledHarnessBuild(configDir);
@@ -1032,6 +1808,7 @@ export async function installHarness(options?: { fresh?: boolean }): Promise<{
     configPath,
     packageJsonPath,
     harnessConfigPath: paths.harnessConfig,
+    syncConfigured,
   };
 }
 

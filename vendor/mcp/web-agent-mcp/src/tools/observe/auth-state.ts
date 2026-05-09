@@ -6,7 +6,7 @@ import {
   authStateInputSchema,
   observeAuthStateOutputSchema
 } from "../../schemas/observe.js";
-import { createToolSuccess } from "../../schemas/common.js";
+import { createToolSuccess, toToolInputSchema } from "../../schemas/common.js";
 import type { RuntimeServices } from "../../server.js";
 
 export function registerObserveAuthStateTool(server: McpServer, services: RuntimeServices) {
@@ -15,7 +15,7 @@ export function registerObserveAuthStateTool(server: McpServer, services: Runtim
     {
       title: "Observe Auth State",
       description: "Classify login flows using page text, frames, and recent network activity.",
-      inputSchema: authStateInputSchema,
+      inputSchema: toToolInputSchema(authStateInputSchema),
       outputSchema: observeAuthStateOutputSchema,
       annotations: {
         readOnlyHint: true,
@@ -26,6 +26,7 @@ export function registerObserveAuthStateTool(server: McpServer, services: Runtim
     },
     async (input: z.infer<typeof authStateInputSchema>) => {
       try {
+        const startedAt = Date.now();
         const action = await services.history.startAction("observe.auth_state", input, {
           session_id: input.session_id,
           page_id: input.page_id
@@ -57,6 +58,7 @@ export function registerObserveAuthStateTool(server: McpServer, services: Runtim
 
         const data = {
           snapshot_id: artifact.artifact_id,
+          elapsed_ms: Date.now() - startedAt,
           url: result.url,
           title: result.title,
           state: result.state,

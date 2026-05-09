@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RuntimeServices } from "../../server.js";
+import { toToolInputSchema } from "../../schemas/common.js";
 import { actionResultSchema, fillInputSchema } from "../../schemas/act.js";
 import {
   createActionFailureResponse,
@@ -13,7 +14,7 @@ export function registerFillTool(server: McpServer, services: RuntimeServices) {
     {
       title: "Fill Input",
       description: "Fill a form input using a CSS selector.",
-      inputSchema: fillInputSchema,
+      inputSchema: toToolInputSchema(fillInputSchema),
       outputSchema: actionResultSchema,
       annotations: {
         readOnlyHint: false,
@@ -39,7 +40,7 @@ export function registerFillTool(server: McpServer, services: RuntimeServices) {
             timeoutMs: input.timeout_ms,
           },
         );
-        const data = { verificationHint: result.verificationHint };
+        const data = { verificationHint: result.verificationHint, formState: result.formState };
         services.sessions.recordSuccess(session.sessionId);
         await services.history.finishAction(action, "succeeded", data);
         return createActionSuccessResult({
@@ -48,6 +49,11 @@ export function registerFillTool(server: McpServer, services: RuntimeServices) {
           pageId: page.pageId,
           appliedMode: "semantic",
           verificationHint: result.verificationHint,
+          elapsedMs: result.elapsedMs,
+          waitedFor: result.waitedFor,
+          before: result.before,
+          after: result.after,
+          formState: result.formState,
           targetSelectorKnown: true,
         });
       } catch (error) {

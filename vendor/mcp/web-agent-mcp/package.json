@@ -9,6 +9,10 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "daemon": "tsx src/server.ts --daemon",
+    "daemon:status": "tsx src/server.ts --daemon-status",
+    "daemon:stop": "tsx src/server.ts --daemon-stop",
+    "daemon:restart": "tsx src/server.ts --daemon-stop && tsx src/server.ts --daemon",
     "dev": "tsx src/server.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"

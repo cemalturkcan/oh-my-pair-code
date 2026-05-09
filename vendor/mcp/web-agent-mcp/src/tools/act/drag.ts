@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RuntimeServices } from "../../server.js";
+import { toToolInputSchema } from "../../schemas/common.js";
 import { actionResultSchema, dragInputSchema } from "../../schemas/act.js";
 import { createActionFailureResponse, createActionSuccessResult } from "./shared.js";
 
@@ -10,7 +11,7 @@ export function registerDragTool(server: McpServer, services: RuntimeServices) {
     {
       title: "Drag Between Elements",
       description: "Drag from one selector to another using mouse input.",
-      inputSchema: dragInputSchema,
+      inputSchema: toToolInputSchema(dragInputSchema),
       outputSchema: actionResultSchema,
       annotations: {
         readOnlyHint: false,
@@ -40,6 +41,10 @@ export function registerDragTool(server: McpServer, services: RuntimeServices) {
           pageId: page.pageId,
           appliedMode: "physical",
           verificationHint: result.verificationHint,
+          elapsedMs: result.elapsedMs,
+          waitedFor: result.waitedFor,
+          before: result.before,
+          after: result.after,
           targetSelectorKnown: true
         });
       } catch (error) {

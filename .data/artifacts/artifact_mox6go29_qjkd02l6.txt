@@ -1,0 +1,10 @@
+{
+  "heading": "Smoke Ready",
+  "name": "Ada",
+  "count": "1",
+  "delayed": "Delayed OK",
+  "page": {
+    "url": "data:text/html,%3C!doctype%20html%3E%3Chtml%3E%3Chead%3E%3Ctitle%3ERunPageScript%20Smoke%3C%2Ftitle%3E%3C%2Fhead%3E%3Cbody%3E%3Ch1%20id%3D%22title%22%3ESmoke%20Ready%3C%2Fh1%3E%3Cinput%20id%3D%22name%22%20%2F%3E%3Cbutton%20id%3D%22btn%22%20onclick%3D%22document.getElementById('count').textContent%3DString(Number(document.getElementById('count').textContent)%2B1)%22%3EClick%3C%2Fbutton%3E%3Cspan%20id%3D%22count%22%3E0%3C%2Fspan%3E%3Cscript%3EsetTimeout(()%3D%3E%7Bconst%20p%3Ddocument.createElement('p')%3Bp.id%3D'delayed'%3Bp.textContent%3D'Delayed%20OK'%3Bdocument.body.appendChild(p)%3B%7D%2C50)%3C%2Fscript%3E%3C%2Fbody%3E%3C%2Fhtml%3E",
+    "title": "RunPageScript Smoke"
+  }
+}

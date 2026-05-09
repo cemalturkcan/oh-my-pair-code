@@ -5,7 +5,7 @@ import {
   waitForNetworkInputSchema,
   waitForNetworkOutputSchema
 } from "../../schemas/observe.js";
-import { createToolSuccess } from "../../schemas/common.js";
+import { createToolSuccess, toToolInputSchema } from "../../schemas/common.js";
 import type { RuntimeServices } from "../../server.js";
 
 export function registerWaitForNetworkTool(server: McpServer, services: RuntimeServices) {
@@ -14,7 +14,7 @@ export function registerWaitForNetworkTool(server: McpServer, services: RuntimeS
     {
       title: "Wait For Network",
       description: "Wait for a matching network response or failure in the active page session.",
-      inputSchema: waitForNetworkInputSchema,
+      inputSchema: toToolInputSchema(waitForNetworkInputSchema),
       outputSchema: waitForNetworkOutputSchema,
       annotations: {
         readOnlyHint: true,
@@ -44,7 +44,11 @@ export function registerWaitForNetworkTool(server: McpServer, services: RuntimeS
 
         const data = {
           entry: result.entry,
-          elapsed_ms: result.elapsedMs
+          elapsed_ms: result.elapsedMs,
+          waited_for: [
+            `Polled recent network entries every ${input.poll_interval_ms}ms for up to ${input.timeout_ms}ms.`,
+            `Matched ${input.use_regex ? "regex" : "substring"} URL pattern ${input.url_pattern}${input.status ? ` with status ${input.status}` : ""}${input.outcome ? ` and outcome ${input.outcome}` : ""}.`
+          ]
         };
 
         await services.history.finishAction(action, "succeeded", {

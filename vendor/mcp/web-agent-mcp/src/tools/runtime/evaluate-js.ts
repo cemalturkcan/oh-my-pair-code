@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RuntimeServices } from "../../server.js";
 import { createFailureResult } from "../../core/errors.js";
-import { createToolSuccess } from "../../schemas/common.js";
+import { createToolSuccess, toToolInputSchema } from "../../schemas/common.js";
 import { evaluateJsInputSchema, evaluateJsOutputSchema } from "../../schemas/runtime.js";
 
 const INLINE_LIMIT = 8000;
@@ -13,7 +13,7 @@ export function registerEvaluateJsTool(server: McpServer, services: RuntimeServi
     {
       title: "Evaluate Runtime JavaScript",
       description: "Evaluate a JavaScript expression in the current page context and persist the result as an artifact.",
-      inputSchema: evaluateJsInputSchema,
+      inputSchema: toToolInputSchema(evaluateJsInputSchema),
       outputSchema: evaluateJsOutputSchema,
       annotations: {
         readOnlyHint: false,

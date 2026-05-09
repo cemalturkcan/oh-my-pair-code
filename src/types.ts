@@ -19,7 +19,19 @@ export type AgentOverride = {
 };
 
 export type WorkflowConfig = {
-  compact_subagent_context?: boolean;
+  compact_worker_context?: boolean;
+};
+
+export type OrchestrationConfig = {
+  ledger_path?: string;
+  project_marker_path?: string;
+  sync?: {
+    enabled?: boolean;
+    repo?: string;
+    url?: string;
+    path?: string;
+    branch?: string;
+  };
 };
 
 export type HarnessConfig = {
@@ -33,9 +45,11 @@ export type HarnessConfig = {
     session_start?: boolean;
     pre_tool_use?: boolean;
     task_tracking?: boolean;
+    compaction?: boolean;
     session_end?: boolean;
   };
   workflow?: WorkflowConfig;
+  orchestration?: OrchestrationConfig;
   mcps?: McpToggles;
   agents?: Record<string, AgentOverride>;
 };

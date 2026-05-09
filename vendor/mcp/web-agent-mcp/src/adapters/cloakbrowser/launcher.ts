@@ -13,6 +13,7 @@ import type {
   AdapterEvaluateResult,
   AdapterNetworkEntry,
   AdapterNavigationResult,
+  AdapterPageIdentity,
   AdapterPageStateResult,
   AdapterScreenshotResult,
   AdapterSessionCreateInput,
@@ -50,8 +51,67 @@ function normalizeWhitespace(text: string) {
   return normalizeAuthText(text);
 }
 
-function attachEventBuffers(
+function consoleBridgeSource(bridgeName: string) {
+  return String.raw`(() => {
+  const globalWindow = window;
+  const bridgeName = ${JSON.stringify(bridgeName)};
+  globalWindow.__webAgentMcpConsoleBuffer ||= [];
+  if (globalWindow.__webAgentMcpConsoleInstalled) return;
+  globalWindow.__webAgentMcpConsoleInstalled = true;
+  ["log", "info", "warn", "error", "debug"].forEach((type) => {
+    const original = console[type]?.bind(console);
+    if (!original) return;
+    console[type] = (...args) => {
+      try {
+        const entry = {
+          type,
+          text: args.map((arg) => typeof arg === "string" ? arg : JSON.stringify(arg)).join(" "),
+        };
+        globalWindow.__webAgentMcpConsoleBuffer.push(entry);
+        globalWindow[bridgeName]?.({
+          type: entry.type,
+          text: entry.text,
+        });
+      } catch {
+        // Preserve page behavior if the bridge cannot serialize a log.
+      }
+      original(...args);
+    };
+  });
+})()`;
+}
+
+function consoleBridgeName(pageId: string) {
+  return `__webAgentMcpConsole_${pageId.replace(/[^a-zA-Z0-9_]/g, "_")}`;
+}
+
+async function installConsoleBridge(page: AdapterSessionHandle["page"], pageId: string) {
+  await page.evaluate?.(consoleBridgeSource(consoleBridgeName(pageId))).catch(() => undefined);
+}
+
+async function drainConsoleBridgeBuffer(
   page: AdapterSessionHandle["page"],
+  consoleEntries: AdapterConsoleEntry[],
+) {
+  const entries = await page.evaluate?.(String.raw`(() => {
+    const buffered = window.__webAgentMcpConsoleBuffer ?? [];
+    window.__webAgentMcpConsoleBuffer = [];
+    return buffered;
+  })()`).catch(() => []) ?? [];
+  for (const entry of entries as Array<{ type?: string; text?: string }>) {
+    if (entry?.text) {
+      pushLimited(consoleEntries, {
+        type: entry.type ?? "log",
+        text: entry.text,
+        timestamp: nowIso(),
+      });
+    }
+  }
+}
+
+async function attachEventBuffers(
+  page: AdapterSessionHandle["page"],
+  pageId: string,
   consoleEntries: AdapterConsoleEntry[],
   networkEntries: AdapterNetworkEntry[],
 ) {
@@ -86,6 +146,38 @@ function attachEventBuffers(
       timestamp: nowIso(),
     });
   });
+
+  const bridgeName = consoleBridgeName(pageId);
+  await page.exposeFunction?.(bridgeName, (entry: { type: string; text: string }) => {
+    pushLimited(consoleEntries, {
+      type: entry.type,
+      text: entry.text,
+      timestamp: nowIso(),
+    });
+  }).catch(() => undefined);
+  await page.addInitScript?.({ content: consoleBridgeSource(bridgeName) }).catch(() => undefined);
+  await installConsoleBridge(page, pageId);
+}
+
+class RunPageScriptTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`runtime.run_page_script timed out after ${timeoutMs}ms; the page was replaced to stop the script`);
+    this.name = "RunPageScriptTimeoutError";
+  }
+}
+
+async function withCleanupTimeout<T>(operation: Promise<T>, timeoutMs: number) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error(`cleanup timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 async function createPage(context: BrowserContext) {
@@ -110,18 +202,18 @@ type DocumentInspection = {
 async function inspectDocument(
   target: InspectableTarget,
 ): Promise<DocumentInspection> {
-  const snapshot = await target.evaluate(() => {
-    const normalize = (value: string | null | undefined) =>
+  const snapshot = await target.evaluate(String.raw`(() => {
+    const normalize = (value) =>
       value?.replace(/\s+/g, " ").trim() || undefined;
-    const isVisible = (element: Element) => {
-      const html = element as HTMLElement;
+    const isVisible = (element) => {
+      const html = element;
       return Boolean(
         html.offsetWidth || html.offsetHeight || html.getClientRects().length,
       );
     };
-    const summarizeElement = (element: Element) => ({
+    const summarizeElement = (element) => ({
       tag: element.tagName.toLowerCase(),
-      type: (element as HTMLInputElement).type || undefined,
+      type: element.type || undefined,
       id: element.id || undefined,
       name: element.getAttribute("name") || undefined,
       placeholder: element.getAttribute("placeholder") || undefined,
@@ -135,7 +227,7 @@ async function inspectDocument(
       .trim();
     const headings = Array.from(document.querySelectorAll("h1, h2, h3"))
       .map((node) => normalize(node.textContent))
-      .filter((value): value is string => Boolean(value))
+      .filter((value) => Boolean(value))
       .slice(0, 20);
 
     return {
@@ -155,7 +247,7 @@ async function inspectDocument(
         .slice(0, 20)
         .map(summarizeElement),
     };
-  });
+  })()`) as Omit<DocumentInspection, "truncated">;
 
   const truncated = truncateText(snapshot.text, 4000);
 
@@ -427,6 +519,51 @@ function didClickCauseProgress(
   );
 }
 
+function changedClickStateFields(
+  before: ClickStateSnapshot,
+  after: ClickStateSnapshot,
+) {
+  const fields: Array<keyof ClickStateSnapshot> = [
+    "pageUrl",
+    "connected",
+    "disabled",
+    "checked",
+    "ariaPressed",
+    "ariaExpanded",
+    "text",
+    "value",
+  ];
+  return fields.filter((field) => before[field] !== after[field]);
+}
+
+async function capturePageIdentity(page: Page) {
+  return {
+    url: page.url(),
+    title: await page.title(),
+  };
+}
+
+async function getInputType(locator: Locator) {
+  return locator
+    .first()
+    .evaluate((element) => {
+      if (element instanceof HTMLInputElement) {
+        return element.type || undefined;
+      }
+      if (element instanceof HTMLTextAreaElement) {
+        return "textarea";
+      }
+      if (element instanceof HTMLSelectElement) {
+        return "select";
+      }
+      if (element instanceof HTMLElement && element.isContentEditable) {
+        return "contenteditable";
+      }
+      return undefined;
+    })
+    .catch(() => undefined);
+}
+
 async function canUseDomClickFallback(locator: Locator) {
   return locator
     .first()
@@ -515,12 +652,13 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
         viewport: input.viewport,
       });
       const page = await createPage(context);
+      const pageId = createId("page");
       const consoleEntries: AdapterConsoleEntry[] = [];
       const networkEntries: AdapterNetworkEntry[] = [];
-      attachEventBuffers(page, consoleEntries, networkEntries);
+      await attachEventBuffers(page, pageId, consoleEntries, networkEntries);
       return {
         contextId: createId("context"),
-        pageId: createId("page"),
+        pageId,
         context,
         page,
         profileMode: input.profileMode,
@@ -540,12 +678,13 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       viewport: input.viewport,
     });
     const page = await context.newPage();
+    const pageId = createId("page");
     const consoleEntries: AdapterConsoleEntry[] = [];
     const networkEntries: AdapterNetworkEntry[] = [];
-    attachEventBuffers(page, consoleEntries, networkEntries);
+    await attachEventBuffers(page, pageId, consoleEntries, networkEntries);
     return {
       contextId: createId("context"),
-      pageId: createId("page"),
+      pageId,
       context,
       page,
       profileMode: input.profileMode,
@@ -560,19 +699,62 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
     await session.context.close();
   }
 
+  async createPage(session: AdapterSessionHandle): Promise<AdapterSessionHandle> {
+    const page = await session.context.newPage();
+    const pageId = createId("page");
+    const consoleEntries: AdapterConsoleEntry[] = [];
+    const networkEntries: AdapterNetworkEntry[] = [];
+    await attachEventBuffers(page, pageId, consoleEntries, networkEntries);
+    return {
+      ...session,
+      pageId,
+      page,
+      consoleEntries,
+      networkEntries,
+    };
+  }
+
+  async closePage(session: AdapterSessionHandle) {
+    await session.page.close();
+  }
+
+  async listPages(session: AdapterSessionHandle): Promise<AdapterPageIdentity[]> {
+    return Promise.all(
+      session.context.pages().map(async (page) => ({
+        pageId: page === session.page ? session.pageId : createId("page"),
+        url: page.url(),
+        title: page.isClosed() ? undefined : await page.title().catch(() => undefined),
+        closed: page.isClosed(),
+        viewport: page.viewportSize() ?? session.viewport,
+      })),
+    );
+  }
+
   async navigate(
     session: AdapterSessionHandle,
     url: string,
     waitUntil: WaitUntilState,
   ): Promise<AdapterNavigationResult> {
     const startedAt = Date.now();
+    const before = await capturePageIdentity(session.page);
     await session.page.goto(url, { waitUntil });
+    await installConsoleBridge(session.page, session.pageId);
+    const waitDescriptions: Record<WaitUntilState, string> = {
+      domcontentloaded: "Playwright page.goto waited for DOMContentLoaded.",
+      load: "Playwright page.goto waited for the load event.",
+      networkidle:
+        "Playwright page.goto waited for networkidle: no network connections for at least 500ms. This is visible because it can be slower and is discouraged as a default readiness check; prefer explicit selector/text/network waits.",
+    };
     return {
       pageId: session.pageId,
       requestedUrl: url,
       finalUrl: session.page.url(),
       title: await session.page.title(),
       elapsedMs: elapsedMs(startedAt),
+      waitUntil,
+      waitDescription: waitDescriptions[waitUntil],
+      networkidleDiscouraged: waitUntil === "networkidle" ? true : undefined,
+      before,
     };
   }
 
@@ -748,6 +930,27 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
     };
   }
 
+  async resizePage(
+    session: AdapterSessionHandle,
+    input: { width: number; height: number; deviceScaleFactor?: number; isMobile?: boolean },
+  ) {
+    const before = session.page.viewportSize() ?? session.viewport;
+    await session.page.setViewportSize({ width: input.width, height: input.height });
+    session.viewport = { width: input.width, height: input.height };
+    if (input.deviceScaleFactor !== undefined || input.isMobile !== undefined) {
+      await session.page.addInitScript(({ deviceScaleFactor, isMobile }) => {
+        Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: deviceScaleFactor ?? window.devicePixelRatio });
+        Object.defineProperty(navigator, "maxTouchPoints", { configurable: true, value: isMobile ? 1 : 0 });
+      }, { deviceScaleFactor: input.deviceScaleFactor, isMobile: input.isMobile });
+    }
+    return {
+      before,
+      viewport: session.page.viewportSize() ?? session.viewport,
+      deviceScaleFactor: input.deviceScaleFactor,
+      isMobile: input.isMobile,
+    };
+  }
+
   async observeBoxes(
     session: AdapterSessionHandle,
     selectors: string[],
@@ -774,6 +977,9 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
     session: AdapterSessionHandle,
     limit: number,
   ): Promise<AdapterConsoleEntry[]> {
+    await installConsoleBridge(session.page, session.pageId);
+    await session.page.waitForTimeout(50).catch(() => undefined);
+    await drainConsoleBridgeBuffer(session.page, session.consoleEntries);
     return session.consoleEntries.slice(-limit);
   }
 
@@ -834,11 +1040,11 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
     session: AdapterSessionHandle,
     input: { expression: string; awaitPromise: boolean },
   ): Promise<AdapterEvaluateResult> {
-    const value = await session.page.evaluate(
-      async ({ expression, awaitPromise }) => {
-        const seen = new WeakSet<object>();
+    const value = await session.page.evaluate(String.raw`(async () => {
+      const { expression, awaitPromise } = ${JSON.stringify(input)};
+        const seen = new WeakSet();
 
-        const normalize = (current: unknown): unknown => {
+        const normalize = (current) => {
           if (current === null || current === undefined) {
             return current;
           }
@@ -891,7 +1097,7 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
           }
 
           if (currentType === "object") {
-            const objectValue = current as Record<string, unknown>;
+            const objectValue = current;
             if (seen.has(objectValue)) {
               return { __type: "circular" };
             }
@@ -909,18 +1115,187 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
         const executed = (0, eval)(expression);
         const resolved = awaitPromise ? await executed : executed;
         return normalize(resolved);
-      },
-      {
-        expression: input.expression,
-        awaitPromise: input.awaitPromise,
-      },
-    );
+    })()`);
 
     return {
       url: session.page.url(),
       title: await session.page.title(),
       value,
     };
+  }
+
+  async runPageScript(
+    session: AdapterSessionHandle,
+    input: { script: string; timeoutMs: number },
+  ) {
+    const startedAt = Date.now();
+    const before = await capturePageIdentity(session.page);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const evaluation = session.page.evaluate(String.raw`(async () => {
+        const script = ${JSON.stringify(input.script)};
+        const timeoutMs = ${JSON.stringify(input.timeoutMs)};
+        const seen = new WeakSet();
+
+        const normalize = (current) => {
+          if (current === null || current === undefined) return current;
+          const currentType = typeof current;
+          if (currentType === "string" || currentType === "number" || currentType === "boolean") return current;
+          if (currentType === "bigint") return { __type: "bigint", value: String(current) };
+          if (currentType === "function") return { __type: "function" };
+          if (Array.isArray(current)) return current.map((item) => normalize(item));
+          if (current instanceof Date) return { __type: "date", value: current.toISOString() };
+          if (current instanceof Error) return { __type: "error", name: current.name, message: current.message };
+          if (current instanceof Element) {
+            return {
+              __type: "element",
+              tag: current.tagName.toLowerCase(),
+              id: current.id || undefined,
+              text: current.textContent?.replace(/\s+/g, " ").trim().slice(0, 500) || undefined,
+            };
+          }
+          if (currentType === "object") {
+            const objectValue = current;
+            if (seen.has(objectValue)) return { __type: "circular" };
+            seen.add(objectValue);
+            return Object.fromEntries(Object.entries(objectValue).map(([key, entry]) => [key, normalize(entry)]));
+          }
+          return { __type: currentType };
+        };
+
+        const query = (selector) => document.querySelector(selector);
+        const waitFor = async (target, timeout = timeoutMs) => {
+          const started = Date.now();
+          while (Date.now() - started <= Math.min(timeout, timeoutMs)) {
+            const matched = typeof target === "string" ? query(target) : await target();
+            if (matched) return matched;
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          throw new Error("Timed out waiting for " + (typeof target === "string" ? target : "predicate"));
+        };
+        const setValue = (selector, value) => {
+          const element = query(selector);
+          if (!element) throw new Error("Selector not found: " + selector);
+          element.value = value;
+          element.dispatchEvent(new Event("input", { bubbles: true }));
+          element.dispatchEvent(new Event("change", { bubbles: true }));
+          return true;
+        };
+
+        const helpers = Object.freeze({
+          text: (selector) => query(selector)?.textContent?.trim() ?? null,
+          value: (selector) => query(selector)?.value ?? null,
+          setValue,
+          click: (selector) => {
+            const element = query(selector);
+            if (!element) throw new Error("Selector not found: " + selector);
+            element.click();
+            return true;
+          },
+          exists: (selector) => Boolean(query(selector)),
+          waitFor,
+          assert: (condition, message = "Assertion failed") => {
+            if (!condition) throw new Error(message);
+            return true;
+          },
+          sleep: (ms) => new Promise((resolve) => setTimeout(resolve, Math.min(ms, timeoutMs))),
+          json: (value) => value,
+          page: () => ({ url: location.href, title: document.title }),
+        });
+
+        const blockedGlobal = undefined;
+        const runner = new Function(
+          "helpers",
+          "Function",
+          "require",
+          "process",
+          "fs",
+          "child_process",
+          "Deno",
+          "Bun",
+          "globalThis",
+          "window",
+          "self",
+          "top",
+          "frames",
+          "\"use strict\"; return (async () => { " + script + "\n})()",
+        );
+        const execution = Promise.resolve(
+          runner(
+            helpers,
+            blockedGlobal,
+            blockedGlobal,
+            blockedGlobal,
+            blockedGlobal,
+            blockedGlobal,
+            blockedGlobal,
+            blockedGlobal,
+            blockedGlobal,
+            blockedGlobal,
+            blockedGlobal,
+            blockedGlobal,
+            blockedGlobal,
+          ),
+        );
+        const timeout = new Promise((_resolve, reject) =>
+          setTimeout(() => reject(new Error("runtime.run_page_script timed out after " + timeoutMs + "ms")), timeoutMs),
+        );
+        return normalize(await Promise.race([execution, timeout]));
+      })()`);
+    const timeoutGuard = new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => reject(new RunPageScriptTimeoutError(input.timeoutMs)), input.timeoutMs);
+    });
+
+    let value: unknown;
+    try {
+      value = await Promise.race([evaluation, timeoutGuard]);
+    } catch (error) {
+      if (error instanceof RunPageScriptTimeoutError) {
+        evaluation.catch(() => undefined);
+        try {
+          await withCleanupTimeout(session.page.close({ runBeforeUnload: false }), Math.min(1000, input.timeoutMs));
+        } finally {
+          const page = await withCleanupTimeout(session.context.newPage(), Math.min(1000, input.timeoutMs));
+          await attachEventBuffers(page, session.pageId, session.consoleEntries, session.networkEntries);
+          session.page = page;
+        }
+      }
+      throw error;
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+    const after = await capturePageIdentity(session.page);
+
+    return {
+      before,
+      after,
+      elapsedMs: elapsedMs(startedAt),
+      value,
+    };
+  }
+
+  async injectCss(
+    session: AdapterSessionHandle,
+    input: { cssId: string; css: string },
+  ) {
+    const content = `/* web-agent-mcp css_id=${input.cssId} */\n${input.css}`;
+    await session.page.addStyleTag({ content }).then(async (handle) => {
+      await handle.evaluate((element, cssId) => {
+        (element as HTMLElement).setAttribute("data-web-agent-css-id", cssId);
+      }, input.cssId);
+    });
+    return { cssId: input.cssId, bytes: Buffer.byteLength(input.css, "utf8") };
+  }
+
+  async removeCss(
+    session: AdapterSessionHandle,
+    input: { cssId: string },
+  ) {
+    const removed = await session.page.evaluate((cssId) => {
+      const nodes = document.querySelectorAll(`style[data-web-agent-css-id="${CSS.escape(cssId)}"]`);
+      nodes.forEach((node) => node.remove());
+      return nodes.length > 0;
+    }, input.cssId);
+    return { removed };
   }
 
   async click(
@@ -933,6 +1308,8 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       timeoutMs?: number;
     },
   ) {
+    const startedAt = Date.now();
+    const beforePage = await capturePageIdentity(session.page);
     const locator = resolveLocator(
       session.page,
       input.selector,
@@ -959,7 +1336,6 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       usedDomFallback = true;
     }
 
-    await session.page.waitForTimeout(200);
     const after = await captureClickState(session.page, locator);
 
     if (
@@ -969,16 +1345,35 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       (await canUseDomClickFallback(locator))
     ) {
       await triggerDomClick(locator);
-      await session.page.waitForTimeout(200);
       usedDomFallback = true;
     }
 
+    const finalState = await captureClickState(session.page, locator);
+    const changed = changedClickStateFields(before, finalState);
+    const afterPage = await capturePageIdentity(session.page);
+    const observableChange = changed.length > 0 || beforePage.title !== afterPage.title;
+
     return {
       url: session.page.url(),
-      title: await session.page.title(),
+      title: afterPage.title,
       verificationHint: usedDomFallback
         ? `Clicked selector ${input.selector} with DOM fallback verification`
         : `Clicked selector ${input.selector}`,
+      elapsedMs: elapsedMs(startedAt),
+      waitedFor: [
+        "Playwright locator.click auto-waited for element actionability and any initiated navigation.",
+        "Post-click state probe captured immediate URL/title/target state without an unconditional fixed delay.",
+      ],
+      before: beforePage,
+      after: afterPage,
+      postAction: {
+        observableChange,
+        usedDomFallback,
+        changed,
+        guidance: observableChange
+          ? undefined
+          : "No URL/title/target-state change was observed after the click. If an app effect was expected, follow with observe_text, observe_dom, observe_network, or an explicit wait_for selector/text.",
+      },
     };
   }
 
@@ -992,6 +1387,8 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       timeoutMs?: number;
     },
   ) {
+    const startedAt = Date.now();
+    const beforePage = await capturePageIdentity(session.page);
     const locator = resolveLocator(
       session.page,
       input.selector,
@@ -1000,6 +1397,7 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
     const initialValue = await readEditableValue(locator).catch(
       () => undefined,
     );
+    const inputType = await getInputType(locator);
     await locator.fill(
       input.clearFirst ? "" : await locator.inputValue().catch(() => ""),
       {
@@ -1048,12 +1446,35 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       usedDomFallback = true;
     }
 
+    const finalValue = await readEditableValue(locator).catch(() => undefined);
+    const matchesRequestedValue = matchesFilledValue(
+      finalValue,
+      expectedValue,
+      input.clearFirst ? undefined : input.value,
+    );
+    const afterPage = await capturePageIdentity(session.page);
+
     return {
       url: session.page.url(),
-      title: await session.page.title(),
+      title: afterPage.title,
       verificationHint: usedDomFallback
         ? `Filled selector ${input.selector} with DOM persistence fallback`
         : `Filled selector ${input.selector}`,
+      elapsedMs: elapsedMs(startedAt),
+      waitedFor: [
+        "Playwright locator.fill/pressSequentially auto-waited for element actionability.",
+        "Read back editable value after fill without returning the raw value.",
+      ],
+      before: beforePage,
+      after: afterPage,
+      formState: {
+        input_type: inputType,
+        value_present: Boolean(finalValue),
+        value_length: finalValue?.length ?? 0,
+        requested_value_length: expectedValue.length,
+        matches_requested_value: matchesRequestedValue,
+        used_dom_fallback: usedDomFallback,
+      },
     };
   }
 
@@ -1067,15 +1488,25 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       timeoutMs?: number;
     },
   ) {
+    const startedAt = Date.now();
+    const beforePage = await capturePageIdentity(session.page);
     if (!input.selector) {
       await session.page.keyboard.type(input.code);
       if (input.submit) {
         await session.page.keyboard.press("Enter");
       }
+      const afterPage = await capturePageIdentity(session.page);
       return {
         url: session.page.url(),
-        title: await session.page.title(),
+        title: afterPage.title,
         verificationHint: `Typed ${input.code.length}-character code with keyboard focus`,
+        elapsedMs: elapsedMs(startedAt),
+        waitedFor: [
+          "Typed code into the currently focused element; no raw code value is returned.",
+          input.submit ? "Pressed Enter after typing because submit=true." : "Did not submit because submit=false.",
+        ],
+        before: beforePage,
+        after: afterPage,
       };
     }
 
@@ -1098,10 +1529,18 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       if (input.submit) {
         await locator.press("Enter", { timeout: input.timeoutMs });
       }
+      const afterPage = await capturePageIdentity(session.page);
       return {
         url: session.page.url(),
-        title: await session.page.title(),
+        title: afterPage.title,
         verificationHint: `Entered ${input.code.length}-character code into ${input.selector}`,
+        elapsedMs: elapsedMs(startedAt),
+        waitedFor: [
+          "Clicked/focused a single code target and filled or typed the code; no raw code value is returned.",
+          input.submit ? "Pressed Enter after code entry because submit=true." : "Did not submit because submit=false.",
+        ],
+        before: beforePage,
+        after: afterPage,
       };
     }
 
@@ -1144,10 +1583,18 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       });
     }
 
+    const afterPage = await capturePageIdentity(session.page);
     return {
       url: session.page.url(),
-      title: await session.page.title(),
+      title: afterPage.title,
       verificationHint: `Entered segmented ${input.code.length}-character code into ${input.selector}`,
+      elapsedMs: elapsedMs(startedAt),
+      waitedFor: [
+        `Filled ${input.code.length} visible segmented code targets; no raw code value is returned.`,
+        input.submit ? "Pressed Enter on the last code target because submit=true." : "Did not submit because submit=false.",
+      ],
+      before: beforePage,
+      after: afterPage,
     };
   }
 
@@ -1160,22 +1607,61 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       timeoutMs?: number;
     },
   ) {
+    const startedAt = Date.now();
+    const beforePage = await capturePageIdentity(session.page);
+    let beforeTarget: ClickStateSnapshot | undefined;
     if (input.selector) {
       const locator = resolveLocator(
         session.page,
         input.selector,
         input.frameSelector,
       ).first();
+      beforeTarget = await captureClickState(session.page, locator);
       await locator.press(input.key, { timeout: input.timeoutMs });
     } else {
       await session.page.keyboard.press(input.key);
     }
+    const afterPage = await capturePageIdentity(session.page);
+    let changed: string[] = [];
+    if (input.selector) {
+      const locator = resolveLocator(
+        session.page,
+        input.selector,
+        input.frameSelector,
+      ).first();
+      const afterTarget = await captureClickState(session.page, locator);
+      if (beforeTarget) {
+        changed = changedClickStateFields(beforeTarget, afterTarget);
+      }
+    } else if (beforePage.url !== afterPage.url) {
+      changed = ["pageUrl"];
+    }
+    if (beforePage.title !== afterPage.title) {
+      changed.push("title");
+    }
+    const observableChange = changed.length > 0;
     return {
       url: session.page.url(),
-      title: await session.page.title(),
+      title: afterPage.title,
       verificationHint: input.selector
         ? `Pressed ${input.key} on ${input.selector}`
         : `Pressed ${input.key}`,
+      elapsedMs: elapsedMs(startedAt),
+      waitedFor: [
+        input.selector
+          ? "Playwright locator.press auto-waited for the target element before pressing the key."
+          : "Playwright keyboard.press sent the key to the current focused element.",
+        "Post-press state probe captured immediate URL/title/target state without an unconditional fixed delay.",
+      ],
+      before: beforePage,
+      after: afterPage,
+      postAction: {
+        observableChange,
+        changed,
+        guidance: observableChange
+          ? undefined
+          : "No URL/title/target-state change was observed after the key press. If an app effect was expected, follow with observe_text, observe_dom, observe_network, or an explicit wait_for selector/text.",
+      },
     };
   }
 
@@ -1183,6 +1669,8 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
     session: AdapterSessionHandle,
     input: { selector?: string; text?: string; timeoutMs: number },
   ) {
+    const startedAt = Date.now();
+    const beforePage = await capturePageIdentity(session.page);
     if (input.selector) {
       await session.page.waitForSelector(input.selector, {
         timeout: input.timeoutMs,
@@ -1193,12 +1681,21 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
         .first()
         .waitFor({ timeout: input.timeoutMs });
     }
+    const afterPage = await capturePageIdentity(session.page);
     return {
       url: session.page.url(),
-      title: await session.page.title(),
+      title: afterPage.title,
       verificationHint: input.selector
         ? `Observed selector ${input.selector}`
         : `Observed text ${input.text}`,
+      elapsedMs: elapsedMs(startedAt),
+      waitedFor: [
+        input.selector
+          ? `Waited up to ${input.timeoutMs}ms for selector ${input.selector}.`
+          : `Waited up to ${input.timeoutMs}ms for text ${input.text}.`,
+      ],
+      before: beforePage,
+      after: afterPage,
     };
   }
 
@@ -1213,6 +1710,8 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       timeoutMs?: number;
     },
   ) {
+    const startedAt = Date.now();
+    const beforePage = await capturePageIdentity(session.page);
     if (input.selector) {
       await session.page
         .locator(input.selector)
@@ -1230,12 +1729,24 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       }
     }
 
+    const afterPage = await capturePageIdentity(session.page);
     return {
       url: session.page.url(),
-      title: await session.page.title(),
+      title: afterPage.title,
       verificationHint: input.selector
         ? `Scrolled on ${input.selector}`
         : `Scrolled viewport by (${input.deltaX}, ${input.deltaY})`,
+      elapsedMs: elapsedMs(startedAt),
+      waitedFor: [
+        input.selector
+          ? "Hovered the target before wheel input; wheel steps did not wait for page readiness."
+          : "Sent wheel input to the viewport; wheel steps did not wait for page readiness.",
+        input.stepDelayMs > 0
+          ? `Applied ${input.stepDelayMs}ms delay between ${input.steps} wheel steps.`
+          : "No delay was applied between wheel steps.",
+      ],
+      before: beforePage,
+      after: afterPage,
     };
   }
 
@@ -1248,6 +1759,8 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       timeoutMs?: number;
     },
   ) {
+    const startedAt = Date.now();
+    const beforePage = await capturePageIdentity(session.page);
     const source = await getElementCenter(session.page, input.fromSelector);
     const target = await getElementCenter(session.page, input.toSelector);
     await session.page.mouse.move(source.x, source.y);
@@ -1255,10 +1768,17 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
     await session.page.mouse.move(target.x, target.y, { steps: input.steps });
     await session.page.mouse.up({ button: "left" });
 
+    const afterPage = await capturePageIdentity(session.page);
     return {
       url: session.page.url(),
-      title: await session.page.title(),
+      title: afterPage.title,
       verificationHint: `Dragged from ${input.fromSelector} to ${input.toSelector}`,
+      elapsedMs: elapsedMs(startedAt),
+      waitedFor: [
+        `Resolved source and target element centers, then moved mouse in ${input.steps} steps.`,
+      ],
+      before: beforePage,
+      after: afterPage,
     };
   }
 
@@ -1273,6 +1793,8 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       speed: number;
     },
   ) {
+    const startedAt = Date.now();
+    const beforePage = await capturePageIdentity(session.page);
     const cdp = await session.page.context().newCDPSession(session.page);
     const start = input.selector
       ? await getElementCenter(session.page, input.selector)
@@ -1290,12 +1812,19 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       gestureSourceType: "touch",
     });
 
+    const afterPage = await capturePageIdentity(session.page);
     return {
       url: session.page.url(),
-      title: await session.page.title(),
+      title: afterPage.title,
       verificationHint: input.selector
         ? `Swiped on ${input.selector}`
         : `Swiped from (${start.x}, ${start.y}) by (${input.deltaX}, ${input.deltaY})`,
+      elapsedMs: elapsedMs(startedAt),
+      waitedFor: [
+        "Resolved swipe origin and sent a bounded CDP touch scroll gesture; no extra readiness wait was applied.",
+      ],
+      before: beforePage,
+      after: afterPage,
     };
   }
 
@@ -1309,6 +1838,8 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       speed: number;
     },
   ) {
+    const startedAt = Date.now();
+    const beforePage = await capturePageIdentity(session.page);
     const cdp = await session.page.context().newCDPSession(session.page);
     const center = input.selector
       ? await getElementCenter(session.page, input.selector)
@@ -1325,12 +1856,19 @@ class PlaywrightCloakBrowserAdapter implements CloakBrowserAdapter {
       gestureSourceType: "touch",
     });
 
+    const afterPage = await capturePageIdentity(session.page);
     return {
       url: session.page.url(),
-      title: await session.page.title(),
+      title: afterPage.title,
       verificationHint: input.selector
         ? `Pinched on ${input.selector} with scale ${input.scaleFactor}`
         : `Pinched at (${center.x}, ${center.y}) with scale ${input.scaleFactor}`,
+      elapsedMs: elapsedMs(startedAt),
+      waitedFor: [
+        "Resolved pinch center and sent a bounded CDP touch pinch gesture; no extra readiness wait was applied.",
+      ],
+      before: beforePage,
+      after: afterPage,
     };
   }
 }

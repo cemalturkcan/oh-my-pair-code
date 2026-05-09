@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { buildFollowUpByGoal } from "../../core/observation-flow.js";
 import type { RuntimeServices } from "../../server.js";
 import { createFailureResult } from "../../core/errors.js";
-import { createToolSuccess } from "../../schemas/common.js";
+import { createToolSuccess, toToolInputSchema } from "../../schemas/common.js";
 import { observeScreenshotOutputSchema, screenshotInputSchema } from "../../schemas/observe.js";
 
 export function registerObserveScreenshotTool(server: McpServer, services: RuntimeServices) {
@@ -12,7 +12,7 @@ export function registerObserveScreenshotTool(server: McpServer, services: Runti
     {
       title: "Observe Screenshot",
       description: "Capture a viewport, full-page, or element screenshot and persist it as an artifact.",
-      inputSchema: screenshotInputSchema,
+      inputSchema: toToolInputSchema(screenshotInputSchema),
       outputSchema: observeScreenshotOutputSchema,
       annotations: {
         readOnlyHint: true,
@@ -23,6 +23,7 @@ export function registerObserveScreenshotTool(server: McpServer, services: Runti
     },
     async (input: z.infer<typeof screenshotInputSchema>) => {
       try {
+        const startedAt = Date.now();
         const action = await services.history.startAction("observe.screenshot", input, {
           session_id: input.session_id,
           page_id: input.page_id
@@ -50,6 +51,7 @@ export function registerObserveScreenshotTool(server: McpServer, services: Runti
         });
         const data = {
           screenshot_id: artifact.artifact_id,
+          elapsed_ms: Date.now() - startedAt,
           mode: input.mode,
           width: result.width,
           height: result.height,

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Web Agent MCP Tool Matrix Fixture</title>
+    <style>
+      body { font-family: sans-serif; min-height: 1800px; }
+      #scroll-box { width: 320px; height: 120px; overflow: auto; border: 1px solid #888; }
+      #scroll-inner { height: 600px; }
+      #drag-source, #drag-target { width: 96px; height: 48px; border: 1px solid #333; margin: 12px; display: inline-flex; align-items: center; justify-content: center; }
+      #drag-target { background: #f3f3f3; }
+      .code-input { width: 2rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Web Agent MCP Tool Matrix Fixture</h1>
+    <button id="clicker" type="button">Click me</button>
+    <p id="click-result">Clicks: 0</p>
+    <label>Name <input id="name" autocomplete="off" /></label>
+    <label>Keys <input id="keys" autocomplete="off" /></label>
+    <p id="key-result">Key: none</p>
+    <div id="drag-source" draggable="true">drag</div>
+    <div id="drag-target">drop</div>
+    <p id="drag-result">Drag: none</p>
+    <div id="scroll-box"><div id="scroll-inner">Scrollable fixture content</div></div>
+    <input class="code-input" maxlength="1" aria-label="code 1" />
+    <input class="code-input" maxlength="1" aria-label="code 2" />
+    <input class="code-input" maxlength="1" aria-label="code 3" />
+    <input class="code-input" maxlength="1" aria-label="code 4" />
+    <p id="code-result">Code: none</p>
+    <button id="network" type="button">Fetch local data</button>
+    <p id="network-result">Network: idle</p>
+    <p id="delayed" hidden>Delayed text ready</p>
+    <script>
+      console.log("fixture console ready");
+      let clicks = 0;
+      document.querySelector("#clicker").addEventListener("click", () => {
+        clicks += 1;
+        document.querySelector("#click-result").textContent = `Clicks: ${clicks}`;
+      });
+      document.querySelector("#keys").addEventListener("keydown", (event) => {
+        document.querySelector("#key-result").textContent = `Key: ${event.key}`;
+      });
+      document.querySelector("#drag-source").addEventListener("dragstart", (event) => {
+        event.dataTransfer.setData("text/plain", "fixture-drag");
+      });
+      document.querySelector("#drag-target").addEventListener("dragover", (event) => event.preventDefault());
+      document.querySelector("#drag-target").addEventListener("drop", (event) => {
+        event.preventDefault();
+        document.querySelector("#drag-result").textContent = `Drag: ${event.dataTransfer.getData("text/plain")}`;
+      });
+      document.querySelectorAll(".code-input").forEach((input, index, inputs) => {
+        input.addEventListener("input", () => {
+          if (input.value && inputs[index + 1]) inputs[index + 1].focus();
+          document.querySelector("#code-result").textContent = `Code: ${Array.from(inputs).map((item) => item.value).join("")}`;
+        });
+      });
+      document.querySelector("#network").addEventListener("click", async () => {
+        const response = await fetch("./tool-matrix.json?ts=" + Date.now());
+        const payload = await response.json();
+        document.querySelector("#network-result").textContent = `Network: ${payload.status}`;
+      });
+      setTimeout(() => {
+        document.querySelector("#delayed").hidden = false;
+      }, 350);
+    </script>
+  </body>
+</html>

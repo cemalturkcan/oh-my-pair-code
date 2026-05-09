@@ -1,5 +1,6 @@
 import path from "node:path";
 import { z } from "zod";
+import { getDaemonConfig } from "./daemon.js";
 
 const envSchema = z.object({
   WEB_AGENT_SERVER_NAME: z.string().default("web-agent-mcp"),
@@ -41,6 +42,7 @@ const envSchema = z.object({
   WEB_AGENT_HISTORY_DIR: z.string().optional(),
   WEB_AGENT_ARTIFACTS_DIR: z.string().optional(),
   WEB_AGENT_PROFILES_DIR: z.string().optional(),
+  WEB_AGENT_DAEMON: z.enum(["true", "false"]).optional(),
 });
 
 export type WebAgentEnv = {
@@ -63,19 +65,23 @@ export type WebAgentEnv = {
   };
   sessionMaxConsecutiveErrors: number;
   sessionRestartCooldownMs: number;
+  daemon: boolean;
 };
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): WebAgentEnv {
   const parsed = envSchema.parse(source);
+  const daemonConfig = getDaemonConfig(source);
+  const daemon = parsed.WEB_AGENT_DAEMON === "true";
+  const dataDir = daemon ? daemonConfig.dataDir : parsed.WEB_AGENT_DATA_DIR;
   const historyDir =
     parsed.WEB_AGENT_HISTORY_DIR ??
-    path.join(parsed.WEB_AGENT_DATA_DIR, "history");
+    path.join(dataDir, "history");
   const artifactsDir =
     parsed.WEB_AGENT_ARTIFACTS_DIR ??
-    path.join(parsed.WEB_AGENT_DATA_DIR, "artifacts");
+    path.join(dataDir, "artifacts");
   const profilesDir =
     parsed.WEB_AGENT_PROFILES_DIR ??
-    path.join(parsed.WEB_AGENT_DATA_DIR, "profiles");
+    path.join(dataDir, "profiles");
   const defaultLaunchArgs = parsed.WEB_AGENT_DEFAULT_LAUNCH_ARGS
     ? parsed.WEB_AGENT_DEFAULT_LAUNCH_ARGS.split(",")
         .map((value) => value.trim())
@@ -85,14 +91,16 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): WebAgentEnv {
   return {
     serverName: parsed.WEB_AGENT_SERVER_NAME,
     serverVersion: parsed.WEB_AGENT_SERVER_VERSION,
-    dataDir: parsed.WEB_AGENT_DATA_DIR,
+    dataDir,
     historyDir,
     artifactsDir,
     profilesDir,
     headless: parsed.WEB_AGENT_HEADLESS,
     defaultLocale: parsed.WEB_AGENT_DEFAULT_LOCALE,
     defaultTimezoneId: parsed.WEB_AGENT_DEFAULT_TIMEZONE_ID,
-    chromeUserDataDir: parsed.WEB_AGENT_CHROME_USER_DATA_DIR,
+    chromeUserDataDir: daemon
+      ? (parsed.WEB_AGENT_CHROME_USER_DATA_DIR ?? daemonConfig.profileDir)
+      : parsed.WEB_AGENT_CHROME_USER_DATA_DIR,
     chromeProfileDirectory: parsed.WEB_AGENT_CHROME_PROFILE_DIRECTORY,
     defaultHumanize: parsed.WEB_AGENT_DEFAULT_HUMANIZE,
     defaultLaunchArgs,
@@ -103,5 +111,6 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): WebAgentEnv {
     sessionMaxConsecutiveErrors:
       parsed.WEB_AGENT_SESSION_MAX_CONSECUTIVE_ERRORS,
     sessionRestartCooldownMs: parsed.WEB_AGENT_SESSION_RESTART_COOLDOWN_MS,
+    daemon,
   };
 }

@@ -1,17 +1,6 @@
-
-const SUBAGENT_TASK_PERMISSIONS = {
-  task: { "*": "deny" },
-} as const;
-
-const VALIDATOR_PERMISSIONS = {
-  ...SUBAGENT_TASK_PERMISSIONS,
-  edit: "deny",
-  write: "deny",
-  patch: "deny",
-  multiedit: "deny",
-  apply_patch: "deny",
-} as const;import type { PluginInput } from "@opencode-ai/plugin";
+import type { PluginInput } from "@opencode-ai/plugin";
 import type { HarnessConfig } from "../types";
+import type { OrchestratorLedger } from "../orchestrator/ledger";
 import { createCommentGuardHook } from "./comment-guard";
 import { createPreToolUseHook } from "./pre-tool-use";
 import { createHookRuntime, resolveHookProfile } from "./runtime";
@@ -19,6 +8,8 @@ import { safeCreateHook, safeHook } from "./sdk";
 import { createSessionEndHook } from "./session-end";
 import { createSessionStartHook } from "./session-start";
 import { createTaskTrackingHook } from "./task-tracking";
+
+type CompactingOutput = { context: string[]; prompt?: string };
 
 type HookRecord = {
   config?: (config: any) => Promise<void>;
@@ -29,6 +20,10 @@ type HookRecord = {
   "tool.execute.before"?: (input: any, output: any) => Promise<void>;
   "tool.execute.after"?: (input: any, output: any) => Promise<void>;
   "session.deleted"?: (input?: any) => Promise<void>;
+  "experimental.session.compacting"?: (
+    input: { sessionID: string },
+    output: CompactingOutput,
+  ) => Promise<void>;
 };
 
 function wrapHookRecord(
@@ -54,6 +49,10 @@ function wrapHookRecord(
     "session.deleted": safeHook(
       `${name}.session.deleted`,
       hook["session.deleted"],
+    ),
+    "experimental.session.compacting": safeHook(
+      `${name}.experimental.session.compacting`,
+      hook["experimental.session.compacting"],
     ),
   };
 }
@@ -142,13 +141,29 @@ function composeSingleArg(hooks: HookRecord[], key: keyof HookRecord) {
   };
 }
 
+function composeCompaction(hooks: HookRecord[]) {
+  const active = hooks
+    .map((hook) => hook["experimental.session.compacting"])
+    .filter(Boolean);
+  if (active.length === 0) {
+    return undefined;
+  }
+
+  return async (input: { sessionID: string }, output: CompactingOutput) => {
+    for (const hook of active) {
+      await hook?.(input, output);
+    }
+  };
+}
+
 export async function createHarnessHooks(
   ctx: PluginInput,
   config: HarnessConfig,
+  ledger?: OrchestratorLedger,
 ) {
   const hooks: HookRecord[] = [];
   const profile = resolveHookProfile(config);
-  const runtime = createHookRuntime(ctx, config);
+  const runtime = createHookRuntime(ctx, config, ledger);
 
   const registerHook = (
     name: string,
@@ -178,8 +193,19 @@ export async function createHarnessHooks(
     createTaskTrackingHook(runtime),
   );
   registerHook("session_end", config.hooks?.session_end !== false, () =>
-    createSessionEndHook(runtime),
+    createSessionEndHook(runtime, ctx.directory, config),
   );
+  registerHook("compaction", config.hooks?.compaction !== false, () => ({
+    "experimental.session.compacting": async (
+      input: { sessionID: string },
+      output: CompactingOutput,
+    ): Promise<void> => {
+      const snapshot = runtime.buildCompactionInjection(input.sessionID);
+      if (snapshot) {
+        output.context.push(snapshot);
+      }
+    },
+  }));
 
   return {
     config: composeConfig(hooks),
@@ -188,5 +214,6 @@ export async function createHarnessHooks(
     "tool.execute.before": composeToolBefore(hooks),
     "tool.execute.after": composeToolAfter(hooks),
     "session.deleted": composeSingleArg(hooks, "session.deleted"),
+    "experimental.session.compacting": composeCompaction(hooks),
   };
 }

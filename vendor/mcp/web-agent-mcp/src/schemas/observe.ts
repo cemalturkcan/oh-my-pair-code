@@ -97,6 +97,7 @@ const frameSummarySchema = z.object({
 
 export const observeA11yOutputSchema = z.object({
   snapshot_id: z.string(),
+  elapsed_ms: z.number().int().nonnegative().optional(),
   format: z.literal("a11y"),
   url: z.string(),
   title: z.string().optional(),
@@ -106,6 +107,7 @@ export const observeA11yOutputSchema = z.object({
 
 export const observeDomOutputSchema = z.object({
   snapshot_id: z.string(),
+  elapsed_ms: z.number().int().nonnegative().optional(),
   format: z.literal("dom"),
   url: z.string(),
   title: z.string().optional(),
@@ -121,6 +123,7 @@ export const observeDomOutputSchema = z.object({
 
 export const observeTextOutputSchema = z.object({
   artifact_id: z.string(),
+  elapsed_ms: z.number().int().nonnegative().optional(),
   format: z.enum(["text", "markdown"]),
   content: z.string(),
   truncated: z.boolean(),
@@ -131,6 +134,7 @@ export const observeTextOutputSchema = z.object({
 
 export const observeBoxesOutputSchema = z.object({
   element_map_id: z.string(),
+  elapsed_ms: z.number().int().nonnegative().optional(),
   elements: z.array(
     z.object({
       selector: z.string(),
@@ -145,11 +149,13 @@ export const observeBoxesOutputSchema = z.object({
 
 export const observeLogsOutputSchema = z.object({
   artifact_id: z.string(),
+  elapsed_ms: z.number().int().nonnegative().optional(),
   entries: z.array(z.unknown())
 });
 
 export const observeScreenshotOutputSchema = z.object({
   screenshot_id: z.string(),
+  elapsed_ms: z.number().int().nonnegative().optional(),
   mode: z.enum(["viewport", "full", "element"]),
   width: z.number().optional(),
   height: z.number().optional(),
@@ -161,6 +167,7 @@ export const observeScreenshotOutputSchema = z.object({
 
 export const observePageStateOutputSchema = z.object({
   snapshot_id: z.string(),
+  elapsed_ms: z.number().int().nonnegative().optional(),
   url: z.string(),
   title: z.string().optional(),
   text: z.string(),
@@ -181,6 +188,7 @@ export const observePageStateOutputSchema = z.object({
 
 export const observeAuthStateOutputSchema = z.object({
   snapshot_id: z.string(),
+  elapsed_ms: z.number().int().nonnegative().optional(),
   url: z.string(),
   title: z.string().optional(),
   state: z.enum([
@@ -203,7 +211,8 @@ export const observeAuthStateOutputSchema = z.object({
 
 export const waitForNetworkOutputSchema = z.object({
   entry: networkEntrySchema,
-  elapsed_ms: z.number().int().nonnegative()
+  elapsed_ms: z.number().int().nonnegative(),
+  waited_for: z.array(z.string()).optional()
 });
 
 export type ScreenshotInput = z.infer<typeof screenshotInputSchema>;

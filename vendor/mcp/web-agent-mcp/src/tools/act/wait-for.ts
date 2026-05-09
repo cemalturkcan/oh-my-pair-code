@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RuntimeServices } from "../../server.js";
+import { toToolInputSchema } from "../../schemas/common.js";
 import { actionResultSchema, waitForInputSchema } from "../../schemas/act.js";
 import { createActionFailureResponse, createActionSuccessResult } from "./shared.js";
 
@@ -10,7 +11,7 @@ export function registerWaitForTool(server: McpServer, services: RuntimeServices
     {
       title: "Wait For Condition",
       description: "Wait for a selector or text to appear on the current page.",
-      inputSchema: waitForInputSchema,
+      inputSchema: toToolInputSchema(waitForInputSchema),
       outputSchema: actionResultSchema,
       annotations: {
         readOnlyHint: true,
@@ -39,6 +40,10 @@ export function registerWaitForTool(server: McpServer, services: RuntimeServices
           pageId: page.pageId,
           appliedMode: "semantic",
           verificationHint: result.verificationHint,
+          elapsedMs: result.elapsedMs,
+          waitedFor: result.waitedFor,
+          before: result.before,
+          after: result.after,
           targetSelectorKnown: Boolean(input.selector)
         });
       } catch (error) {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RuntimeServices } from "../../server.js";
+import { toToolInputSchema } from "../../schemas/common.js";
 import { actionResultSchema, swipeInputSchema } from "../../schemas/act.js";
 import { createActionFailureResponse, createActionSuccessResult } from "./shared.js";
 
@@ -10,7 +11,7 @@ export function registerSwipeTool(server: McpServer, services: RuntimeServices) 
     {
       title: "Swipe Gesture",
       description: "Perform a touch-style swipe from a selector center or explicit coordinates.",
-      inputSchema: swipeInputSchema,
+      inputSchema: toToolInputSchema(swipeInputSchema),
       outputSchema: actionResultSchema,
       annotations: {
         readOnlyHint: false,
@@ -42,6 +43,10 @@ export function registerSwipeTool(server: McpServer, services: RuntimeServices) 
           pageId: page.pageId,
           appliedMode: "physical",
           verificationHint: result.verificationHint,
+          elapsedMs: result.elapsedMs,
+          waitedFor: result.waitedFor,
+          before: result.before,
+          after: result.after,
           targetSelectorKnown: Boolean(input.selector)
         });
       } catch (error) {

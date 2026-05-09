@@ -6,11 +6,15 @@
     "session_start": true,
     "pre_tool_use": true,
     "task_tracking": true,
-    "post_tool_use": true,
-    "pre_compact": true,
-    "stop": true,
-    "session_end": true,
-    "file_edited": true
+    "compaction": true,
+    "session_end": true
+  },
+  "workflow": {
+    "compact_worker_context": true
+  },
+  "orchestration": {
+    "ledger_path": ".opencode/state/orchestrator.sqlite",
+    "strict_file_locks": true
   },
   "mcps": {
     "context7": true,
@@ -18,6 +22,7 @@
     "web_agent_mcp": true,
     "pg_mcp": true,
     "ssh_mcp": true,
+    "openai_image_gen_mcp": true,
     "searxng": true,
     "mariadb": true
   },

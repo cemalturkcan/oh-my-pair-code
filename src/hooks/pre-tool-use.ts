@@ -1,8 +1,6 @@
 import type { HookProfile } from "../types";
 import type { HookRuntime } from "./runtime";
-import { BlockingHookError } from "./sdk";
 import {
-  profileMatches,
   resolveSessionID,
   resolveToolArgs,
   resolveToolName,
@@ -46,22 +44,10 @@ function transformToCmd(command: string, winPath: string): string {
   return `cmd.exe /c "cd ${winPath} && ${command}"`;
 }
 
-function hasRecentBuildCheck(recentTools: string[]): boolean {
-  return recentTools.some(
-    (tool) =>
-      tool.includes("tsc") ||
-      tool.includes("typecheck") ||
-      tool.includes("build") ||
-      tool.includes("test"),
-  );
-}
-
 export function createPreToolUseHook(
   runtime: HookRuntime,
-  profile: HookProfile,
+  _profile: HookProfile,
 ) {
-  const recentBashBySession = new Map<string, string[]>();
-
   return {
     "tool.execute.before": async (
       input: unknown,
@@ -85,29 +71,8 @@ export function createPreToolUseHook(
         }
       }
 
-      if (
-        tool === "bash" &&
-        typeof args.command === "string" &&
-        args.command.includes("git push") &&
-        profileMatches(profile, ["standard", "strict"])
-      ) {
-        const sessionCmds = sessionID
-          ? (recentBashBySession.get(sessionID) ?? [])
-          : [];
-        if (!hasRecentBuildCheck(sessionCmds)) {
-          throw new BlockingHookError(
-            "[Safety] No build/typecheck detected before git push. Run typecheck first, then push.",
-          );
-        }
-      }
-
-      if (tool === "bash" && typeof args.command === "string" && sessionID) {
-        const commands = recentBashBySession.get(sessionID) ?? [];
-        commands.push(args.command);
-        if (commands.length > 10) {
-          commands.shift();
-        }
-        recentBashBySession.set(sessionID, commands);
+      if (sessionID && tool) {
+        runtime.getSessionAgent(sessionID);
       }
     },
   };

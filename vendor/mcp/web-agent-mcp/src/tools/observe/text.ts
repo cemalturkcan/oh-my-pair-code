@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { buildFollowUpByGoal } from "../../core/observation-flow.js";
 import type { RuntimeServices } from "../../server.js";
 import { createFailureResult } from "../../core/errors.js";
-import { createToolSuccess } from "../../schemas/common.js";
+import { createToolSuccess, toToolInputSchema } from "../../schemas/common.js";
 import { observeSessionInputSchema, observeTextOutputSchema } from "../../schemas/observe.js";
 
 const observeTextInputSchema = observeSessionInputSchema.extend({
@@ -16,7 +16,7 @@ export function registerObserveTextTool(server: McpServer, services: RuntimeServ
     {
       title: "Observe Text",
       description: "Return extracted page text as a cheap observation artifact.",
-      inputSchema: observeTextInputSchema,
+      inputSchema: toToolInputSchema(observeTextInputSchema),
       outputSchema: observeTextOutputSchema,
       annotations: {
         readOnlyHint: true,
@@ -26,8 +26,10 @@ export function registerObserveTextTool(server: McpServer, services: RuntimeServ
       }
     },
     async (input: z.infer<typeof observeTextInputSchema>) => {
+      let action: Awaited<ReturnType<typeof services.history.startAction>> | undefined;
       try {
-        const action = await services.history.startAction("observe.text", input, {
+        const startedAt = Date.now();
+        action = await services.history.startAction("observe.text", input, {
           session_id: input.session_id,
           page_id: input.page_id
         });
@@ -46,6 +48,7 @@ export function registerObserveTextTool(server: McpServer, services: RuntimeServ
         });
         const data = {
           artifact_id: artifact.artifact_id,
+          elapsed_ms: Date.now() - startedAt,
           format: input.format,
           content: result.content,
           truncated: result.truncated,
@@ -63,7 +66,11 @@ export function registerObserveTextTool(server: McpServer, services: RuntimeServ
         });
         return createToolSuccess({ ok: true, code: "OK", action_id: action.action_id, session_id: session.sessionId, page_id: page.pageId, artifact_ids: [artifact.artifact_id], data });
       } catch (error) {
-        return createFailureResult(error);
+        return createFailureResult(error, {
+          action_id: action?.action_id,
+          session_id: input.session_id,
+          page_id: input.page_id
+        });
       }
     }
   );

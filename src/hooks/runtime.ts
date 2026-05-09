@@ -1,24 +1,23 @@
 import { type PluginInput } from "@opencode-ai/plugin";
 import type { HarnessConfig, HookProfile } from "../types";
+import type { OrchestratorLedger } from "../orchestrator/ledger";
+import { PRIMARY_AGENT, WORKER_AGENT_SET, type WorkerAgent } from "../orchestrator/constants";
 import {
   detectProjectFacts,
   type ProjectFacts,
 } from "../project-facts";
 
-type SubagentTaskLane = "eliot" | "tyrell" | "claude" | "turing";
+type WorkerTaskLane = WorkerAgent;
 
-type SubagentTaskRecord = {
+type WorkerTaskRecord = {
   taskId: string;
   description?: string;
   reviewVerdict?: "approve" | "request-changes";
 };
 
-const SUBAGENT_TASK_LANES = new Set<SubagentTaskLane>([
-  "eliot",
-  "tyrell",
-  "claude",
-  "turing",
-]);
+const WORKER_TASK_LANES = new Set<WorkerTaskLane>(
+  Array.from(WORKER_AGENT_SET) as WorkerTaskLane[],
+);
 
 export function resolveHookProfile(config: HarnessConfig): HookProfile {
   return config.hooks?.profile ?? "standard";
@@ -31,7 +30,7 @@ export function profileMatches(
   return (Array.isArray(allowed) ? allowed : [allowed]).includes(profile);
 }
 
-export const PRIMARY_AGENTS = new Set(["mrrobot"]);
+export const PRIMARY_AGENTS: Set<string> = new Set([PRIMARY_AGENT]);
 
 export function resolveSessionID(value: unknown): string | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -97,23 +96,19 @@ export function resolveToolArgs(value: unknown): Record<string, unknown> {
     : {};
 }
 
-export function resolveSubagentTaskLane(value: unknown): SubagentTaskLane | undefined {
+export function resolveWorkerTaskLane(value: unknown): WorkerTaskLane | undefined {
   if (typeof value !== "string") {
     return undefined;
   }
 
-  if (value === "michelangelo") {
-    return "claude";
-  }
-
-  return SUBAGENT_TASK_LANES.has(value as SubagentTaskLane)
-    ? (value as SubagentTaskLane)
+  return WORKER_TASK_LANES.has(value as WorkerTaskLane)
+    ? (value as WorkerTaskLane)
     : undefined;
 }
 
-export function extractTaskId(value: unknown): string | undefined {
+export function extractOpenCodeTaskId(value: unknown): string | undefined {
   if (typeof value === "string") {
-    const jsonMatch = value.match(/"task_id"\s*:\s*"([^"]+)"/i);
+    const jsonMatch = value.match(/"task_id"\s*:\s*"(task_[^"]+)"/i);
     if (jsonMatch?.[1]) {
       return jsonMatch[1];
     }
@@ -128,7 +123,7 @@ export function extractTaskId(value: unknown): string | undefined {
 
   if (Array.isArray(value)) {
     for (const item of value) {
-      const taskId = extractTaskId(item);
+      const taskId = extractOpenCodeTaskId(item);
       if (taskId) {
         return taskId;
       }
@@ -138,17 +133,50 @@ export function extractTaskId(value: unknown): string | undefined {
 
   const record = value as Record<string, unknown>;
   const direct =
-    (typeof record.task_id === "string" && record.task_id) ||
-    (typeof record.taskId === "string" && record.taskId);
+    (typeof record.task_id === "string" && record.task_id.startsWith("task_") && record.task_id) ||
+    (typeof record.taskId === "string" && record.taskId.startsWith("task_") && record.taskId);
   if (direct) {
     return direct;
   }
 
   for (const nestedValue of Object.values(record)) {
-    const taskId = extractTaskId(nestedValue);
+    const taskId = extractOpenCodeTaskId(nestedValue);
     if (taskId) {
       return taskId;
     }
+  }
+
+  return undefined;
+}
+
+export function extractLedgerTaskId(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const jsonMatch = value.match(/"task_id"\s*:\s*"(T-\d{3,})"/i);
+    if (jsonMatch?.[1]) return jsonMatch[1];
+    const labeledMatch = value.match(/\b(?:ledger\s+)?task(?:_id| id)?\s*[:=]\s*(T-\d{3,})\b/i);
+    if (labeledMatch?.[1]) return labeledMatch[1];
+    const plainMatch = value.match(/\bT-\d{3,}\b/);
+    return plainMatch?.[0];
+  }
+
+  if (!value || typeof value !== "object") return undefined;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const taskId = extractLedgerTaskId(item);
+      if (taskId) return taskId;
+    }
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const direct =
+    (typeof record.task_id === "string" && /^T-\d{3,}$/i.test(record.task_id) && record.task_id) ||
+    (typeof record.taskId === "string" && /^T-\d{3,}$/i.test(record.taskId) && record.taskId);
+  if (direct) return direct;
+
+  for (const nestedValue of Object.values(record)) {
+    const taskId = extractLedgerTaskId(nestedValue);
+    if (taskId) return taskId;
   }
 
   return undefined;
@@ -257,29 +285,69 @@ function toWindowsPath(directory: string): string {
     .replace(/\//g, "\\");
 }
 
-export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
+export function createHookRuntime(
+  ctx: PluginInput,
+  config: HarnessConfig,
+  ledger?: OrchestratorLedger,
+) {
   const sessionAgents = new Map<string, string>();
   const sessionTaskScopes = new Map<string, string>();
-  const taskScopeSubagentTasks = new Map<
+  const taskScopeWorkerTasks = new Map<
     string,
-    Map<SubagentTaskLane, Map<string, SubagentTaskRecord>>
+    Map<WorkerTaskLane, Map<string, WorkerTaskRecord>>
   >();
   const activeTaskScopeChildren = new Map<
     string,
-    Map<SubagentTaskLane, Map<string, Set<string>>>
+    Map<WorkerTaskLane, Map<string, Set<string>>>
   >();
   const childSessionTasks = new Map<
     string,
-    { scopeID: string; lane: SubagentTaskLane; taskId: string }
+    { scopeID: string; lane: WorkerTaskLane; taskId: string }
   >();
   const wslMode = ctx.directory.startsWith("/mnt/");
   const wslWinPath = wslMode ? toWindowsPath(ctx.directory) : "";
+
+  function attachDurableSession(
+    sessionID: string,
+    agent: string | undefined,
+    parentSessionID?: string,
+  ): void {
+    if (!ledger) return;
+
+    const existing = ledger.getSession(sessionID);
+    const linkedTask = existing?.active_task_id
+      ? ledger.getTask(existing.active_task_id)
+      : undefined;
+    const mission = linkedTask?.mission_id
+      ? ledger.getMission(linkedTask.mission_id)
+      : existing?.active_mission_id
+        ? ledger.getMission(existing.active_mission_id)
+        : ledger.getActiveMission();
+    const project = linkedTask?.project_id
+      ? ledger.getProject(linkedTask.project_id)
+      : existing?.project_id
+        ? ledger.getProject(existing.project_id)
+        : ledger.resolveProject(ctx.directory) ?? ledger.getOrCreateProject({ root_path: ctx.directory });
+
+    const parent = parentSessionID ? ledger.getSession(parentSessionID) : undefined;
+    ledger.attachSession({
+      opencode_session_id: sessionID,
+      project_id: project?.id,
+      cwd: existing?.cwd ?? ctx.directory,
+      active_mission_id: linkedTask?.mission_id ?? mission?.id,
+      active_task_id: linkedTask?.id,
+      agent: agent ?? existing?.agent,
+      parent_session_id: parent?.id ?? existing?.parent_session_id,
+      metadata: { source: "runtime-hook" },
+    });
+  }
 
   function setSessionAgent(sessionID: string, agent: string | undefined): void {
     if (!agent) {
       return;
     }
     sessionAgents.set(sessionID, agent);
+    attachDurableSession(sessionID, agent);
   }
 
   function getSessionAgent(sessionID: string): string | undefined {
@@ -297,7 +365,7 @@ export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
         taskChildren.delete(sessionID);
         if (taskChildren.size === 0) {
           laneChildren?.delete(activeTask.taskId);
-          const rememberedTasks = taskScopeSubagentTasks
+          const rememberedTasks = taskScopeWorkerTasks
             .get(activeTask.scopeID)
             ?.get(activeTask.lane);
           rememberedTasks?.delete(activeTask.taskId);
@@ -314,8 +382,16 @@ export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
     const scopeID = sessionTaskScopes.get(sessionID) ?? sessionID;
     sessionTaskScopes.delete(sessionID);
     if (scopeID === sessionID) {
-      taskScopeSubagentTasks.delete(scopeID);
+      taskScopeWorkerTasks.delete(scopeID);
       activeTaskScopeChildren.delete(scopeID);
+    }
+    if (ledger?.getSession(sessionID)) {
+      ledger.updateSession({
+        opencode_session_id: sessionID,
+        status: "ended",
+        active_task_id: null,
+        metadata: { source: "runtime-hook" },
+      });
     }
   }
 
@@ -323,19 +399,21 @@ export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
     return sessionTaskScopes.get(sessionID) ?? sessionID;
   }
 
-  function linkSubagentTaskScope(childSessionID: string, parentSessionID: string): void {
+  function linkWorkerTaskScope(childSessionID: string, parentSessionID: string): void {
     sessionTaskScopes.set(childSessionID, resolveTaskScope(parentSessionID));
+    const agent = sessionAgents.get(childSessionID);
+    attachDurableSession(childSessionID, agent, parentSessionID);
   }
 
-  function rememberSubagentTask(
+  function rememberWorkerTask(
     sessionID: string,
-    lane: SubagentTaskLane,
+    lane: WorkerTaskLane,
     taskId: string,
     description?: string,
     reviewVerdict?: "approve" | "request-changes",
   ): void {
     const scopeID = resolveTaskScope(sessionID);
-    const sessionTasks = taskScopeSubagentTasks.get(scopeID) ?? new Map();
+    const sessionTasks = taskScopeWorkerTasks.get(scopeID) ?? new Map();
     const laneTasks = sessionTasks.get(lane) ?? new Map();
     const previous = laneTasks.get(taskId);
     laneTasks.set(taskId, {
@@ -348,20 +426,20 @@ export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
         : {}),
     });
     sessionTasks.set(lane, laneTasks);
-    taskScopeSubagentTasks.set(scopeID, sessionTasks);
+    taskScopeWorkerTasks.set(scopeID, sessionTasks);
   }
 
-  function markSubagentTaskSession(
+  function markWorkerTaskSession(
     childSessionID: string,
     parentSessionID: string,
-    lane: SubagentTaskLane,
+    lane: WorkerTaskLane,
     taskId: string,
     description?: string,
     reviewVerdict?: "approve" | "request-changes",
   ): void {
     const scopeID = resolveTaskScope(parentSessionID);
     sessionTaskScopes.set(childSessionID, scopeID);
-    rememberSubagentTask(parentSessionID, lane, taskId, description, reviewVerdict);
+    rememberWorkerTask(parentSessionID, lane, taskId, description, reviewVerdict);
 
     const scopeChildren = activeTaskScopeChildren.get(scopeID) ?? new Map();
     const laneChildren = scopeChildren.get(lane) ?? new Map();
@@ -374,9 +452,9 @@ export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
     childSessionTasks.set(childSessionID, { scopeID, lane, taskId });
   }
 
-  function findReusableSubagentTaskId(
+  function findReusableWorkerTaskId(
     sessionID: string,
-    lane: SubagentTaskLane,
+    lane: WorkerTaskLane,
     description?: string,
   ): string | undefined {
     const scopeID = resolveTaskScope(sessionID);
@@ -385,7 +463,7 @@ export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
       return undefined;
     }
 
-    const rememberedTasks = taskScopeSubagentTasks.get(scopeID)?.get(lane);
+    const rememberedTasks = taskScopeWorkerTasks.get(scopeID)?.get(lane);
     if (!rememberedTasks) {
       return undefined;
     }
@@ -398,12 +476,12 @@ export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
     const exactMatches = Array.from(activeLaneTasks.keys())
       .map((taskId) => rememberedTasks.get(taskId))
       .filter(
-        (task): task is SubagentTaskRecord =>
+        (task): task is WorkerTaskRecord =>
           !!task && task.description?.trim() === normalizedDescription,
       );
 
     const reusableMatches =
-      lane === "turing"
+      lane === "verification-engineer"
         ? exactMatches.filter((task) => task.reviewVerdict === "request-changes")
         : exactMatches;
 
@@ -414,21 +492,21 @@ export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
     return undefined;
   }
 
-  function buildSubagentTaskInjection(sessionID: string): string {
-    const tasks = taskScopeSubagentTasks.get(resolveTaskScope(sessionID));
+  function buildWorkerSessionHint(sessionID: string): string {
+    const tasks = taskScopeWorkerTasks.get(resolveTaskScope(sessionID));
     if (!tasks || tasks.size === 0) {
       return "";
     }
 
     const parts = Array.from(tasks.entries()).flatMap(([lane, laneTasks]) =>
       Array.from(laneTasks.values()).map((task) =>
-        lane === "turing" && task.reviewVerdict === "approve"
+        lane === "verification-engineer" && task.reviewVerdict === "approve"
           ? null
           : task.description
-            ? lane === "turing" && task.reviewVerdict === "request-changes"
+            ? lane === "verification-engineer" && task.reviewVerdict === "request-changes"
               ? `${lane}=${task.taskId} (${task.description}) [open-review]`
               : `${lane}=${task.taskId} (${task.description})`
-            : lane === "turing" && task.reviewVerdict === "request-changes"
+            : lane === "verification-engineer" && task.reviewVerdict === "request-changes"
               ? `${lane}=${task.taskId} [open-review]`
               : `${lane}=${task.taskId}`,
       ),
@@ -438,7 +516,7 @@ export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
       return "";
     }
 
-    return `[SubagentTasks] Reuse existing exact-match task_ids when safe; Turing threads are reusable only for open repair verification. Seen in this workflow: ${parts.join("; ")}`;
+    return `[WorkerSessions] Reuse existing exact-match OpenCode task_ids when safe; verification-engineer threads are reusable only for open repair verification. Seen in this workflow: ${parts.join("; ")}`;
   }
 
   function buildPrimaryInjection(): string {
@@ -453,16 +531,59 @@ export function createHookRuntime(ctx: PluginInput, _config: HarnessConfig) {
     ].join("\n");
   }
 
+  function buildMissionControlInjection(sessionID: string): string {
+    return ledger?.buildMissionSnapshot(sessionID) ?? "";
+  }
+
+  function buildWorkerTaskInjection(sessionID: string, agent: string): string {
+    return ledger?.buildWorkerPacket(sessionID, agent) ?? "";
+  }
+
+  function buildCompactionInjection(sessionID: string): string {
+    return ledger?.buildCompactionSnapshot(sessionID) ?? "";
+  }
+
+  function linkLedgerTaskSession(
+    childSessionID: string,
+    lane: WorkerTaskLane,
+    ledgerTaskID: string,
+    parentSessionID?: string,
+  ): void {
+    if (!ledger) return;
+    const task = ledger.getTask(ledgerTaskID);
+    if (!task) return;
+    const existing = ledger.getSession(childSessionID);
+    const parent = parentSessionID ? ledger.getSession(parentSessionID) : undefined;
+    const project = task.project_id
+      ? ledger.getProject(task.project_id)
+      : ledger.resolveProject(ctx.directory) ?? ledger.getOrCreateProject({ root_path: ctx.directory });
+    ledger.attachSession({
+      opencode_session_id: childSessionID,
+      cwd: existing?.cwd ?? ctx.directory,
+      project_id: project?.id,
+      active_mission_id: task.mission_id,
+      active_task_id: task.id,
+      agent: lane,
+      parent_session_id: parent?.id ?? existing?.parent_session_id,
+      metadata: { source: "task-tracking-hook" },
+    });
+  }
+
   return {
     detectProjectFacts: (): ProjectFacts => detectProjectFacts(ctx.directory),
     setSessionAgent,
     getSessionAgent,
     clearSession,
-    linkSubagentTaskScope,
-    rememberSubagentTask,
-    markSubagentTaskSession,
-    findReusableSubagentTaskId,
-    buildSubagentTaskInjection,
+    attachDurableSession,
+    linkWorkerTaskScope,
+    rememberWorkerTask,
+    markWorkerTaskSession,
+    findReusableWorkerTaskId,
+    buildWorkerSessionHint,
+    buildMissionControlInjection,
+    buildWorkerTaskInjection,
+    buildCompactionInjection,
+    linkLedgerTaskSession,
     isWsl: (): boolean => wslMode,
     getWslWinPath: (): string => wslWinPath,
     buildPrimaryInjection,

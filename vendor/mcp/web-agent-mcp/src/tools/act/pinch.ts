@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RuntimeServices } from "../../server.js";
+import { toToolInputSchema } from "../../schemas/common.js";
 import { actionResultSchema, pinchInputSchema } from "../../schemas/act.js";
 import { createActionFailureResponse, createActionSuccessResult } from "./shared.js";
 
@@ -10,7 +11,7 @@ export function registerPinchTool(server: McpServer, services: RuntimeServices) 
     {
       title: "Pinch Gesture",
       description: "Perform a touch-style pinch gesture on a selector center or explicit coordinates.",
-      inputSchema: pinchInputSchema,
+      inputSchema: toToolInputSchema(pinchInputSchema),
       outputSchema: actionResultSchema,
       annotations: {
         readOnlyHint: false,
@@ -41,6 +42,10 @@ export function registerPinchTool(server: McpServer, services: RuntimeServices) 
           pageId: page.pageId,
           appliedMode: "physical",
           verificationHint: result.verificationHint,
+          elapsedMs: result.elapsedMs,
+          waitedFor: result.waitedFor,
+          before: result.before,
+          after: result.after,
           targetSelectorKnown: Boolean(input.selector)
         });
       } catch (error) {
