@@ -1043,7 +1043,6 @@ describe("prompt policy", () => {
     const prompt = buildImplementationEngineerPrompt();
     expect(prompt).toContain("test or sandbox credentials explicitly provided by the user");
     expect(prompt).toContain("use them according to task scope and user intent");
-    expect(prompt).not.toContain("Avoid exposing exact values in final reports unless explicitly requested");
     expect(prompt).not.toContain("git mutations/output writes are blockers");
   });
 

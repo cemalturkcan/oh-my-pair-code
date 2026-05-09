@@ -188,7 +188,7 @@ opencode-pair init
 
 ### Guard manifest and preflight
 
-Project-level guard restrictions are disabled. `orchestrator_guard_manifest` and `orchestrator_guard_preflight` remain available as introspection helpers, but they do not block git writes, output writes, pathless edits, secret/env paths, worker spawning, or external side effects. `orchestrator_secret_env_write` writes the requested env file and returns redacted key/count/hash evidence.
+Project-level guard restrictions are disabled. `orchestrator_guard_manifest` and `orchestrator_guard_preflight` remain available as introspection helpers. They allow git writes, output writes, pathless edits, secret/env paths, worker spawning, and external side effects. `orchestrator_secret_env_write` writes the requested env file and writes secrets; agents read the file directly for values.
 
 ## Architecture
 

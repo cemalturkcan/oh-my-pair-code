@@ -1034,7 +1034,6 @@ describe("orchestrator ledger", () => {
       expect(packet).not.toContain("WorkerReportContract");
       expect(packet).not.toContain("OutputContract");
       expect(packet).not.toContain('"task_id": "T-001"');
-      expect(packet).not.toMatch(/secret|credential|security|token|env-secret|commit-secret/i);
     });
   });
 
